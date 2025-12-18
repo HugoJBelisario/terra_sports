@@ -9,3 +9,6 @@ secrets.toml
 
 # OS
 .DS_Store
+
+# PyCharm
+.idea/
