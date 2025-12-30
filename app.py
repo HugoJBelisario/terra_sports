@@ -1,5 +1,6 @@
 import streamlit as st
 import numpy as np
+from scipy.signal import savgol_filter
 from dotenv import load_dotenv
 from db.connection import get_connection
 
@@ -20,6 +21,46 @@ def get_all_pitchers():
                 ORDER BY athlete_name
             """)
             return [row[0] for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+# --------------------------------------------------
+# Velocity Bounds Helper
+# --------------------------------------------------
+@st.cache_data(ttl=300)
+def get_velocity_bounds(athlete_name, selected_dates):
+    """
+    Returns (min_velocity, max_velocity) for the selected pitcher and dates.
+    Assumes pitch velocity is stored as `pitch_velo` on the takes table.
+    """
+    if athlete_name is None:
+        return None, None
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            if not selected_dates or "All Dates" in selected_dates:
+                cur.execute("""
+                    SELECT MIN(t.pitch_velo), MAX(t.pitch_velo)
+                    FROM takes t
+                    JOIN athletes a ON a.athlete_id = t.athlete_id
+                    WHERE a.athlete_name = %s
+                      AND t.pitch_velo IS NOT NULL
+                """, (athlete_name,))
+            else:
+                placeholders = ",".join(["%s"] * len(selected_dates))
+                cur.execute(f"""
+                    SELECT MIN(t.pitch_velo), MAX(t.pitch_velo)
+                    FROM takes t
+                    JOIN athletes a ON a.athlete_id = t.athlete_id
+                    WHERE a.athlete_name = %s
+                      AND t.take_date IN ({placeholders})
+                      AND t.pitch_velo IS NOT NULL
+                """, (athlete_name, *selected_dates))
+
+            row = cur.fetchone()
+            return row if row else (None, None)
     finally:
         conn.close()
 
@@ -196,6 +237,445 @@ def get_elbow_angular_velocity(take_ids, handedness):
                 data.setdefault(take_id, {"frame": [], "x": []})
                 data[take_id]["frame"].append(frame)
                 data[take_id]["x"].append(x)
+
+            return data
+    finally:
+        conn.close()
+
+@st.cache_data(ttl=300)
+def get_elbow_flexion_angle(take_ids, handedness):
+    """
+    Returns elbow flexion angle (x_data) for the throwing elbow.
+
+    Category: ORIGINAL
+    Segments:
+      RHP → RT_ELBOW_ANGLE
+      LHP → LT_ELBOW_ANGLE
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = (
+        "RT_ELBOW_ANGLE"
+        if handedness == "R"
+        else "LT_ELBOW_ANGLE"
+    )
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, x in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+
+            return data
+    finally:
+        conn.close()
+
+# --- SHOULDER EXTERNAL ROTATION ANGLE helper ---
+@st.cache_data(ttl=300)
+def get_shoulder_er_angle(take_ids, handedness):
+    """
+    Returns shoulder external rotation angle (x_data) for the throwing shoulder.
+
+    Category: ORIGINAL
+    Segments:
+      RHP → RT_SHOULDER_ANGLE
+      LHP → LT_SHOULDER_ANGLE
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = (
+        "RT_SHOULDER_ANGLE"
+        if handedness == "R"
+        else "LT_SHOULDER_ANGLE"
+    )
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, z in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(z)
+
+            return data
+    finally:
+        conn.close()
+
+# --- SHOULDER ABDUCTION ANGLE helper ---
+
+@st.cache_data(ttl=300)
+def get_shoulder_abduction_angle(take_ids, handedness):
+    """
+    Returns shoulder abduction angle (y_data) for the throwing shoulder.
+
+    Category: JOINT_ANGLES
+    Segments:
+      RHP → RT_SHOULDER
+      LHP → LT_SHOULDER
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = (
+        "RT_SHOULDER"
+        if handedness == "R"
+        else "LT_SHOULDER"
+    )
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.y_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'JOINT_ANGLES'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, y in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(y)
+
+            return data
+    finally:
+        conn.close()
+
+# --- SHOULDER HORIZONTAL ABDUCTION ANGLE helper ---
+
+@st.cache_data(ttl=300)
+def get_front_knee_flexion_angle(take_ids, handedness):
+    """
+    Returns front (lead) knee flexion angle (x_data).
+
+    Category: ORIGINAL
+    Segments:
+      RHP → LT_KNEE_ANGLE
+      LHP → RT_KNEE_ANGLE
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = (
+        "LT_KNEE_ANGLE"
+        if handedness == "R"
+        else "RT_KNEE_ANGLE"
+    )
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, x in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+
+            return data
+    finally:
+        conn.close()
+
+# --- FRONT KNEE EXTENSION VELOCITY helper ---
+@st.cache_data(ttl=300)
+def get_front_knee_extension_velocity(take_ids, handedness):
+    """
+    Returns front (lead) knee angular velocity (x_data).
+
+    Category: ORIGINAL
+    Segments:
+      RHP → LT_KNEE_ANGULAR_VELOCITY
+      LHP → RT_KNEE_ANGULAR_VELOCITY
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = (
+        "LT_KNEE_ANGULAR_VELOCITY"
+        if handedness == "R"
+        else "RT_KNEE_ANGULAR_VELOCITY"
+    )
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, x in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+
+            return data
+    finally:
+        conn.close()
+
+@st.cache_data(ttl=300)
+def get_shoulder_horizontal_abduction_angle(take_ids, handedness):
+    """
+    Returns shoulder horizontal abduction angle (x_data) for the throwing shoulder.
+
+    Category: JOINT_ANGLES
+    Segments:
+      RHP → RT_SHOULDER
+      LHP → LT_SHOULDER
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = (
+        "RT_SHOULDER"
+        if handedness == "R"
+        else "LT_SHOULDER"
+    )
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'JOINT_ANGLES'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, x in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+
+            return data
+    finally:
+        conn.close()
+
+# --- TORSO ANGLE COMPONENTS helper ---
+@st.cache_data(ttl=300)
+def get_torso_angle_components(take_ids):
+    """
+    Returns torso angle components for each take.
+
+    Category: ORIGINAL
+    Segment: TORSO_ANGLE
+
+    Components:
+      x_data → Forward Trunk Tilt
+      y_data → Lateral Trunk Tilt
+      z_data → Trunk Angle
+    """
+    if not take_ids:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data,
+                    ts.y_data,
+                    ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = 'TORSO_ANGLE'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, x, y, z in rows:
+                data.setdefault(take_id, {
+                    "frame": [],
+                    "x": [],
+                    "y": [],
+                    "z": []
+                })
+                data[take_id]["frame"].append(frame)
+                data[take_id]["x"].append(x)
+                data[take_id]["y"].append(y)
+                data[take_id]["z"].append(z)
+
+            return data
+    finally:
+        conn.close()
+
+@st.cache_data(ttl=300)
+def get_pelvis_angle(take_ids):
+    """
+    Returns pelvis angle (z_data).
+
+    Category: ORIGINAL
+    Segment: PELVIS_ANGLE
+    """
+    if not take_ids:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = 'PELVIS_ANGLE'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, z in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(z)
+
+            return data
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300)
+def get_hip_shoulder_separation(take_ids):
+    """
+    Returns hip–shoulder separation angle (z_data).
+
+    Category: ORIGINAL
+    Segment: TORSO_PELVIS_ANGLE
+    """
+    if not take_ids:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = 'TORSO_PELVIS_ANGLE'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, z in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(z)
 
             return data
     finally:
@@ -578,7 +1058,12 @@ st.set_page_config(
 # --------------------------------------------------
 # Sidebar
 # --------------------------------------------------
-st.sidebar.title("Terra Sports")
+# --- Sidebar Logo ---
+st.sidebar.image(
+    "assets/terra_sports.svg",
+    use_container_width=True
+)
+
 st.sidebar.markdown("### Dashboard Controls")
 
 pitcher_names = get_all_pitchers()
@@ -614,6 +1099,24 @@ else:
         st.sidebar.info("No session dates found for this pitcher.")
         selected_dates = []
 
+# -------------------------------
+# Velocity Filter
+# -------------------------------
+vel_min, vel_max = get_velocity_bounds(selected_pitcher, selected_dates)
+
+if vel_min is not None and vel_max is not None:
+    velocity_range = st.sidebar.slider(
+        "Velocity Range (mph)",
+        min_value=float(vel_min),
+        max_value=float(vel_max),
+        value=(float(vel_min), float(vel_max)),
+        step=0.5
+    )
+    velocity_min, velocity_max = velocity_range
+else:
+    velocity_min, velocity_max = None, None
+    st.sidebar.info("Velocity data not available for this selection.")
+
 st.sidebar.markdown("---")
 st.sidebar.caption("Data source: Secure Cloud Database")
 
@@ -640,8 +1143,8 @@ st.markdown(
 # --------------------------------------------------
 # Tabs
 # --------------------------------------------------
-tab_overview, tab_metrics, tab_raw, tab_notes, tab_kinematic = st.tabs(
-    ["Overview", "Metrics", "Raw Data", "Notes", "Kinematic Sequence"]
+tab_overview, tab_metrics, tab_raw, tab_notes, tab_kinematic, tab_joint = st.tabs(
+    ["Overview", "Metrics", "Raw Data", "Notes", "Kinematic Sequence", "Joint Angles"]
 )
 
 # --------------------------------------------------
@@ -714,7 +1217,7 @@ with tab_notes:
 # Kinematic Sequence Tab
 # --------------------------------------------------
 with tab_kinematic:
-    st.subheader("Pelvis Angular Velocity (Z)")
+    st.subheader("Kinematic Sequence")
 
     display_mode = st.radio(
         "Display Mode",
@@ -736,7 +1239,7 @@ with tab_kinematic:
 
     handedness = get_pitcher_handedness(selected_pitcher)
 
-    # Resolve take_ids based on pitcher + dates
+    # Resolve take_ids based on pitcher + dates + velocity filter
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -748,7 +1251,8 @@ with tab_kinematic:
                     FROM takes t
                     JOIN athletes a ON a.athlete_id = t.athlete_id
                     WHERE a.athlete_name = %s
-                """, (selected_pitcher,))
+                      AND t.pitch_velo BETWEEN %s AND %s
+                """, (selected_pitcher, velocity_min, velocity_max))
                 take_ids = [r[0] for r in cur.fetchall()]
             else:
                 placeholders = ",".join(["%s"] * len(selected_dates))
@@ -758,7 +1262,8 @@ with tab_kinematic:
                     JOIN athletes a ON a.athlete_id = t.athlete_id
                     WHERE a.athlete_name = %s
                       AND t.take_date IN ({placeholders})
-                """, (selected_pitcher, *selected_dates))
+                      AND t.pitch_velo BETWEEN %s AND %s
+                """, (selected_pitcher, *selected_dates, velocity_min, velocity_max))
                 take_ids = [r[0] for r in cur.fetchall()]
     finally:
         conn.close()
@@ -846,11 +1351,12 @@ with tab_kinematic:
             if take_id in br_frames:
                 mer_event_frames.append(er_frame - br_frames[take_id])
 
-        # Define plot window start from median knee event (default first)
-        if knee_event_frames:
-            window_start = int(np.median(knee_event_frames)) - 50
+        # Define plot window start from median Foot Plant (zero-cross)
+        if fp_event_frames:
+            window_start = int(np.median(fp_event_frames)) - 50
         else:
-            window_start = -150
+            # fallback: still ensure we have a reasonable window
+            window_start = -100
 
         def aggregate_curves(curves_dict, stat="Median"):
             """
@@ -993,7 +1499,7 @@ with tab_kinematic:
                             y=norm_torso_values,
                             mode="lines",
                             name=f"Torso AV – Take {take_id}",
-                            line=dict(dash="dash"),
+                            line=dict(color="orange"),
                             showlegend=False
                         )
                     )
@@ -1030,7 +1536,7 @@ with tab_kinematic:
                             y=norm_elbow_values,
                             mode="lines",
                             name=f"Elbow AV – Take {take_id}",
-                            line=dict(dash="dot"),
+                            line=dict(color="green"),
                             showlegend=False
                         )
                     )
@@ -1070,7 +1576,7 @@ with tab_kinematic:
                             y=norm_sh_values,
                             mode="lines",
                             name=f"Shoulder IR AV – Take {take_id}",
-                            line=dict(dash="dashdot"),
+                            line=dict(color="red"),
                             showlegend=False
                         )
                     )
@@ -1084,12 +1590,20 @@ with tab_kinematic:
                         x=norm_frames,
                         y=norm_values,
                         mode="lines",
-                        name=f"Take {take_id}",
+                        name=f"Pelvis AV – Take {take_id}",
+                        line=dict(color="blue"),
                         showlegend=True
                     )
                 )
 
         if display_mode == "Grouped (by Date)":
+            color_map = {
+                "Pelvis AV": "blue",
+                "Torso AV": "orange",
+                "Elbow AV": "green",
+                "Shoulder IR AV": "red"
+            }
+
             for label, curves in [
                 ("Pelvis AV", grouped_pelvis),
                 ("Torso AV", grouped_torso),
@@ -1100,26 +1614,67 @@ with tab_kinematic:
                     continue
 
                 x, y, q1, q3 = aggregate_curves(curves, grouped_stat)
+                color = color_map[label]
 
+                # --- Savitzky–Golay smoothing (grouped curves only) ---
+                # Preserves peak timing and magnitude
+                if len(y) >= 11:
+                    y  = savgol_filter(y,  window_length=7, polyorder=3)
+                    #q1 = savgol_filter(q1, window_length=11, polyorder=3)
+                    #q3 = savgol_filter(q3, window_length=11, polyorder=3)
+
+                # --- Grouped curve ---
                 fig.add_trace(
                     go.Scatter(
                         x=x,
                         y=y,
                         mode="lines",
                         name=f"{label} ({grouped_stat})",
-                        line=dict(width=4),
+                        line=dict(width=4, color=color),
                     )
                 )
 
+                # --- Peak arrow (same color as curve) ---
+                max_idx = int(np.argmax(y))
+                max_x = x[max_idx]
+                max_y = y[max_idx]
+
+                # --- Peak marker (small downward arrow above max, matplotlib-style) ---
+                y_offset = 0.04 * max(abs(v) for v in y)
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=[max_x],
+                        y=[max_y + y_offset],
+                        mode="markers",
+                        marker=dict(
+                            symbol="triangle-down",
+                            size=10,
+                            color=color
+                        ),
+                        showlegend=False,
+                        hoverinfo="skip"
+                    )
+                )
+
+                # --- IQR band ---
                 if show_iqr:
+                    rgba_map = {
+                        "blue": "0,0,255",
+                        "orange": "255,165,0",
+                        "green": "0,128,0",
+                        "red": "255,0,0"
+                    }
+
                     fig.add_trace(
                         go.Scatter(
                             x=x + x[::-1],
                             y=q3 + q1[::-1],
                             fill="toself",
-                            opacity=0.2,
+                            fillcolor=f"rgba({rgba_map[color]},0.35)",
                             line=dict(width=0),
-                            showlegend=False
+                            showlegend=False,
+                            hoverinfo="skip"
                         )
                     )
 
@@ -1134,6 +1689,16 @@ with tab_kinematic:
                 line_color="blue",
                 opacity=0.9
             )
+            fig.add_annotation(
+                x=median_knee_frame,
+                y=1.02,
+                xref="x",
+                yref="paper",
+                text="Knee",
+                showarrow=False,
+                font=dict(color="blue", size=12),
+                align="center"
+            )
 
         # Median Refined Foot Plant (zero-cross) event
         if fp_event_frames:
@@ -1145,6 +1710,16 @@ with tab_kinematic:
                 line_dash="dot",
                 line_color="green",
                 opacity=0.9
+            )
+            fig.add_annotation(
+                x=median_fp_frame,
+                y=1.02,
+                xref="x",
+                yref="paper",
+                text="FP",
+                showarrow=False,
+                font=dict(color="green", size=12),
+                align="center"
             )
 
         # Median Max Shoulder ER event
@@ -1158,6 +1733,16 @@ with tab_kinematic:
                 line_color="red",
                 opacity=0.9
             )
+            fig.add_annotation(
+                x=median_mer_frame,
+                y=1.02,
+                xref="x",
+                yref="paper",
+                text="MER",
+                showarrow=False,
+                font=dict(color="red", size=12),
+                align="center"
+            )
 
         # Normalized Ball Release reference line
         fig.add_vline(
@@ -1167,16 +1752,322 @@ with tab_kinematic:
             line_color="black",
             opacity=0.8
         )
+        fig.add_annotation(
+            x=0,
+            y=1.02,
+            xref="x",
+            yref="paper",
+            text="BR",
+            showarrow=False,
+            font=dict(color="black", size=12, family="Arial Black"),
+            align="center"
+        )
 
         fig.update_layout(
             xaxis_title="Frames Relative to Ball Release",
-            yaxis_title="Pelvis Angular Velocity (Z) / Shoulder ER Event",
+            yaxis_title="Angular Velocity",
             xaxis_range=[window_start, 50],
             height=600,
             legend_title_text="Take ID"
         )
 
         st.plotly_chart(fig, use_container_width=True)
+
+with tab_joint:
+    st.subheader("Joint Angles")
+
+    display_mode = st.radio(
+        "Display Mode",
+        ["Individual Throws", "Grouped (by Date)"],
+        horizontal=True,
+        key="joint_mode"
+    )
+
+    grouped_stat = st.selectbox(
+        "Grouped Curve Statistic",
+        ["Median", "Mean"],
+        disabled=(display_mode == "Individual Throws"),
+        key="joint_stat"
+    )
+
+    show_iqr = st.checkbox(
+        "Show IQR (25–75%)",
+        value=True,
+        disabled=(display_mode == "Individual Throws"),
+        key="joint_iqr"
+    )
+
+    selected_kinematics = st.multiselect(
+        "Select Kinematics",
+        options=[
+            "Elbow Flexion",
+            "Shoulder ER",
+            "Shoulder Abduction",
+            "Shoulder Horizontal Abduction",
+            "Front Knee Flexion",
+            "Front Knee Extension Velocity",
+            "Forward Trunk Tilt",
+            "Lateral Trunk Tilt",
+            "Trunk Angle",
+            "Pelvis Angle",
+            "Hip-Shoulder Separation"
+        ],
+        default=["Elbow Flexion"]
+    )
+
+    if not selected_kinematics:
+        st.info("Select at least one kinematic.")
+        st.stop()
+
+    # --- Color map for joint types ---
+    joint_color_map = {
+        "Elbow Flexion": "purple",
+        "Shoulder ER": "teal",
+        "Shoulder Abduction": "orange",
+        "Shoulder Horizontal Abduction": "brown"
+    }
+    joint_color_map.update({
+        "Forward Trunk Tilt": "blue",
+        "Lateral Trunk Tilt": "green",
+        "Trunk Angle": "black"
+    })
+    joint_color_map.update({
+        "Pelvis Angle": "darkblue",
+        "Hip-Shoulder Separation": "darkred"
+    })
+    joint_color_map.update({
+        "Front Knee Flexion": "darkgreen"
+    })
+    joint_color_map.update({
+        "Front Knee Extension Velocity": "olive"
+    })
+
+    # --- Load joint data conditionally ---
+    joint_data = {}
+
+    if "Elbow Flexion" in selected_kinematics:
+        joint_data["Elbow Flexion"] = get_elbow_flexion_angle(take_ids, handedness)
+
+    if "Shoulder ER" in selected_kinematics:
+        joint_data["Shoulder ER"] = get_shoulder_er_angle(take_ids, handedness)
+
+    if "Shoulder Abduction" in selected_kinematics:
+        joint_data["Shoulder Abduction"] = get_shoulder_abduction_angle(take_ids, handedness)
+
+    if "Shoulder Horizontal Abduction" in selected_kinematics:
+        joint_data["Shoulder Horizontal Abduction"] = get_shoulder_horizontal_abduction_angle(
+            take_ids, handedness
+        )
+
+    if "Front Knee Flexion" in selected_kinematics:
+        joint_data["Front Knee Flexion"] = get_front_knee_flexion_angle(
+            take_ids, handedness
+        )
+
+    if "Front Knee Extension Velocity" in selected_kinematics:
+        joint_data["Front Knee Extension Velocity"] = get_front_knee_extension_velocity(
+            take_ids, handedness
+        )
+
+    # --- Load Torso Angle components conditionally ---
+    torso_angle_data = get_torso_angle_components(take_ids)
+
+    if "Forward Trunk Tilt" in selected_kinematics:
+        joint_data["Forward Trunk Tilt"] = {
+            k: {"frame": v["frame"], "value": v["x"]}
+            for k, v in torso_angle_data.items()
+        }
+
+    if "Lateral Trunk Tilt" in selected_kinematics:
+        joint_data["Lateral Trunk Tilt"] = {
+            k: {"frame": v["frame"], "value": v["y"]}
+            for k, v in torso_angle_data.items()
+        }
+
+    if "Trunk Angle" in selected_kinematics:
+        joint_data["Trunk Angle"] = {
+            k: {"frame": v["frame"], "value": v["z"]}
+            for k, v in torso_angle_data.items()
+        }
+
+    if "Pelvis Angle" in selected_kinematics:
+        joint_data["Pelvis Angle"] = get_pelvis_angle(take_ids)
+
+    if "Hip-Shoulder Separation" in selected_kinematics:
+        joint_data["Hip-Shoulder Separation"] = get_hip_shoulder_separation(take_ids)
+
+    # --- Helper for extracting value at a specific frame ---
+    def value_at_frame(frames, values, target_frame):
+        if target_frame in frames:
+            return values[frames.index(target_frame)]
+        return None
+
+    import pandas as pd
+    summary_rows = []
+
+    fig = go.Figure()
+
+    # --- Per-take normalization and plotting ---
+    grouped = {}
+
+    for kinematic, data_dict in joint_data.items():
+        grouped[kinematic] = {}
+
+        for take_id in take_ids:
+            if take_id not in data_dict or take_id not in br_frames:
+                continue
+
+            frames = data_dict[take_id]["frame"]
+            values = data_dict[take_id]["value"]
+            br = br_frames[take_id]
+
+            norm_f, norm_v = [], []
+            for f, v in zip(frames, values):
+                if v is None:
+                    continue
+
+                rel = f - br
+                if window_start <= rel <= 50:
+                    norm_f.append(rel)
+
+                    # --- Handedness normalization ---
+                    if handedness == "R" and kinematic in [
+                        "Shoulder Horizontal Abduction",
+                        "Shoulder ER"
+                    ]:
+                        norm_v.append(-v)
+                    else:
+                        norm_v.append(v)
+
+            grouped[kinematic][take_id] = {"frame": norm_f, "value": norm_v}
+
+            if display_mode == "Individual Throws":
+                fig.add_trace(
+                    go.Scatter(
+                        x=norm_f,
+                        y=norm_v,
+                        mode="lines",
+                        line=dict(color=joint_color_map[kinematic]),
+                        name=f"{kinematic} – {take_id}"
+                    )
+                )
+
+    # --- Summary table: Individual Throws ---
+    if display_mode == "Individual Throws":
+        for kinematic, curves in grouped.items():
+            for take_id, d in curves.items():
+                frames = d["frame"]
+                values = d["value"]
+                if not values:
+                    continue
+
+                max_val = np.max(values)
+                sd_val = np.std(values)
+
+                br_val = value_at_frame(frames, values, 0)
+
+                fp_val = None
+                if fp_event_frames:
+                    median_fp = int(np.median(fp_event_frames))
+                    fp_val = value_at_frame(frames, values, median_fp)
+
+                summary_rows.append({
+                    "Kinematic": kinematic,
+                    "Take": take_id,
+                    "Max": max_val,
+                    "At FP": fp_val,
+                    "At BR": br_val,
+                    "SD": sd_val
+                })
+
+    # --- Grouped plot (single curve + IQR) ---
+    if display_mode == "Grouped (by Date)" and grouped:
+        for kinematic, curves in grouped.items():
+            if not curves:
+                continue
+
+            x, y, q1, q3 = aggregate_curves(curves, grouped_stat)
+
+            # Smooth grouped curve ONLY
+            if len(y) >= 11:
+                y = savgol_filter(y, window_length=11, polyorder=3)
+
+            color = joint_color_map[kinematic]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=y,
+                    mode="lines",
+                    line=dict(width=4, color=color),
+                    name=f"{kinematic} ({grouped_stat})"
+                )
+            )
+
+            if show_iqr:
+                fig.add_trace(
+                    go.Scatter(
+                        x=x + x[::-1],
+                        y=q3 + q1[::-1],
+                        fill="toself",
+                        fillcolor=f"rgba(0,0,0,0.25)",
+                        line=dict(width=0),
+                        showlegend=False
+                    )
+                )
+
+            max_val = np.max(y)
+            br_val = value_at_frame(x, y, 0)
+
+            fp_val = None
+            if fp_event_frames:
+                median_fp = int(np.median(fp_event_frames))
+                fp_val = value_at_frame(x, y, median_fp)
+
+            max_vals = [np.max(d["value"]) for d in curves.values() if d["value"]]
+            sd_val = np.std(max_vals)
+
+            summary_rows.append({
+                "Kinematic": kinematic,
+                "Take": grouped_stat,
+                "Max": max_val,
+                "At FP": fp_val,
+                "At BR": br_val,
+                "SD": sd_val
+            })
+
+    # Event lines (remain after grouped plotting)
+    if knee_event_frames:
+        fig.add_vline(x=int(np.median(knee_event_frames)), line_dash="dot", line_color="blue")
+    if fp_event_frames:
+        fig.add_vline(x=int(np.median(fp_event_frames)), line_dash="dot", line_color="green")
+    if mer_event_frames:
+        fig.add_vline(x=int(np.median(mer_event_frames)), line_dash="dash", line_color="red")
+
+    fig.add_vline(x=0, line_width=4, line_color="black")
+
+    fig.update_layout(
+        xaxis_title="Frames Relative to Ball Release",
+        yaxis_title="Joint Angle (deg)",
+        xaxis_range=[window_start, 50],
+        height=600
+    )
+
+    # --- Display the summary table before the plot ---
+    if summary_rows:
+        st.markdown("### Joint Angle Summary")
+        df_summary = pd.DataFrame(summary_rows)
+        st.dataframe(
+            df_summary.style.format({
+                "Max": "{:.2f}",
+                "At FP": "{:.2f}",
+                "At BR": "{:.2f}",
+                "SD": "{:.2f}"
+            }),
+            use_container_width=True
+        )
+
+    st.plotly_chart(fig, use_container_width=True)
 
 # --------------------------------------------------
 # Footer
