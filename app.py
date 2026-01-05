@@ -4,6 +4,47 @@ from scipy.signal import savgol_filter
 from dotenv import load_dotenv
 from db.connection import get_connection
 
+# --- Safe color resolver for named/hex colors ---
+def to_rgba(color, alpha=0.35):
+    """
+    Convert a hex color (#RRGGBB) or basic named color to an rgba() string
+    without requiring matplotlib.
+    """
+    named_colors = {
+        "blue": (31, 119, 180),
+        "orange": (255, 127, 14),
+        "green": (44, 160, 44),
+        "red": (214, 39, 40),
+        "purple": (148, 103, 189),
+        "brown": (140, 86, 75),
+        "pink": (227, 119, 194),
+        "gray": (127, 127, 127),
+        "olive": (188, 189, 34),
+        "teal": (23, 190, 207),
+        "black": (0, 0, 0),
+        "darkblue": (0, 0, 139),
+        "darkred": (139, 0, 0),
+        "darkgreen": (0, 100, 0)
+    }
+
+    if isinstance(color, str):
+        color = color.lower()
+
+        # Hex color
+        if color.startswith("#") and len(color) == 7:
+            r = int(color[1:3], 16)
+            g = int(color[3:5], 16)
+            b = int(color[5:7], 16)
+            return f"rgba({r},{g},{b},{alpha})"
+
+        # Named color
+        if color in named_colors:
+            r, g, b = named_colors[color]
+            return f"rgba({r},{g},{b},{alpha})"
+
+    # Fallback (neutral gray)
+    return f"rgba(150,150,150,{alpha})"
+
 load_dotenv()
 
 @st.cache_data(ttl=300)
@@ -681,6 +722,7 @@ def get_hip_shoulder_separation(take_ids):
     finally:
         conn.close()
 
+
 @st.cache_data(ttl=300)
 def get_shoulder_ir_velocity(take_ids, handedness):
     """
@@ -727,6 +769,54 @@ def get_shoulder_ir_velocity(take_ids, handedness):
                 data.setdefault(take_id, {"frame": [], "x": []})
                 data[take_id]["frame"].append(frame)
                 data[take_id]["x"].append(x)
+
+            return data
+    finally:
+        conn.close()
+
+
+# --- DISTAL ARM SEGMENT POWER loader ---
+@st.cache_data(ttl=300)
+def get_distal_arm_segment_power(take_ids, handedness):
+    """
+    Returns distal throwing arm segment power (Watts).
+
+    Category: SEGMENT_POWERS
+    Segments:
+      RHP → RTA_DIST_R
+      LHP → RTA_DIST_L
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "RTA_DIST_R" if handedness == "R" else "RTA_DIST_L"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'SEGMENT_POWERS'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.x_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, x in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
 
             return data
     finally:
@@ -1066,6 +1156,12 @@ st.sidebar.image(
 
 st.sidebar.markdown("### Dashboard Controls")
 
+# -------------------------------
+# Initialize session state for excluded takes
+# -------------------------------
+if "excluded_take_ids" not in st.session_state:
+    st.session_state["excluded_take_ids"] = []
+
 pitcher_names = get_all_pitchers()
 
 if not pitcher_names:
@@ -1117,125 +1213,31 @@ else:
     velocity_min, velocity_max = None, None
     st.sidebar.info("Velocity data not available for this selection.")
 
-st.sidebar.markdown("---")
-st.sidebar.caption("Data source: Secure Cloud Database")
 
-if st.sidebar.button("Test Database Connection"):
-    try:
-        conn = get_connection()
-        conn.close()
-        st.sidebar.success("Database connection successful.")
-    except Exception as e:
-        st.sidebar.error("Database connection failed.")
 
-# --------------------------------------------------
-# Main header
-# --------------------------------------------------
-st.title("Terra Sports Performance Dashboard")
 
-st.markdown(
-    """
-    This dashboard provides **performance, biomechanics, and training insights**
-    powered by secure cloud infrastructure.
-    """
-)
+
+st.title("Terra Sports Biomechanics Dashboard")
 
 # --------------------------------------------------
 # Tabs
 # --------------------------------------------------
-tab_overview, tab_metrics, tab_raw, tab_notes, tab_kinematic, tab_joint = st.tabs(
-    ["Overview", "Metrics", "Raw Data", "Notes", "Kinematic Sequence", "Joint Angles"]
+tab_kinematic, tab_joint, tab_energy = st.tabs(
+    ["Kinematic Sequence", "Joint Angles", "Energy Flow"]
 )
 
-# --------------------------------------------------
-# Overview Tab
-# --------------------------------------------------
-with tab_overview:
-    st.subheader("Overview")
 
-    st.info(
-        "This section will contain high-level summaries, KPIs, and trends."
-    )
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(label="Athletes", value="—")
-
-    with col2:
-        st.metric(label="Sessions", value="—")
-
-    with col3:
-        st.metric(label="Avg Velocity", value="—")
-
-# --------------------------------------------------
-# Metrics Tab
-# --------------------------------------------------
-with tab_metrics:
-    st.subheader("Performance Metrics")
-
-    st.warning(
-        "Detailed metrics and visualizations will appear here."
-    )
-
-    st.markdown(
-        "- Velocity\n"
-        "- Spin\n"
-        "- Biomechanics\n"
-        "- Force Plate Metrics"
-    )
-
-# --------------------------------------------------
-# Raw Data Tab
-# --------------------------------------------------
-with tab_raw:
-    st.subheader("Raw Data Explorer")
-
-    st.warning(
-        "Raw tables and filters will be added here."
-    )
-
-    st.markdown(
-        "This tab is intended for deeper inspection and exports."
-    )
-
-# --------------------------------------------------
-# Notes / Export Tab
-# --------------------------------------------------
-with tab_notes:
-    st.subheader("Notes & Export")
-
-    st.text_area(
-        "Session / Athlete Notes",
-        placeholder="Enter observations, coaching notes, or annotations here…",
-        height=150,
-    )
-
-    st.button("Export Report (Coming Soon)")
-
-# --------------------------------------------------
-# Kinematic Sequence Tab
-# --------------------------------------------------
 with tab_kinematic:
     st.subheader("Kinematic Sequence")
-
     display_mode = st.radio(
-        "Display Mode",
-        options=["Individual Throws", "Grouped (by Date)"],
-        horizontal=True
+        "Select Display Mode",
+        ["Individual Throws", "Grouped"],
+        index=1,
+        horizontal=True,
+        key="ks_display_mode"
     )
 
-    grouped_stat = st.selectbox(
-        "Grouped Curve Statistic",
-        options=["Median", "Mean"],
-        disabled=(display_mode == "Individual Throws")
-    )
 
-    show_iqr = st.checkbox(
-        "Show IQR (25–75%)",
-        value=True,
-        disabled=(display_mode == "Individual Throws")
-    )
 
     handedness = get_pitcher_handedness(selected_pitcher)
 
@@ -1267,6 +1269,72 @@ with tab_kinematic:
                 take_ids = [r[0] for r in cur.fetchall()]
     finally:
         conn.close()
+
+    # --- Pitch order + velocity lookup ---
+    if take_ids:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                placeholders = ",".join(["%s"] * len(take_ids))
+                cur.execute(f"""
+                    SELECT take_id, pitch_velo, take_date
+                    FROM takes
+                    WHERE take_id IN ({placeholders})
+                    ORDER BY take_date, take_id
+                """, tuple(take_ids))
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        from collections import defaultdict
+
+        date_groups = defaultdict(list)
+
+        for tid, velo, date in rows:
+            date_groups[date].append((tid, velo))
+
+        take_order = {}
+        take_velocity = {}
+        take_date_map = {}
+
+        for date, items in date_groups.items():
+            for i, (tid, velo) in enumerate(items, start=1):
+                take_order[tid] = i
+                take_velocity[tid] = velo
+                take_date_map[tid] = date.strftime("%Y-%m-%d")
+
+        # -------------------------------
+        # Sidebar: Exclude Takes
+        # -------------------------------
+        exclude_options = [
+            f"{take_date_map[tid]} – Pitch {take_order[tid]} ({take_velocity[tid]:.1f} mph)"
+            for tid in take_ids
+        ]
+
+        label_to_take_id = {
+            f"{take_date_map[tid]} – Pitch {take_order[tid]} ({take_velocity[tid]:.1f} mph)": tid
+            for tid in take_ids
+        }
+
+        excluded_labels = st.sidebar.multiselect(
+            "Exclude Takes",
+            options=exclude_options,
+            default=[
+                label for label, tid in label_to_take_id.items()
+                if tid in st.session_state["excluded_take_ids"]
+            ],
+            key="exclude_takes"
+        )
+
+        st.session_state["excluded_take_ids"] = [
+            label_to_take_id[label] for label in excluded_labels
+        ]
+
+        # Filter take_ids to exclude selected takes
+        take_ids = [
+            tid for tid in take_ids
+            if tid not in st.session_state["excluded_take_ids"]
+        ]
 
     if not take_ids:
         st.info("No takes found for this selection.")
@@ -1398,6 +1466,17 @@ with tab_kinematic:
         grouped_elbow = {}
         grouped_shoulder_ir = {}
 
+        # --- Date-based dash style map (Kinematic Sequence) ---
+        unique_dates = sorted(set(take_date_map.values()))
+        dash_styles = ["solid", "dash", "dot", "dashdot"]
+        date_dash_map = {
+            d: dash_styles[i % len(dash_styles)]
+            for i, d in enumerate(unique_dates)
+        }
+
+        # Track legend entries to avoid duplicates (for condensed legend)
+        legend_keys_added = set()
+
         for take_id, d in data.items():
             frames = d["frame"]
             values = d["z"]
@@ -1461,7 +1540,11 @@ with tab_kinematic:
                 # Keep frames from 50 before median knee height through +50 after BR
                 if rel_frame >= window_start and rel_frame <= 50:
                     norm_frames.append(rel_frame)
-                    norm_values.append(v)
+                    # Handedness normalization for Pelvis AV (Kinematic Sequence only)
+                    if handedness == "L":
+                        norm_values.append(-v)
+                    else:
+                        norm_values.append(v)
 
             grouped_pelvis[take_id] = {
                 "frame": norm_frames,
@@ -1485,7 +1568,11 @@ with tab_kinematic:
                     rel_frame = f - br_frame
                     if rel_frame >= window_start and rel_frame <= 50:
                         norm_torso_frames.append(rel_frame)
-                        norm_torso_values.append(v)
+                        # Handedness normalization for Torso AV (Kinematic Sequence only)
+                        if handedness == "L":
+                            norm_torso_values.append(-v)
+                        else:
+                            norm_torso_values.append(v)
 
                 grouped_torso[take_id] = {
                     "frame": norm_torso_frames,
@@ -1493,16 +1580,37 @@ with tab_kinematic:
                 }
 
                 if norm_torso_frames and display_mode == "Individual Throws":
+                    # Actual data trace (no legend)
                     fig.add_trace(
                         go.Scatter(
                             x=norm_torso_frames,
                             y=norm_torso_values,
                             mode="lines",
-                            name=f"Torso AV – Take {take_id}",
-                            line=dict(color="orange"),
+                            line=dict(
+                                color="orange",
+                                dash=date_dash_map[take_date_map[take_id]]
+                            ),
                             showlegend=False
                         )
                     )
+                    # Legend-only trace (once per Torso + Date)
+                    legend_key = ("Torso", take_date_map[take_id])
+                    if legend_key not in legend_keys_added:
+                        fig.add_trace(
+                            go.Scatter(
+                                x=[None],
+                                y=[None],
+                                mode="lines",
+                                line=dict(
+                                    color="orange",
+                                    dash=date_dash_map[take_date_map[take_id]],
+                                    width=4
+                                ),
+                                name=f"Torso AV | {take_date_map[take_id]}",
+                                showlegend=True
+                            )
+                        )
+                        legend_keys_added.add(legend_key)
 
             # -----------------------------
             # Normalize Elbow Angular Velocity (Extension)
@@ -1530,16 +1638,37 @@ with tab_kinematic:
                 }
 
                 if norm_elbow_frames and display_mode == "Individual Throws":
+                    # Actual data trace (no legend)
                     fig.add_trace(
                         go.Scatter(
                             x=norm_elbow_frames,
                             y=norm_elbow_values,
                             mode="lines",
-                            name=f"Elbow AV – Take {take_id}",
-                            line=dict(color="green"),
+                            line=dict(
+                                color="green",
+                                dash=date_dash_map[take_date_map[take_id]]
+                            ),
                             showlegend=False
                         )
                     )
+                    # Legend-only trace (once per Elbow + Date)
+                    legend_key = ("Elbow", take_date_map[take_id])
+                    if legend_key not in legend_keys_added:
+                        fig.add_trace(
+                            go.Scatter(
+                                x=[None],
+                                y=[None],
+                                mode="lines",
+                                line=dict(
+                                    color="green",
+                                    dash=date_dash_map[take_date_map[take_id]],
+                                    width=4
+                                ),
+                                name=f"Elbow AV | {take_date_map[take_id]}",
+                                showlegend=True
+                            )
+                        )
+                        legend_keys_added.add(legend_key)
 
             # -----------------------------
             # Normalize Shoulder IR Angular Velocity
@@ -1570,50 +1699,111 @@ with tab_kinematic:
                 }
 
                 if norm_sh_frames and display_mode == "Individual Throws":
+                    # Actual data trace (no legend)
                     fig.add_trace(
                         go.Scatter(
                             x=norm_sh_frames,
                             y=norm_sh_values,
                             mode="lines",
-                            name=f"Shoulder IR AV – Take {take_id}",
-                            line=dict(color="red"),
+                            line=dict(
+                                color="red",
+                                dash=date_dash_map[take_date_map[take_id]]
+                            ),
                             showlegend=False
                         )
                     )
+                    # Legend-only trace (once per Shoulder IR + Date)
+                    legend_key = ("Shoulder IR", take_date_map[take_id])
+                    if legend_key not in legend_keys_added:
+                        fig.add_trace(
+                            go.Scatter(
+                                x=[None],
+                                y=[None],
+                                mode="lines",
+                                line=dict(
+                                    color="red",
+                                    dash=date_dash_map[take_date_map[take_id]],
+                                    width=4
+                                ),
+                                name=f"Shoulder IR AV | {take_date_map[take_id]}",
+                                showlegend=True
+                            )
+                        )
+                        legend_keys_added.add(legend_key)
             if not norm_frames:
                 continue
 
             if display_mode == "Individual Throws":
-                # Plot normalized pelvis angular velocity
+                # Actual data trace (no legend)
                 fig.add_trace(
                     go.Scatter(
                         x=norm_frames,
                         y=norm_values,
                         mode="lines",
-                        name=f"Pelvis AV – Take {take_id}",
-                        line=dict(color="blue"),
-                        showlegend=True
+                        line=dict(
+                            color="blue",
+                            dash=date_dash_map[take_date_map[take_id]]
+                        ),
+                        showlegend=False
                     )
                 )
+                # Legend-only trace (once per Pelvis + Date)
+                legend_key = ("Pelvis", take_date_map[take_id])
+                if legend_key not in legend_keys_added:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[None],
+                            y=[None],
+                            mode="lines",
+                            line=dict(
+                                color="blue",
+                                dash=date_dash_map[take_date_map[take_id]],
+                                width=4
+                            ),
+                            name=f"Pelvis AV | {take_date_map[take_id]}",
+                            showlegend=True
+                        )
+                    )
+                    legend_keys_added.add(legend_key)
 
-        if display_mode == "Grouped (by Date)":
+        # --- Store peak summary for table ---
+        kinematic_peak_rows = []
+
+        if display_mode == "Grouped":
+            # --- Shared arrow offset based on global y-range (consistent across segments) ---
+            all_grouped_vals = [
+                v
+                for curves in [grouped_pelvis, grouped_torso, grouped_elbow, grouped_shoulder_ir]
+                for d in curves.values()
+                for v in d["value"]
+                if v is not None
+            ]
+
+            arrow_offset = (
+                0.06 * (max(all_grouped_vals) - min(all_grouped_vals))
+                if all_grouped_vals else 0
+            )
+
             color_map = {
-                "Pelvis AV": "blue",
-                "Torso AV": "orange",
-                "Elbow AV": "green",
-                "Shoulder IR AV": "red"
+                "Pelvis": "blue",
+                "Torso": "orange",
+                "Elbow": "green",
+                "Shoulder": "red"
             }
 
+            # --- Condensed legend: track (Segment, Date) pairs ---
+            legend_keys_added = set()
+
             for label, curves in [
-                ("Pelvis AV", grouped_pelvis),
-                ("Torso AV", grouped_torso),
-                ("Elbow AV", grouped_elbow),
-                ("Shoulder IR AV", grouped_shoulder_ir)
+                ("Pelvis", grouped_pelvis),
+                ("Torso", grouped_torso),
+                ("Elbow", grouped_elbow),
+                ("Shoulder", grouped_shoulder_ir)
             ]:
                 if not curves:
                     continue
 
-                x, y, q1, q3 = aggregate_curves(curves, grouped_stat)
+                x, y, q1, q3 = aggregate_curves(curves, "Mean")
                 color = color_map[label]
 
                 # --- Savitzky–Golay smoothing (grouped curves only) ---
@@ -1623,53 +1813,108 @@ with tab_kinematic:
                     #q1 = savgol_filter(q1, window_length=11, polyorder=3)
                     #q3 = savgol_filter(q3, window_length=11, polyorder=3)
 
-                # --- Grouped curve ---
-                fig.add_trace(
-                    go.Scatter(
-                        x=x,
-                        y=y,
-                        mode="lines",
-                        name=f"{label} ({grouped_stat})",
-                        line=dict(width=4, color=color),
+                # --- Grouped curve (NO legend entry, color = segment, dash = session date) ---
+                # Determine date from the first take in this segment's group
+                # (all takes in curves should be from the same date in grouped mode)
+                # But in this code, curves is {take_id: ...} for all takes, possibly from multiple dates
+                # For condensed legend, we want one entry per (segment x date)
+                # So, for each unique date in this segment's curves, plot the curve with its dash and color
+                # (But in the current grouped code, only one curve is plotted per segment, not per date)
+                # To match individual condensed legend, we need to plot one grouped curve per (segment x date)
+                # So, group curves by date:
+                from collections import defaultdict
+                curves_by_date = defaultdict(dict)
+                for take_id, d in curves.items():
+                    date = take_date_map[take_id]
+                    curves_by_date[date][take_id] = d
+                for date, curves_date in curves_by_date.items():
+                    x_date, y_date, q1_date, q3_date = aggregate_curves(curves_date, "Mean")
+                    # Smoothing
+                    if len(y_date) >= 11:
+                        y_date = savgol_filter(y_date, window_length=7, polyorder=3)
+                    dash = date_dash_map[date]
+                    # --- Grouped curve (no legend) ---
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x_date,
+                            y=y_date,
+                            mode="lines",
+                            line=dict(
+                                width=4,
+                                color=color,
+                                dash=dash,
+                            ),
+                            showlegend=False
+                        )
                     )
-                )
-
-                # --- Peak arrow (same color as curve) ---
-                max_idx = int(np.argmax(y))
-                max_x = x[max_idx]
-                max_y = y[max_idx]
-
-                # --- Peak marker (small downward arrow above max, matplotlib-style) ---
-                y_offset = 0.04 * max(abs(v) for v in y)
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=[max_x],
-                        y=[max_y + y_offset],
-                        mode="markers",
-                        marker=dict(
-                            symbol="triangle-down",
-                            size=10,
-                            color=color
-                        ),
-                        showlegend=False,
-                        hoverinfo="skip"
-                    )
-                )
-
-                # --- IQR band ---
-                if show_iqr:
+                    # --- Legend-only trace (once per Segment + Date) ---
+                    legend_key = (label, date)
+                    if legend_key not in legend_keys_added:
+                        fig.add_trace(
+                            go.Scatter(
+                                x=[None],
+                                y=[None],
+                                mode="lines",
+                                line=dict(
+                                    color=color,
+                                    dash=dash,
+                                    width=4
+                                ),
+                                name=f"{label} AV | {date}",
+                                showlegend=True
+                            )
+                        )
+                        legend_keys_added.add(legend_key)
+                    # --- Peak arrow and marker for this grouped curve ---
+                    if len(y_date) > 0:
+                        # Restrict pelvis & torso peak search to FP → BR
+                        if label in ["Pelvis", "Torso"] and fp_event_frames:
+                            fp_rel = int(np.median(fp_event_frames))
+                            valid_idxs = [
+                                i for i, xf in enumerate(x_date)
+                                if fp_rel <= xf <= 0
+                            ]
+                            if not valid_idxs:
+                                continue
+                            max_idx = max(valid_idxs, key=lambda i: y_date[i])
+                        else:
+                            # Elbow / Shoulder IR use full window
+                            max_idx = int(np.argmax(y_date))
+                        max_x = x_date[max_idx]
+                        max_y = y_date[max_idx]
+                        # Store peak for summary table (only once per segment, keep old logic)
+                        if date == list(curves_by_date.keys())[0]:
+                            kinematic_peak_rows.append({
+                                "Segment": label,
+                                "Peak Value (°/s)": max_y,
+                                "Peak Frame (rel BR)": max_x
+                            })
+                        y_offset = arrow_offset * 0.6
+                        fig.add_trace(
+                            go.Scatter(
+                                x=[max_x],
+                                y=[max_y + y_offset],
+                                mode="markers",
+                                marker=dict(
+                                    symbol="triangle-down",
+                                    size=14,
+                                    color=color
+                                ),
+                                showlegend=False,
+                                hoverinfo="skip"
+                            )
+                        )
+                    # --- IQR band (always shown for grouped mode) ---
                     rgba_map = {
                         "blue": "0,0,255",
                         "orange": "255,165,0",
                         "green": "0,128,0",
                         "red": "255,0,0"
                     }
-
                     fig.add_trace(
                         go.Scatter(
-                            x=x + x[::-1],
-                            y=q3 + q1[::-1],
+                            x=x_date + x_date[::-1],
+                            y=q3_date + q1_date[::-1],
                             fill="toself",
                             fillcolor=f"rgba({rgba_map[color]},0.35)",
                             line=dict(width=0),
@@ -1691,12 +1936,12 @@ with tab_kinematic:
             )
             fig.add_annotation(
                 x=median_knee_frame,
-                y=1.02,
+                y=1.055,
                 xref="x",
                 yref="paper",
                 text="Knee",
                 showarrow=False,
-                font=dict(color="blue", size=12),
+                font=dict(color="blue", size=14),
                 align="center"
             )
 
@@ -1707,18 +1952,18 @@ with tab_kinematic:
             fig.add_vline(
                 x=median_fp_frame,
                 line_width=3,
-                line_dash="dot",
+                line_dash="dash",
                 line_color="green",
                 opacity=0.9
             )
             fig.add_annotation(
                 x=median_fp_frame,
-                y=1.02,
+                y=1.055,
                 xref="x",
                 yref="paper",
                 text="FP",
                 showarrow=False,
-                font=dict(color="green", size=12),
+                font=dict(color="green", size=14),
                 align="center"
             )
 
@@ -1735,66 +1980,204 @@ with tab_kinematic:
             )
             fig.add_annotation(
                 x=median_mer_frame,
-                y=1.02,
+                y=1.055,
                 xref="x",
                 yref="paper",
                 text="MER",
                 showarrow=False,
-                font=dict(color="red", size=12),
+                font=dict(color="red", size=14),
                 align="center"
             )
 
         # Normalized Ball Release reference line
         fig.add_vline(
             x=0,
-            line_width=4,
-            line_dash="solid",
-            line_color="black",
-            opacity=0.8
+            line_width=3,
+            line_dash="dash",
+            line_color="blue",
+            opacity=0.9
         )
         fig.add_annotation(
             x=0,
-            y=1.02,
+            y=1.055,
             xref="x",
             yref="paper",
             text="BR",
             showarrow=False,
-            font=dict(color="black", size=12, family="Arial Black"),
+            font=dict(color="blue", size=14),
             align="center"
         )
 
         fig.update_layout(
             xaxis_title="Frames Relative to Ball Release",
             yaxis_title="Angular Velocity",
+            yaxis=dict(ticksuffix="°/s"),
             xaxis_range=[window_start, 50],
             height=600,
-            legend_title_text="Take ID"
+            legend=dict(
+                orientation="h",
+                yanchor="top",
+                y=-0.30,
+                xanchor="center",
+                x=0.5
+            ),
+            hoverlabel=dict(
+                namelength=-1,
+                font_size=13
+            )
         )
 
         st.plotly_chart(fig, use_container_width=True)
 
+        # --- Kinematic Sequence Peak Summary Table (Individual Throws) ---
+        if display_mode == "Individual Throws":
+
+            individual_rows = []
+
+            for take_id in take_ids:
+                if take_id not in br_frames:
+                    continue
+
+                br_frame = br_frames[take_id]
+
+                # Helper to compute peak and frame
+                def peak_and_frame(curves, invert=False):
+                    if take_id not in curves:
+                        return None, None
+
+                    vals = curves[take_id]["value"]
+                    frames = curves[take_id]["frame"]
+                    if not vals:
+                        return None, None
+
+                    if invert:
+                        idx = int(np.argmax(vals))
+                    else:
+                        idx = int(np.argmax(vals))
+
+                    return vals[idx], frames[idx]
+
+                pelvis_peak, pelvis_frame = peak_and_frame(grouped_pelvis)
+                torso_peak, torso_frame = peak_and_frame(grouped_torso)
+                elbow_peak, elbow_frame = peak_and_frame(grouped_elbow)
+                shoulder_peak, shoulder_frame = peak_and_frame(grouped_shoulder_ir)
+
+                individual_rows.append({
+                    "Session Date": take_date_map[take_id],
+                    "Pitch": take_order[take_id],
+                    "Velocity (mph)": take_velocity[take_id],
+                    "Pelvis Peak (°/s)": pelvis_peak,
+                    "Pelvis Frame": pelvis_frame,
+                    "Torso Peak (°/s)": torso_peak,
+                    "Torso Frame": torso_frame,
+                    "Elbow Peak (°/s)": elbow_peak,
+                    "Elbow Frame": elbow_frame,
+                    "Shoulder IR Peak (°/s)": shoulder_peak,
+                    "Shoulder IR Frame": shoulder_frame
+                })
+
+            if individual_rows:
+                import pandas as pd
+
+                st.markdown("### Kinematic Sequence - Individual Throws")
+
+                df_individual = pd.DataFrame(individual_rows)
+
+                # Sort logically: date → pitch order
+                df_individual = df_individual.sort_values(
+                    ["Session Date", "Pitch"]
+                )
+
+                def fmt(val, decimals=2):
+                    if val is None or (isinstance(val, float) and np.isnan(val)):
+                        return ""
+                    return f"{val:.{decimals}f}"
+
+                styled_individual = (
+                    df_individual
+                    .style
+                    .format({
+                        "Velocity (mph)": lambda x: fmt(x, 1),
+                        "Pelvis Peak (°/s)": lambda x: fmt(x, 1),
+                        "Torso Peak (°/s)": lambda x: fmt(x, 1),
+                        "Elbow Peak (°/s)": lambda x: fmt(x, 1),
+                        "Shoulder IR Peak (°/s)": lambda x: fmt(x, 1),
+                        "Pelvis Frame": lambda x: fmt(x, 0),
+                        "Torso Frame": lambda x: fmt(x, 0),
+                        "Elbow Frame": lambda x: fmt(x, 0),
+                        "Shoulder IR Frame": lambda x: fmt(x, 0),
+                    })
+                    .set_table_styles([
+                        {"selector": "th", "props": [("text-align", "center")]}
+                    ])
+                    .set_properties(**{"text-align": "center"})
+                )
+
+                st.dataframe(styled_individual, use_container_width=True)
+
+        # --- Kinematic Sequence Peak Summary Table (Segment-Grouped) ---
+        if display_mode == "Grouped" and kinematic_peak_rows:
+            import pandas as pd
+
+            st.markdown("### Kinematic Sequence - Grouped")
+
+            df = pd.DataFrame(kinematic_peak_rows)
+
+            # Pivot into segment-based column groups
+            pivot = {}
+            for _, row in df.iterrows():
+                seg = row["Segment"]
+                pivot[(seg, "Peak (°/s)")] = [row["Peak Value (°/s)"]]
+                pivot[(seg, "Peak Frame")] = [row["Peak Frame (rel BR)"]]
+
+            df_pivot = pd.DataFrame(pivot)
+            df_pivot.columns = pd.MultiIndex.from_tuples(df_pivot.columns)
+
+            # --- Styling ---
+            segment_colors = {
+                "Pelvis":   "rgba(0, 128, 0, 0.12)",     # green
+                "Torso":    "rgba(255, 215, 0, 0.12)",   # yellow
+                "Elbow":    "rgba(128, 0, 128, 0.12)",   # purple
+                "Shoulder": "rgba(255, 0, 0, 0.12)"      # red
+            }
+
+            def style_segments(col):
+                seg = col[0]
+                if seg in segment_colors:
+                    return [f"background-color: {segment_colors[seg]}"] * len(df_pivot)
+                return [""] * len(df_pivot)
+
+            # --- Pre-format values safely (NO Styler value mutation) ---
+            df_display = df_pivot.copy()
+
+            for col in df_display.columns:
+                if "Peak" in col[1] and "°/s" in col[1]:
+                    df_display[col] = df_display[col].map(lambda x: f"{x:.1f}")
+                elif "Frame" in col[1]:
+                    df_display[col] = df_display[col].map(lambda x: f"{x:.0f}")
+
+            # --- Styling (CSS only) ---
+            styled = (
+                df_display
+                .style
+                .apply(style_segments, axis=0)
+                .set_properties(**{
+                    "text-align": "center",
+                    "font-weight": "500"
+                })
+            )
+
+            st.dataframe(styled, use_container_width=True)
+
+
 with tab_joint:
     st.subheader("Joint Angles")
-
     display_mode = st.radio(
-        "Display Mode",
-        ["Individual Throws", "Grouped (by Date)"],
+        "Select Display Mode",
+        ["Individual Throws", "Grouped"],
+        index=1,
         horizontal=True,
-        key="joint_mode"
-    )
-
-    grouped_stat = st.selectbox(
-        "Grouped Curve Statistic",
-        ["Median", "Mean"],
-        disabled=(display_mode == "Individual Throws"),
-        key="joint_stat"
-    )
-
-    show_iqr = st.checkbox(
-        "Show IQR (25–75%)",
-        value=True,
-        disabled=(display_mode == "Individual Throws"),
-        key="joint_iqr"
+        key="joint_display_mode"
     )
 
     selected_kinematics = st.multiselect(
@@ -1812,7 +2195,8 @@ with tab_joint:
             "Pelvis Angle",
             "Hip-Shoulder Separation"
         ],
-        default=["Elbow Flexion"]
+        default=["Elbow Flexion"],
+        key="joint_angles_select"
     )
 
     if not selected_kinematics:
@@ -1907,9 +2291,32 @@ with tab_joint:
 
     fig = go.Figure()
 
+    # --- Date-based colors (Joint Angles ONLY) ---
+    unique_dates = sorted(set(take_date_map.values()))
+    date_palette = [
+        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
+        "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
+        "#bcbd22", "#17becf"
+    ]
+    date_color_map = {
+        d: date_palette[i % len(date_palette)]
+        for i, d in enumerate(unique_dates)
+    }
+
+    # --- Date-based line dash style map (for visual distinction) ---
+    date_dash_map = {}
+    dash_styles = ["solid", "dash", "dot", "dashdot"]
+    for i, d in enumerate(unique_dates):
+        date_dash_map[d] = dash_styles[i % len(dash_styles)]
+
     # --- Per-take normalization and plotting ---
     grouped = {}
+    grouped_by_date = {}
 
+    # For condensed legend: track which (kinematic, date) pairs have legend entries
+    legend_keys_added = set()
+
+    # Reuse take_order and take_velocity from Kinematic Sequence section if available
     for kinematic, data_dict in joint_data.items():
         grouped[kinematic] = {}
 
@@ -1941,16 +2348,46 @@ with tab_joint:
 
             grouped[kinematic][take_id] = {"frame": norm_f, "value": norm_v}
 
+            # --- Store by date for grouped plotting ---
+            date = take_date_map[take_id]
+            grouped_by_date.setdefault(date, {}).setdefault(kinematic, {})[take_id] = {
+                "frame": norm_f,
+                "value": norm_v
+            }
+
             if display_mode == "Individual Throws":
+                # Use kinematic color and date-based dash for individual throws
                 fig.add_trace(
                     go.Scatter(
                         x=norm_f,
                         y=norm_v,
                         mode="lines",
-                        line=dict(color=joint_color_map[kinematic]),
-                        name=f"{kinematic} – {take_id}"
+                        line=dict(
+                            color=joint_color_map[kinematic],
+                            dash=date_dash_map[take_date_map[take_id]]
+                        ),
+                        name=f"{kinematic} – {take_date_map[take_id]} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)",
+                        showlegend=False
                     )
                 )
+                # Add one legend-only trace per (kinematic, date) (shows color + dash)
+                legend_key = (kinematic, date)
+                if legend_key not in legend_keys_added:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[None],
+                            y=[None],
+                            mode="lines",
+                            line=dict(
+                                color=joint_color_map[kinematic],
+                                dash=date_dash_map[date],
+                                width=4
+                            ),
+                            name=f"{kinematic} | {date}",
+                            showlegend=True
+                        )
+                    )
+                    legend_keys_added.add(legend_key)
 
     # --- Summary table: Individual Throws ---
     if display_mode == "Individual Throws":
@@ -1962,7 +2399,7 @@ with tab_joint:
                     continue
 
                 max_val = np.max(values)
-                sd_val = np.std(values)
+                # sd_val = np.std(values)  # removed as not used below
 
                 br_val = value_at_frame(frames, values, 0)
 
@@ -1971,106 +2408,538 @@ with tab_joint:
                     median_fp = int(np.median(fp_event_frames))
                     fp_val = value_at_frame(frames, values, median_fp)
 
+                # value at MER (same frame used in plot)
+                mer_val = None
+                if take_id in shoulder_er_max_frames:
+                    mer_frame_rel = shoulder_er_max_frames[take_id] - br_frames[take_id]
+                    mer_val = value_at_frame(frames, values, mer_frame_rel)
+
                 summary_rows.append({
                     "Kinematic": kinematic,
-                    "Take": take_id,
+                    "Session Date": take_date_map[take_id],
+                    "Average Velocity": take_velocity[take_id],
                     "Max": max_val,
-                    "At FP": fp_val,
-                    "At BR": br_val,
-                    "SD": sd_val
+                    "Foot Plant": fp_val,
+                    "Ball Release": br_val,
+                    "Max External Rotation": mer_val
                 })
 
-    # --- Grouped plot (single curve + IQR) ---
-    if display_mode == "Grouped (by Date)" and grouped:
-        for kinematic, curves in grouped.items():
-            if not curves:
-                continue
+    # --- Grouped plot (mean + IQR per date) ---
+    if display_mode == "Grouped":
+        for date, kin_dict in grouped_by_date.items():
+            for kinematic, curves in kin_dict.items():
+                if not curves:
+                    continue
 
-            x, y, q1, q3 = aggregate_curves(curves, grouped_stat)
+                x, y, q1, q3 = aggregate_curves(curves, "Mean")
 
-            # Smooth grouped curve ONLY
+                # Smooth grouped curve ONLY
+                if len(y) >= 11:
+                    y = savgol_filter(y, window_length=11, polyorder=3)
+
+                color = joint_color_map.get(kinematic, "#444")
+                dash = date_dash_map[date]
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=x,
+                        y=y,
+                        mode="lines",
+                        line=dict(width=4, color=color, dash=dash),
+                        name=f"{kinematic} – {date}"
+                    )
+                )
+
+                # IQR band (color-matched)
+                fig.add_trace(
+                    go.Scatter(
+                        x=x + x[::-1],
+                        y=q3 + q1[::-1],
+                        fill="toself",
+                        fillcolor=to_rgba(color, 0.35),
+                        line=dict(width=0),
+                        showlegend=False,
+                        hoverinfo="skip"
+                    )
+                )
+
+                max_val = np.max(y)
+                br_val = value_at_frame(x, y, 0)
+
+                fp_val = None
+                if fp_event_frames:
+                    median_fp = int(np.median(fp_event_frames))
+                    fp_val = value_at_frame(x, y, median_fp)
+
+                max_vals = [np.max(d["value"]) for d in curves.values() if d["value"]]
+                sd_val = np.std(max_vals)
+
+                # value at MER from grouped mean curve
+                mer_val = None
+                if mer_event_frames:
+                    median_mer = int(np.median(mer_event_frames))
+                    mer_val = value_at_frame(x, y, median_mer)
+
+                summary_rows.append({
+                    "Kinematic": kinematic,
+                    "Session Date": date,
+                    "Average Velocity": np.mean([take_velocity[tid] for tid in curves.keys()]),
+                    "Max": max_val,
+                    "Foot Plant": fp_val,
+                    "Ball Release": br_val,
+                    "Max External Rotation": mer_val,
+                    "Standard Deviation": sd_val
+                })
+
+    # --- Event lines and annotations (match Kinematic Sequence styling) ---
+    if knee_event_frames:
+        median_knee_frame = int(np.median(knee_event_frames))
+        fig.add_vline(
+            x=median_knee_frame,
+            line_width=3,
+            line_dash="dot",
+            line_color="blue",
+            opacity=0.9
+        )
+        fig.add_annotation(
+            x=median_knee_frame,
+            y=1.055,
+            xref="x",
+            yref="paper",
+            text="Knee",
+            showarrow=False,
+            font=dict(color="blue", size=14),
+            align="center"
+        )
+
+    if fp_event_frames:
+        median_fp_frame = int(np.median(fp_event_frames))
+        fig.add_vline(
+            x=median_fp_frame,
+            line_width=3,
+            line_dash="dash",
+            line_color="green",
+            opacity=0.9
+        )
+        fig.add_annotation(
+            x=median_fp_frame,
+            y=1.055,
+            xref="x",
+            yref="paper",
+            text="FP",
+            showarrow=False,
+            font=dict(color="green", size=14),
+            align="center"
+        )
+
+    if mer_event_frames:
+        median_mer_frame = int(np.median(mer_event_frames))
+        fig.add_vline(
+            x=median_mer_frame,
+            line_width=3,
+            line_dash="dash",
+            line_color="red",
+            opacity=0.9
+        )
+        fig.add_annotation(
+            x=median_mer_frame,
+            y=1.055,
+            xref="x",
+            yref="paper",
+            text="MER",
+            showarrow=False,
+            font=dict(color="red", size=14),
+            align="center"
+        )
+
+    # Ball Release reference
+    fig.add_vline(
+        x=0,
+        line_width=3,
+        line_dash="dash",
+        line_color="blue",
+        opacity=0.9
+    )
+    fig.add_annotation(
+        x=0,
+        y=1.055,
+        xref="x",
+        yref="paper",
+        text="BR",
+        showarrow=False,
+        font=dict(color="blue", size=14),
+        align="center"
+    )
+
+    fig.update_layout(
+        xaxis_title="Frames Relative to Ball Release",
+        yaxis_title="Joint Angle",
+        yaxis=dict(ticksuffix="°"),
+        xaxis_range=[window_start, 50],
+        height=600,
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.30,
+            xanchor="center",
+            x=0.5
+        ),
+        hoverlabel=dict(
+            namelength=-1,
+            font_size=13
+        )
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # --- Joint Angle Table ---
+    if summary_rows:
+        st.markdown("### Joint Angles Summary")
+        df_summary = pd.DataFrame(summary_rows)
+        # Reorder columns explicitly
+        base_columns = [
+            "Kinematic",
+            "Session Date",
+            "Average Velocity",
+            "Max",
+            "Foot Plant",
+            "Ball Release",
+            "Max External Rotation"
+        ]
+
+        if display_mode == "Grouped":
+            column_order = base_columns + ["Standard Deviation"]
+        else:
+            column_order = base_columns
+
+        df_summary = df_summary[column_order]
+
+        import numpy as np
+        def fmt(val, decimals=2):
+            if val is None or (isinstance(val, float) and np.isnan(val)):
+                return ""
+            return f"{val:.{decimals}f}"
+
+        formatters = {
+            "Average Velocity": lambda x: fmt(x, 1),
+            "Max": lambda x: fmt(x, 2),
+            "Foot Plant": lambda x: fmt(x, 2),
+            "Ball Release": lambda x: fmt(x, 2),
+            "Max External Rotation": lambda x: fmt(x, 2),
+        }
+
+        if display_mode == "Grouped":
+            formatters["Standard Deviation"] = lambda x: f"±{fmt(x, 2)}" if x is not None else ""
+
+        styled_summary = (
+            df_summary
+            .style
+            .format(formatters)
+            # Center headers
+            .set_table_styles([
+                {"selector": "th", "props": [("text-align", "center")]}
+            ])
+            # Center label columns
+            .set_properties(
+                subset=["Kinematic", "Session Date"],
+                **{"text-align": "center"}
+            )
+            # Center numeric columns
+            .set_properties(
+                subset=[c for c in df_summary.columns if c not in ["Kinematic", "Session Date"]],
+                **{"text-align": "center"}
+            )
+        )
+        st.dataframe(styled_summary, use_container_width=True)
+
+# --------------------------------------------------
+# Energy Flow Tab
+# --------------------------------------------------
+
+
+# --------------------------------------------------
+# Helper: Compute peak distal arm segment power (W) per take
+# --------------------------------------------------
+def compute_peak_segment_power(power_data, br_frames, fp_event_frames):
+    """
+    Compute peak distal arm segment power (W) per take
+    restricted to Foot Plant → Ball Release.
+    Uses the most negative (minimum) value in the window.
+    """
+    peak_map = {}
+
+    if not fp_event_frames:
+        return peak_map
+
+    median_fp_rel = int(np.median(fp_event_frames))
+
+    for take_id, d in power_data.items():
+        if take_id not in br_frames:
+            continue
+
+        br = br_frames[take_id]
+        frames = np.array(d["frame"], dtype=int)
+        values = np.array(d["value"], dtype=float)
+
+        rel = frames - br
+
+        # STRICT biomechanical window: Foot Plant → Ball Release
+        mask = (rel >= median_fp_rel) & (rel <= 0)
+
+        if not np.any(mask):
+            continue
+
+        peak_map[take_id] = float(np.nanmin(values[mask]))
+
+    return peak_map
+
+
+with tab_energy:
+    st.subheader("Energy Flow")
+
+    display_mode = st.radio(
+        "Select Display Mode",
+        ["Individual Throws", "Grouped"],
+        index=1,
+        horizontal=True,
+        key="energy_display_mode"
+    )
+
+    if not take_ids:
+        st.info("No takes available for Energy Flow.")
+        st.stop()
+
+    # Load segment power
+    power_data = get_distal_arm_segment_power(take_ids, handedness)
+
+    if not power_data:
+        st.warning("No segment power data found.")
+        st.stop()
+
+    fig = go.Figure()
+
+    # --- Date dash styles (same as KS) ---
+    unique_dates = sorted(set(take_date_map.values()))
+    dash_styles = ["solid", "dash", "dot", "dashdot"]
+    date_dash_map = {
+        d: dash_styles[i % len(dash_styles)]
+        for i, d in enumerate(unique_dates)
+    }
+
+    grouped_power = {}
+    grouped_by_date = {}
+    legend_keys_added = set()
+
+    # -------------------------------
+    # Normalize to Ball Release
+    # -------------------------------
+    for take_id, d in power_data.items():
+        if take_id not in br_frames:
+            continue
+
+        frames = d["frame"]
+        values = d["value"]
+        br = br_frames[take_id]
+
+        norm_f, norm_v = [], []
+        for f, v in zip(frames, values):
+            rel = f - br
+            if window_start <= rel <= 50:
+                norm_f.append(rel)
+                norm_v.append(v)
+
+        grouped_power[take_id] = {"frame": norm_f, "value": norm_v}
+
+        date = take_date_map[take_id]
+        grouped_by_date.setdefault(date, {})[take_id] = {
+            "frame": norm_f,
+            "value": norm_v
+        }
+
+        if display_mode == "Individual Throws":
+            fig.add_trace(
+                go.Scatter(
+                    x=norm_f,
+                    y=norm_v,
+                    mode="lines",
+                    line=dict(
+                        color="purple",
+                        dash=date_dash_map[date]
+                    ),
+                    showlegend=False
+                )
+            )
+
+            legend_key = ("Distal Arm Power", date)
+            if legend_key not in legend_keys_added:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[None],
+                        y=[None],
+                        mode="lines",
+                        line=dict(
+                            color="purple",
+                            dash=date_dash_map[date],
+                            width=4
+                        ),
+                        name=f"Distal Arm Power | {date}",
+                        showlegend=True
+                    )
+                )
+                legend_keys_added.add(legend_key)
+
+    # -------------------------------
+    # Grouped (Mean + IQR per date)
+    # -------------------------------
+    if display_mode == "Grouped":
+        for date, curves in grouped_by_date.items():
+            x, y, q1, q3 = aggregate_curves(curves, "Mean")
+
             if len(y) >= 11:
                 y = savgol_filter(y, window_length=11, polyorder=3)
-
-            color = joint_color_map[kinematic]
 
             fig.add_trace(
                 go.Scatter(
                     x=x,
                     y=y,
                     mode="lines",
-                    line=dict(width=4, color=color),
-                    name=f"{kinematic} ({grouped_stat})"
+                    line=dict(
+                        width=4,
+                        color="purple",
+                        dash=date_dash_map[date]
+                    ),
+                    showlegend=False
                 )
             )
 
-            if show_iqr:
-                fig.add_trace(
-                    go.Scatter(
-                        x=x + x[::-1],
-                        y=q3 + q1[::-1],
-                        fill="toself",
-                        fillcolor=f"rgba(0,0,0,0.25)",
-                        line=dict(width=0),
-                        showlegend=False
-                    )
+            fig.add_trace(
+                go.Scatter(
+                    x=x + x[::-1],
+                    y=q3 + q1[::-1],
+                    fill="toself",
+                    fillcolor="rgba(128,0,128,0.35)",
+                    line=dict(width=0),
+                    showlegend=False,
+                    hoverinfo="skip"
                 )
+            )
 
-            max_val = np.max(y)
-            br_val = value_at_frame(x, y, 0)
+            fig.add_trace(
+                go.Scatter(
+                    x=[None],
+                    y=[None],
+                    mode="lines",
+                    line=dict(
+                        color="purple",
+                        dash=date_dash_map[date],
+                        width=4
+                    ),
+                    name=f"Distal Arm Power | {date}",
+                    showlegend=True
+                )
+            )
 
-            fp_val = None
-            if fp_event_frames:
-                median_fp = int(np.median(fp_event_frames))
-                fp_val = value_at_frame(x, y, median_fp)
-
-            max_vals = [np.max(d["value"]) for d in curves.values() if d["value"]]
-            sd_val = np.std(max_vals)
-
-            summary_rows.append({
-                "Kinematic": kinematic,
-                "Take": grouped_stat,
-                "Max": max_val,
-                "At FP": fp_val,
-                "At BR": br_val,
-                "SD": sd_val
-            })
-
-    # Event lines (remain after grouped plotting)
-    if knee_event_frames:
-        fig.add_vline(x=int(np.median(knee_event_frames)), line_dash="dot", line_color="blue")
+    # -------------------------------
+    # Event Lines (REUSED — NO CHANGES)
+    # -------------------------------
     if fp_event_frames:
-        fig.add_vline(x=int(np.median(fp_event_frames)), line_dash="dot", line_color="green")
-    if mer_event_frames:
-        fig.add_vline(x=int(np.median(mer_event_frames)), line_dash="dash", line_color="red")
+        median_fp = int(np.median(fp_event_frames))
+        fig.add_vline(x=median_fp, line_width=3, line_dash="dash", line_color="green")
 
-    fig.add_vline(x=0, line_width=4, line_color="black")
+    if mer_event_frames:
+        median_mer = int(np.median(mer_event_frames))
+        fig.add_vline(x=median_mer, line_width=3, line_dash="dash", line_color="red")
+
+    fig.add_vline(x=0, line_width=3, line_dash="dash", line_color="blue")
 
     fig.update_layout(
         xaxis_title="Frames Relative to Ball Release",
-        yaxis_title="Joint Angle (deg)",
+        yaxis_title="Segment Power (W)",
         xaxis_range=[window_start, 50],
-        height=600
+        height=600,
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.30,
+            xanchor="center",
+            x=0.5
+        ),
+        hoverlabel=dict(
+            namelength=-1,
+            font_size=13
+        )
     )
 
-    # --- Display the summary table before the plot ---
-    if summary_rows:
-        st.markdown("### Joint Angle Summary")
-        df_summary = pd.DataFrame(summary_rows)
-        st.dataframe(
-            df_summary.style.format({
-                "Max": "{:.2f}",
-                "At FP": "{:.2f}",
-                "At BR": "{:.2f}",
-                "SD": "{:.2f}"
-            }),
-            use_container_width=True
-        )
-
     st.plotly_chart(fig, use_container_width=True)
+
+    # -------------------------------
+    # Energy Flow Summary Table
+    # -------------------------------
+    peak_power_map = compute_peak_segment_power(
+        power_data,
+        br_frames,
+        fp_event_frames
+    )
+
+    rows = []
+    pitch_counter = {}
+
+    for take_id in take_ids:
+        if take_id not in peak_power_map:
+            continue
+
+        date = take_date_map[take_id]
+        velo = take_velocity.get(take_id)
+
+        pitch_counter.setdefault(date, 0)
+        pitch_counter[date] += 1
+
+        rows.append({
+            "Session Date": date,
+            "Pitch": f"Pitch {pitch_counter[date]}",
+            "Velocity (mph)": velo,
+            "Peak Segment Power (W)": peak_power_map[take_id]
+        })
+
+    df_energy = pd.DataFrame(rows)
+
+    st.markdown("### Energy Flow Summary")
+
+    if df_energy.empty:
+        st.info("No energy flow summary data available.")
+    else:
+        if display_mode == "Individual Throws":
+            st.dataframe(df_energy, use_container_width=True)
+
+        else:  # Grouped
+            grouped = (
+                df_energy
+                .groupby("Session Date", as_index=False)
+                .agg(
+                    Avg_Velocity_mph=("Velocity (mph)", "mean"),
+                    Avg_Peak_Power_W=("Peak Segment Power (W)", "mean"),
+                    SD_Peak_Power_W=("Peak Segment Power (W)", "std"),
+                    N_Pitches=("Peak Segment Power (W)", "count")
+                )
+            )
+
+            # Ensure numeric dtype before rounding (guards against object dtype)
+            grouped["Avg_Velocity_mph"] = pd.to_numeric(
+                grouped["Avg_Velocity_mph"], errors="coerce"
+            ).round(1)
+
+            grouped["Avg_Peak_Power_W"] = pd.to_numeric(
+                grouped["Avg_Peak_Power_W"], errors="coerce"
+            ).round(1)
+
+            grouped["SD_Peak_Power_W"] = pd.to_numeric(
+                grouped["SD_Peak_Power_W"], errors="coerce"
+            ).round(1)
+
+            st.dataframe(grouped, use_container_width=True)
 
 # --------------------------------------------------
 # Footer
 # --------------------------------------------------
 st.markdown("---")
-st.caption("© Terra Sports | Internal Analytics Dashboard")
+st.caption("© Terra Sports | Biomechanics Dashboard")
