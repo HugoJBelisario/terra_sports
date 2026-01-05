@@ -1,8 +1,45 @@
 import streamlit as st
+
+# --------------------------------------------------
+# Page config
+# --------------------------------------------------
+st.set_page_config(
+    page_title="Terra Sports Dashboard",
+    layout="wide",
+)
+
 import numpy as np
 from scipy.signal import savgol_filter
 from dotenv import load_dotenv
 from db.connection import get_connection
+
+def login():
+    users = st.secrets["auth"]["users"]
+
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if st.session_state.authenticated:
+        return True
+
+    st.title("Login")
+
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        if username in users and users[username] == password:
+            st.session_state.authenticated = True
+            st.session_state.user = username
+            st.rerun()
+        else:
+            st.error("Invalid username or password")
+
+    return False
+
+
+if not login():
+    st.stop()
 
 # --- Safe color resolver for named/hex colors ---
 def to_rgba(color, alpha=0.35):
@@ -1137,13 +1174,6 @@ def get_foot_plant_frame_zero_cross(
             return out
     finally:
         conn.close()
-# --------------------------------------------------
-# Page config
-# --------------------------------------------------
-st.set_page_config(
-    page_title="Terra Sports Dashboard",
-    layout="wide",
-)
 
 # --------------------------------------------------
 # Sidebar
