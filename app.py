@@ -373,17 +373,13 @@ def get_elbow_flexion_angle(take_ids, handedness):
 @st.cache_data(ttl=300)
 def get_shoulder_er_angle(take_ids, handedness):
     """
-    Returns shoulder external rotation angle (x_data) for the throwing shoulder.
+    Returns shoulder external rotation angle (z_data) for the throwing shoulder.
 
     Category: ORIGINAL
     Segments:
       RHP → RT_SHOULDER_ANGLE
       LHP → LT_SHOULDER_ANGLE
     """
-    """
-        Shoulder External Rotation angle (degrees)
-        from JOINT_ANGLES z-axis.
-        """
     if not take_ids:
         return {}
 
