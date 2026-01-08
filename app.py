@@ -380,32 +380,33 @@ def get_shoulder_er_angle(take_ids, handedness):
       RHP → RT_SHOULDER_ANGLE
       LHP → LT_SHOULDER_ANGLE
     """
-    if not take_ids or handedness not in ("R", "L"):
+    """
+        Shoulder External Rotation angle (degrees)
+        from JOINT_ANGLES z-axis.
+        """
+    if not take_ids:
         return {}
 
-    segment_name = (
-        "RT_SHOULDER_ANGLE"
-        if handedness == "R"
-        else "LT_SHOULDER_ANGLE"
-    )
+    segment = "RT_SHOULDER" if handedness == "R" else "LT_SHOULDER"
 
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             placeholders = ",".join(["%s"] * len(take_ids))
             cur.execute(f"""
-                SELECT
-                    ts.take_id,
-                    ts.frame,
-                    ts.z_data
-                FROM time_series_data ts
-                JOIN categories c ON ts.category_id = c.category_id
-                JOIN segments s ON ts.segment_id = s.segment_id
-                WHERE c.category_name = 'ORIGINAL'
-                  AND s.segment_name = %s
-                  AND ts.take_id IN ({placeholders})
-                ORDER BY ts.take_id, ts.frame
-            """, (segment_name, *take_ids))
+                    SELECT
+                        ts.take_id,
+                        ts.frame,
+                        ts.z_data
+                    FROM time_series_data ts
+                    JOIN categories c ON ts.category_id = c.category_id
+                    JOIN segments s ON ts.segment_id = s.segment_id
+                    WHERE c.category_name = 'JOINT_ANGLES'
+                      AND s.segment_name = %s
+                      AND ts.take_id IN ({placeholders})
+                      AND ts.z_data IS NOT NULL
+                    ORDER BY ts.take_id, ts.frame
+                """, (segment, *take_ids))
 
             rows = cur.fetchall()
 
