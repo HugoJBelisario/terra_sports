@@ -2212,18 +2212,12 @@ with tab_kinematic:
                             )
                         )
                     # --- IQR band (always shown for grouped mode) ---
-                    rgba_map = {
-                        "blue": "0,0,255",
-                        "orange": "255,165,0",
-                        "green": "0,128,0",
-                        "red": "255,0,0"
-                    }
                     fig.add_trace(
                         go.Scatter(
                             x=x_date + x_date[::-1],
                             y=q3_date + q1_date[::-1],
                             fill="toself",
-                            fillcolor=f"rgba({rgba_map[color]},0.35)",
+                            fillcolor=to_rgba(color, alpha=0.30),
                             line=dict(width=0),
                             showlegend=False,
                             hoverinfo="skip"
