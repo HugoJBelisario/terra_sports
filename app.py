@@ -1020,7 +1020,7 @@ def get_arm_rot_energy_flow(take_ids, handedness):
     if not take_ids or handedness not in ("R", "L"):
         return {}
 
-    segment_name = "RTA_RAR" if handedness == "R" else "RTA_LAR"
+    segment_name = "RAR" if handedness == "R" else "LAR"
 
     conn = get_connection()
     try:
@@ -1064,7 +1064,7 @@ def get_arm_elev_energy_flow(take_ids, handedness):
     if not take_ids or handedness not in ("R", "L"):
         return {}
 
-    segment_name = "RTA_RAR" if handedness == "R" else "RTA_LAR"
+    segment_name = "RAR" if handedness == "R" else "LAR"
 
     conn = get_connection()
     try:
@@ -1108,7 +1108,7 @@ def get_arm_horizabd_energy_flow(take_ids, handedness):
     if not take_ids or handedness not in ("R", "L"):
         return {}
 
-    segment_name = "RTA_RAR" if handedness == "R" else "RTA_LAR"
+    segment_name = "RAR" if handedness == "R" else "LAR"
 
     conn = get_connection()
     try:
@@ -3129,21 +3129,34 @@ with tab_energy:
                         showlegend=False
                     )
                 )
-                # --- Label take with Pitch # and Velocity ---
+                # --- Label take with Pitch # and Velocity (with marker for hover) ---
                 if norm_f and norm_v:
                     fig.add_trace(
                         go.Scatter(
                             x=[norm_f[-1]],
                             y=[norm_v[-1]],
-                            mode="text",
+                            mode="markers+text",
+                            marker=dict(
+                                size=6,
+                                color=metric_color,
+                                opacity=0.9
+                            ),
                             text=[f"P{take_order[take_id]} | {take_velocity[take_id]:.1f} mph"],
                             textposition="top right",
                             textfont=dict(
                                 size=11,
                                 color=metric_color
                             ),
-                            showlegend=False,
-                            hoverinfo="skip"
+                            hovertext=[
+                                f"""
+                                Pitch: {take_order[take_id]}<br>
+                                Velocity: {take_velocity[take_id]:.1f} mph<br>
+                                Metric: {metric}<br>
+                                Date: {take_date_map[take_id]}
+                                """
+                            ],
+                            hoverinfo="text",
+                            showlegend=False
                         )
                     )
 
