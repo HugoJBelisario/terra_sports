@@ -2734,7 +2734,7 @@ with tab_joint:
 # --------------------------------------------------
 # Helper: Compute peak distal arm segment power (W) per take
 # --------------------------------------------------
-def compute_peak_segment_power(power_data, br_frames, fp_event_frames):
+def compute_peak_segment_power(energy_data, br_frames, fp_event_frames):
     """
     Compute peak distal arm segment power (W) per take
     restricted to Foot Plant → Ball Release.
@@ -2747,7 +2747,7 @@ def compute_peak_segment_power(power_data, br_frames, fp_event_frames):
 
     median_fp_rel = int(np.median(fp_event_frames))
 
-    for take_id, d in power_data.items():
+    for take_id, d in energy_data.items():
         if take_id not in br_frames:
             continue
 
@@ -2821,7 +2821,7 @@ with tab_energy:
     # -------------------------------
     # Normalize to Ball Release
     # -------------------------------
-    for take_id, d in power_data.items():
+    for take_id, d in energy_data.items():
         if take_id not in br_frames:
             continue
 
@@ -2964,7 +2964,7 @@ with tab_energy:
     # Energy Flow Summary Table
     # -------------------------------
     peak_power_map = compute_peak_segment_power(
-        power_data,
+        energy_data,
         br_frames,
         fp_event_frames
     )
