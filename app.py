@@ -3129,6 +3129,23 @@ with tab_energy:
                         showlegend=False
                     )
                 )
+                # --- Label take with Pitch # and Velocity ---
+                if norm_f and norm_v:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[norm_f[-1]],
+                            y=[norm_v[-1]],
+                            mode="text",
+                            text=[f"P{take_order[take_id]} | {take_velocity[take_id]:.1f} mph"],
+                            textposition="top right",
+                            textfont=dict(
+                                size=11,
+                                color=metric_color
+                            ),
+                            showlegend=False,
+                            hoverinfo="skip"
+                        )
+                    )
 
                 legend_key = (metric, date)
                 if legend_key not in legend_keys_added:
