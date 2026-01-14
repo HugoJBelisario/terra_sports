@@ -956,6 +956,7 @@ def get_trunk_shoulder_elev_energy_flow(take_ids, handedness):
 
 
 # --- Trunk–Shoulder Horizontal Abduction/Adduction Energy Flow loader ---
+
 @st.cache_data(ttl=300)
 def get_trunk_shoulder_horizabd_energy_flow(take_ids, handedness):
     """
@@ -999,6 +1000,138 @@ def get_trunk_shoulder_horizabd_energy_flow(take_ids, handedness):
                 data[take_id]["frame"].append(frame)
                 data[take_id]["value"].append(x)
 
+            return data
+    finally:
+        conn.close()
+
+
+# --- Arm Rotational Energy Flow loader ---
+@st.cache_data(ttl=300)
+def get_arm_rot_energy_flow(take_ids, handedness):
+    """
+    Arm rotational energy flow.
+
+    Category: JCS_STP_ROT
+    Segments:
+      RHP → RTA_RAR
+      LHP → RTA_LAR
+    Component: x_data
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "RTA_RAR" if handedness == "R" else "RTA_LAR"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT ts.take_id, ts.frame, ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s   ON ts.segment_id  = s.segment_id
+                WHERE c.category_name = 'JCS_STP_ROT'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.x_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+            data = {}
+            for tid, frame, x in rows:
+                data.setdefault(tid, {"frame": [], "value": []})
+                data[tid]["frame"].append(frame)
+                data[tid]["value"].append(x)
+            return data
+    finally:
+        conn.close()
+
+
+# --- Arm Elevation/Depression Energy Flow loader ---
+@st.cache_data(ttl=300)
+def get_arm_elev_energy_flow(take_ids, handedness):
+    """
+    Arm elevation/depression energy flow.
+
+    Category: JCS_STP_ELEV
+    Segments:
+      RHP → RTA_RAR
+      LHP → RTA_LAR
+    Component: x_data
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "RTA_RAR" if handedness == "R" else "RTA_LAR"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT ts.take_id, ts.frame, ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s   ON ts.segment_id  = s.segment_id
+                WHERE c.category_name = 'JCS_STP_ELEV'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.x_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+            data = {}
+            for tid, frame, x in rows:
+                data.setdefault(tid, {"frame": [], "value": []})
+                data[tid]["frame"].append(frame)
+                data[tid]["value"].append(x)
+            return data
+    finally:
+        conn.close()
+
+
+# --- Arm Horizontal Abduction/Adduction Energy Flow loader ---
+@st.cache_data(ttl=300)
+def get_arm_horizabd_energy_flow(take_ids, handedness):
+    """
+    Arm horizontal abduction/adduction energy flow.
+
+    Category: JCS_STP_HORIZABD
+    Segments:
+      RHP → RTA_RAR
+      LHP → RTA_LAR
+    Component: x_data
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "RTA_RAR" if handedness == "R" else "RTA_LAR"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT ts.take_id, ts.frame, ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s   ON ts.segment_id  = s.segment_id
+                WHERE c.category_name = 'JCS_STP_HORIZABD'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.x_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+            data = {}
+            for tid, frame, x in rows:
+                data.setdefault(tid, {"frame": [], "value": []})
+                data[tid]["frame"].append(frame)
+                data[tid]["value"].append(x)
             return data
     finally:
         conn.close()
@@ -2877,7 +3010,10 @@ with tab_energy:
             "Distal Arm Segment Power",
             "Trunk-Shoulder Rotational Energy Flow",
             "Trunk-Shoulder Elevation/Depression Energy Flow",
-            "Trunk-Shoulder Horizontal Abd/Add Energy Flow"
+            "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
+            "Arm Rotational Energy Flow",
+            "Arm Elevation/Depression Energy Flow",
+            "Arm Horizontal Abd/Add Energy Flow"
         ],
         default=["Distal Arm Segment Power"]
     )
@@ -2903,7 +3039,10 @@ with tab_energy:
         "Distal Arm Segment Power": "#4C1D95",            # deep indigo / purple
         "Trunk-Shoulder Rotational Energy Flow": "#DC2626",  # strong red
         "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",  # vivid blue
-        "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A"     # strong green
+        "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",     # strong green
+        "Arm Rotational Energy Flow": "#F59E0B",        # amber
+        "Arm Elevation/Depression Energy Flow": "#06B6D4",  # cyan
+        "Arm Horizontal Abd/Add Energy Flow": "#9333EA"     # violet
     }
 
     # --- Load all selected metrics ---
@@ -2918,6 +3057,12 @@ with tab_energy:
             energy_data_by_metric[metric] = get_trunk_shoulder_elev_energy_flow(take_ids, handedness)
         elif metric == "Trunk-Shoulder Horizontal Abd/Add Energy Flow":
             energy_data_by_metric[metric] = get_trunk_shoulder_horizabd_energy_flow(take_ids, handedness)
+        elif metric == "Arm Rotational Energy Flow":
+            energy_data_by_metric[metric] = get_arm_rot_energy_flow(take_ids, handedness)
+        elif metric == "Arm Elevation/Depression Energy Flow":
+            energy_data_by_metric[metric] = get_arm_elev_energy_flow(take_ids, handedness)
+        elif metric == "Arm Horizontal Abd/Add Energy Flow":
+            energy_data_by_metric[metric] = get_arm_horizabd_energy_flow(take_ids, handedness)
 
     energy_data_by_metric = {
         k: v for k, v in energy_data_by_metric.items() if v
