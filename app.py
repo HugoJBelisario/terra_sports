@@ -2898,12 +2898,12 @@ with tab_energy:
         st.info("No takes available for Energy Flow.")
         st.stop()
 
-    # --- Fixed color map for Energy Flow metrics ---
+    # --- Fixed color map for Energy Flow metrics (high-contrast palette) ---
     energy_color_map = {
-        "Distal Arm Segment Power": "#7b3294",        # purple
-        "Trunk-Shoulder Rotational Energy Flow": "#008837",   # green
-        "Trunk-Shoulder Elevation/Depression Energy Flow": "#d95f02",  # orange
-        "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#1b9e77"     # teal
+        "Distal Arm Segment Power": "#4C1D95",            # deep indigo / purple
+        "Trunk-Shoulder Rotational Energy Flow": "#DC2626",  # strong red
+        "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",  # vivid blue
+        "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A"     # strong green
     }
 
     # --- Load all selected metrics ---
