@@ -857,6 +857,53 @@ def get_distal_arm_segment_power(take_ids, handedness):
         conn.close()
 
 @st.cache_data(ttl=300)
+def get_trunk_shoulder_rot_energy_flow(take_ids, handedness):
+    """
+    Trunk–Shoulder rotational energy flow.
+
+    Category: JCS_STP_ROT
+    Segments:
+      RHP → RTA_RAR
+      LHP → RTA_LAR
+    Component: x_data
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "RTA_RAR" if handedness == "R" else "RTA_LAR"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s   ON ts.segment_id  = s.segment_id
+                WHERE c.category_name = 'JCS_STP_ROT'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.x_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, x in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+
+            return data
+    finally:
+        conn.close()
+
+@st.cache_data(ttl=300)
 def get_hand_cg_velocity(take_ids, handedness):
     """
     Returns CG velocity (x_data) for the throwing hand based on handedness.
@@ -2724,6 +2771,15 @@ def compute_peak_segment_power(power_data, br_frames, fp_event_frames):
 with tab_energy:
     st.subheader("Energy Flow")
 
+    energy_metric = st.selectbox(
+        "Select Energy Flow Metric",
+        [
+            "Distal Arm Segment Power",
+            "Trunk-Shoulder Rotational Energy Flow"
+        ],
+        index=0
+    )
+
     display_mode = st.radio(
         "Select Display Mode",
         ["Individual Throws", "Grouped"],
@@ -2737,10 +2793,15 @@ with tab_energy:
         st.stop()
 
     # Load segment power
-    power_data = get_distal_arm_segment_power(take_ids, handedness)
+    if energy_metric == "Distal Arm Segment Power":
+        energy_data = get_distal_arm_segment_power(take_ids, handedness)
+        energy_title = "Distal Arm Segment Power"
+    elif energy_metric == "Trunk-Shoulder Rotational Energy Flow":
+        energy_data = get_trunk_shoulder_rot_energy_flow(take_ids, handedness)
+        energy_title = "Trunk-Shoulder Rotational Energy Flow"
 
-    if not power_data:
-        st.warning("No segment power data found.")
+    if not energy_data:
+        st.warning("No segment energy data found.")
         st.stop()
 
     fig = go.Figure()
