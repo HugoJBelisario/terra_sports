@@ -1178,6 +1178,7 @@ def get_hand_cg_velocity(take_ids, handedness):
     finally:
         conn.close()
 
+
 @st.cache_data(ttl=300)
 def get_shoulder_er_angles(take_ids, handedness):
     """
@@ -1217,6 +1218,54 @@ def get_shoulder_er_angles(take_ids, handedness):
                 data.setdefault(take_id, {"frame": [], "z": []})
                 data[take_id]["frame"].append(frame)
                 data[take_id]["z"].append(z)
+
+            return data
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300)
+def get_forearm_pron_sup_angle(take_ids, handedness):
+    """
+    Forearm Pronation / Supination angle.
+
+    Category: ORIGINAL
+    Segments:
+      RHP → RT_ELBOW_ANGLE
+      LHP → LT_ELBOW_ANGLE
+    Component: z_data
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "RT_ELBOW_ANGLE" if handedness == "R" else "LT_ELBOW_ANGLE"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s   ON ts.segment_id  = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.z_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, z in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(z)
 
             return data
     finally:
@@ -2550,52 +2599,6 @@ with tab_joint:
         joint_data["Forearm Pronation/Supination"] = get_forearm_pron_sup_angle(
             take_ids, handedness
         )
-    @st.cache_data(ttl=300)
-    def get_forearm_pron_sup_angle(take_ids, handedness):
-        """
-        Forearm Pronation / Supination angle.
-
-        Category: ORIGINAL
-        Segments:
-          RHP → RT_ELBOW_ANGLE
-          LHP → LT_ELBOW_ANGLE
-        Component: z_data
-        """
-        if not take_ids or handedness not in ("R", "L"):
-            return {}
-
-        segment_name = "RT_ELBOW_ANGLE" if handedness == "R" else "LT_ELBOW_ANGLE"
-
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                placeholders = ",".join(["%s"] * len(take_ids))
-                cur.execute(f"""
-                    SELECT
-                        ts.take_id,
-                        ts.frame,
-                        ts.z_data
-                    FROM time_series_data ts
-                    JOIN categories c ON ts.category_id = c.category_id
-                    JOIN segments s   ON ts.segment_id  = s.segment_id
-                    WHERE c.category_name = 'ORIGINAL'
-                      AND s.segment_name = %s
-                      AND ts.take_id IN ({placeholders})
-                      AND ts.z_data IS NOT NULL
-                    ORDER BY ts.take_id, ts.frame
-                """, (segment_name, *take_ids))
-
-                rows = cur.fetchall()
-
-                data = {}
-                for take_id, frame, z in rows:
-                    data.setdefault(take_id, {"frame": [], "value": []})
-                    data[take_id]["frame"].append(frame)
-                    data[take_id]["value"].append(z)
-
-                return data
-        finally:
-            conn.close()
 
     if "Front Knee Flexion" in selected_kinematics:
         joint_data["Front Knee Flexion"] = get_front_knee_flexion_angle(
