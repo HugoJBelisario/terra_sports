@@ -2697,8 +2697,7 @@ with tab_joint:
                     # --- Handedness normalization ---
                     if handedness == "R" and kinematic in [
                         "Shoulder Horizontal Abduction",
-                        "Shoulder ER",
-                        "Forearm Pronation/Supination"
+                        "Shoulder ER"
                     ]:
                         norm_v.append(-v)
                     else:
