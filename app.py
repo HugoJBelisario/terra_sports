@@ -1952,6 +1952,12 @@ with tab_kinematic:
                                 color="orange",
                                 dash=date_dash_map[take_date_map[take_id]]
                             ),
+                            customdata=[[ "Torso", take_date_map[take_id], take_order[take_id], take_velocity[take_id] ]] * len(norm_torso_frames),
+                            hovertemplate=(
+                                "%{customdata[0]} – %{customdata[1]} | "
+                                "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
+                                "<extra></extra>"
+                            ),
                             showlegend=False
                         )
                     )
@@ -2009,6 +2015,12 @@ with tab_kinematic:
                             line=dict(
                                 color="green",
                                 dash=date_dash_map[take_date_map[take_id]]
+                            ),
+                            customdata=[[ "Elbow", take_date_map[take_id], take_order[take_id], take_velocity[take_id] ]] * len(norm_elbow_frames),
+                            hovertemplate=(
+                                "%{customdata[0]} – %{customdata[1]} | "
+                                "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
+                                "<extra></extra>"
                             ),
                             showlegend=False
                         )
@@ -2071,6 +2083,12 @@ with tab_kinematic:
                                 color="red",
                                 dash=date_dash_map[take_date_map[take_id]]
                             ),
+                            customdata=[[ "Shoulder", take_date_map[take_id], take_order[take_id], take_velocity[take_id] ]] * len(norm_sh_frames),
+                            hovertemplate=(
+                                "%{customdata[0]} – %{customdata[1]} | "
+                                "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
+                                "<extra></extra>"
+                            ),
                             showlegend=False
                         )
                     )
@@ -2105,6 +2123,12 @@ with tab_kinematic:
                         line=dict(
                             color="blue",
                             dash=date_dash_map[take_date_map[take_id]]
+                        ),
+                        customdata=[[ "Pelvis", take_date_map[take_id], take_order[take_id], take_velocity[take_id] ]] * len(norm_frames),
+                        hovertemplate=(
+                            "%{customdata[0]} – %{customdata[1]} | "
+                            "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
+                            "<extra></extra>"
                         ),
                         showlegend=False
                     )
@@ -2205,6 +2229,11 @@ with tab_kinematic:
                                 width=4,
                                 color=color,
                                 dash=dash,
+                            ),
+                            customdata=[[label, date]] * len(x_date),
+                            hovertemplate=(
+                                "%{customdata[0]} | %{customdata[1]}"
+                                "<extra></extra>"
                             ),
                             showlegend=False
                         )
