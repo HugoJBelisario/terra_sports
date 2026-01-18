@@ -8,6 +8,12 @@ st.set_page_config(
     layout="wide",
 )
 
+# --------------------------------------------------
+# Timing constants
+# --------------------------------------------------
+KINEMATIC_FPS = 250
+MS_PER_FRAME = 1000 / KINEMATIC_FPS  # 4 ms per frame
+
 import numpy as np
 from scipy.signal import savgol_filter
 from dotenv import load_dotenv
@@ -2240,10 +2246,16 @@ with tab_kinematic:
                         max_y = y_date[max_idx]
                         # Store peak for summary table (only once per segment, keep old logic)
                         if date == list(curves_by_date.keys())[0]:
+                            pelvis_time_ms_grouped = None
+                            if label == "Pelvis" and fp_event_frames:
+                                fp_rel = int(np.median(fp_event_frames))  # FP relative to BR (frames)
+                                pelvis_time_ms_grouped = (max_x - fp_rel) * MS_PER_FRAME
+
                             kinematic_peak_rows.append({
                                 "Segment": label,
                                 "Peak Value (°/s)": max_y,
-                                "Peak Frame (rel BR)": max_x
+                                "Peak Frame (rel BR)": max_x,
+                                "Peak Time from FP (ms)": pelvis_time_ms_grouped if label == "Pelvis" else None
                             })
                         y_offset = arrow_offset * 0.6
                         fig.add_trace(
@@ -2408,6 +2420,14 @@ with tab_kinematic:
                     return vals[idx], frames[idx]
 
                 pelvis_peak, pelvis_frame = peak_and_frame(grouped_pelvis)
+                # Pelvis peak timing from Foot Plant (zero-cross), in ms (250 Hz)
+                pelvis_time_ms = None
+                fp_abs = foot_plant_zero_cross_frames.get(take_id)  # absolute frame
+                br_abs = br_frames.get(take_id)  # absolute frame
+
+                if pelvis_frame is not None and fp_abs is not None and br_abs is not None:
+                    fp_rel = fp_abs - br_abs  # FP relative to BR (frames)
+                    pelvis_time_ms = (pelvis_frame - fp_rel) * MS_PER_FRAME
                 torso_peak, torso_frame = peak_and_frame(grouped_torso)
                 elbow_peak, elbow_frame = peak_and_frame(grouped_elbow)
                 shoulder_peak, shoulder_frame = peak_and_frame(grouped_shoulder_ir)
@@ -2417,7 +2437,7 @@ with tab_kinematic:
                     "Pitch": take_order[take_id],
                     "Velocity (mph)": take_velocity[take_id],
                     "Pelvis Peak (°/s)": pelvis_peak,
-                    "Pelvis Frame": pelvis_frame,
+                    "Pelvis Time from FP (ms)": pelvis_time_ms,
                     "Torso Peak (°/s)": torso_peak,
                     "Torso Frame": torso_frame,
                     "Elbow Peak (°/s)": elbow_peak,
@@ -2452,7 +2472,7 @@ with tab_kinematic:
                         "Torso Peak (°/s)": lambda x: fmt(x, 1),
                         "Elbow Peak (°/s)": lambda x: fmt(x, 1),
                         "Shoulder IR Peak (°/s)": lambda x: fmt(x, 1),
-                        "Pelvis Frame": lambda x: fmt(x, 0),
+                        "Pelvis Time from FP (ms)": lambda x: "" if x is None else f"{x:.0f}",
                         "Torso Frame": lambda x: fmt(x, 0),
                         "Elbow Frame": lambda x: fmt(x, 0),
                         "Shoulder IR Frame": lambda x: fmt(x, 0),
@@ -2480,6 +2500,9 @@ with tab_kinematic:
                 pivot[(seg, "Peak (°/s)")] = [row["Peak Value (°/s)"]]
                 pivot[(seg, "Peak Frame")] = [row["Peak Frame (rel BR)"]]
 
+                if seg == "Pelvis":
+                    pivot[(seg, "Peak Time from FP (ms)")] = [row.get("Peak Time from FP (ms)")]
+
             df_pivot = pd.DataFrame(pivot)
             df_pivot.columns = pd.MultiIndex.from_tuples(df_pivot.columns)
 
@@ -2503,8 +2526,8 @@ with tab_kinematic:
             for col in df_display.columns:
                 if "Peak" in col[1] and "°/s" in col[1]:
                     df_display[col] = df_display[col].map(lambda x: f"{x:.1f}")
-                elif "Frame" in col[1]:
-                    df_display[col] = df_display[col].map(lambda x: f"{x:.0f}")
+                elif "Time from FP" in col[1]:
+                    df_display[col] = df_display[col].map(lambda x: "" if x is None else f"{x:.0f}")
 
             # --- Styling (CSS only) ---
             styled = (
