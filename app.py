@@ -3382,17 +3382,47 @@ with tab_energy:
                 )
 
     # -------------------------------
-    # Event Lines (REUSED — NO CHANGES)
+    # Event Lines (with text labels above)
     # -------------------------------
     if fp_event_frames:
         median_fp = int(np.median(fp_event_frames))
         fig.add_vline(x=median_fp, line_width=3, line_dash="dash", line_color="green")
+        fig.add_annotation(
+            x=median_fp,
+            y=1.06,
+            xref="x",
+            yref="paper",
+            text="FP",
+            showarrow=False,
+            font=dict(color="green", size=14, family="Arial Black"),
+            align="center"
+        )
 
     if mer_event_frames:
         median_mer = int(np.median(mer_event_frames))
         fig.add_vline(x=median_mer, line_width=3, line_dash="dash", line_color="red")
+        fig.add_annotation(
+            x=median_mer,
+            y=1.06,
+            xref="x",
+            yref="paper",
+            text="MER",
+            showarrow=False,
+            font=dict(color="red", size=14, family="Arial Black"),
+            align="center"
+        )
 
     fig.add_vline(x=0, line_width=3, line_dash="dash", line_color="blue")
+    fig.add_annotation(
+        x=0,
+        y=1.06,
+        xref="x",
+        yref="paper",
+        text="BR",
+        showarrow=False,
+        font=dict(color="blue", size=14, family="Arial Black"),
+        align="center"
+    )
 
     fig.update_layout(
         xaxis_title="Frames Relative to Ball Release",
