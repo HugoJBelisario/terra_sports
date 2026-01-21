@@ -3394,7 +3394,7 @@ with tab_energy:
             yref="paper",
             text="FP",
             showarrow=False,
-            font=dict(color="green", size=14, family="Arial"),
+            font=dict(color="green", size=13, family="Arial"),
             align="center"
         )
 
@@ -3408,7 +3408,7 @@ with tab_energy:
             yref="paper",
             text="MER",
             showarrow=False,
-            font=dict(color="red", size=14, family="Arial"),
+            font=dict(color="red", size=13, family="Arial"),
             align="center"
         )
 
@@ -3420,7 +3420,7 @@ with tab_energy:
         yref="paper",
         text="BR",
         showarrow=False,
-        font=dict(color="blue", size=14, family="Arial"),
+        font=dict(color="blue", size=13, family="Arial"),
         align="center"
     )
 
