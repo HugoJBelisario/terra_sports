@@ -814,6 +814,52 @@ def get_shoulder_ir_velocity(take_ids, handedness):
     finally:
         conn.close()
 
+@st.cache_data(ttl=300)
+def get_arm_proximal_energy_transfer(take_ids, handedness):
+    """
+    Arm proximal energy transfer (power flowing into the arm).
+
+    Category: SEGMENT_POWERS
+    Segments:
+      RHP → RAR_PROX
+      LHP → LAR_PROX
+    Component: x_data
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "RAR_PROX" if handedness == "R" else "LAR_PROX"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'SEGMENT_POWERS'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.x_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, x in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+
+            return data
+    finally:
+        conn.close()
 
 # --- DISTAL ARM SEGMENT POWER loader ---
 @st.cache_data(ttl=300)
@@ -3110,6 +3156,7 @@ with tab_energy:
         "Select Energy Flow Metrics",
         [
             "Distal Arm Segment Power",
+            "Arm Proximal Energy Transfer",
             "Trunk-Shoulder Rotational Energy Flow",
             "Trunk-Shoulder Elevation/Depression Energy Flow",
             "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
@@ -3139,6 +3186,7 @@ with tab_energy:
     # --- Fixed color map for Energy Flow metrics (high-contrast palette) ---
     energy_color_map = {
         "Distal Arm Segment Power": "#4C1D95",            # deep indigo / purple
+        "Arm Proximal Energy Transfer": "#7C2D12",        # dark brown
         "Trunk-Shoulder Rotational Energy Flow": "#DC2626",  # strong red
         "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",  # vivid blue
         "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",     # strong green
@@ -3153,6 +3201,8 @@ with tab_energy:
     for metric in energy_metrics:
         if metric == "Distal Arm Segment Power":
             energy_data_by_metric[metric] = get_distal_arm_segment_power(take_ids, handedness)
+        elif metric == "Arm Proximal Energy Transfer":
+            energy_data_by_metric[metric] = get_arm_proximal_energy_transfer(take_ids, handedness)
         elif metric == "Trunk-Shoulder Rotational Energy Flow":
             energy_data_by_metric[metric] = get_trunk_shoulder_rot_energy_flow(take_ids, handedness)
         elif metric == "Trunk-Shoulder Elevation/Depression Energy Flow":
