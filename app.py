@@ -2821,7 +2821,12 @@ with tab_joint:
                             color=joint_color_map[kinematic],
                             dash=date_dash_map[take_date_map[take_id]]
                         ),
-                        name=f"{kinematic} – {take_date_map[take_id]} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)",
+                        customdata=[[kinematic, take_date_map[take_id], take_order[take_id], take_velocity[take_id]]] * len(norm_f),
+                        hovertemplate=(
+                            "%{customdata[0]} – %{customdata[1]} | "
+                            "Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
+                            "<extra></extra>"
+                        ),
                         showlegend=False
                     )
                 )
@@ -2901,7 +2906,12 @@ with tab_joint:
                         y=y,
                         mode="lines",
                         line=dict(width=4, color=color, dash=dash),
-                        name=f"{kinematic} – {date}"
+                        customdata=[[kinematic, date]] * len(x),
+                        hovertemplate=(
+                            "%{customdata[0]} – %{customdata[1]}"
+                            "<extra></extra>"
+                        ),
+                        showlegend=False
                     )
                 )
 
