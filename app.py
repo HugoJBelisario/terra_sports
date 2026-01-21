@@ -3309,7 +3309,7 @@ with tab_energy:
                         x=x + x[::-1],
                         y=q3 + q1[::-1],
                         fill="toself",
-                        fillcolor=f"{metric_color}55",
+                        fillcolor=to_rgba(metric_color, alpha=0.35),
                         line=dict(width=0),
                         showlegend=False,
                         hoverinfo="skip"
