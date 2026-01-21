@@ -3425,81 +3425,45 @@ with tab_energy:
     st.plotly_chart(fig, use_container_width=True)
 
     # --------------------------------------------------
-    # Energy Flow – Time-Series Data Table (Exact Plot Data)
+    # Energy Flow – Pivoted Table by Metric (ONE frame axis)
     # --------------------------------------------------
     import pandas as pd
+    import numpy as np
 
-    table_rows = []
+    # 1) Build a common frame axis (relative to BR)
+    common_frames = sorted(
+        set(
+            frame
+            for metric_data in energy_data_by_metric.values()
+            for take_data in metric_data.values()
+            for frame in take_data["frame"]
+        )
+    )
 
-    if display_mode == "Individual Throws":
-        for metric, energy_data in energy_data_by_metric.items():
-            for take_id, d in energy_data.items():
-                if take_id not in br_frames:
-                    continue
+    energy_table = pd.DataFrame({"Frame (rel BR)": common_frames})
 
-                frames = d.get("frame", [])
-                values = d.get("value", [])
-                br = br_frames[take_id]
+    # 2) Add one column per selected metric
+    for metric in energy_metrics:
+        metric_series = {}
 
-                for f, v in zip(frames, values):
-                    rel = f - br
-                    if window_start <= rel <= 50:
-                        table_rows.append({
-                            "Session Date": take_date_map.get(take_id),
-                            "Pitch": take_order.get(take_id),
-                            "Velocity (mph)": take_velocity.get(take_id),
-                            "Metric": metric,
-                            "Frame (rel BR)": rel,
-                            "Value": v
-                        })
+        for take_id, data in energy_data_by_metric[metric].items():
+            for f, v in zip(data["frame"], data["value"]):
+                metric_series.setdefault(f, []).append(v)
 
-    else:  # Grouped
-        for metric, energy_data in energy_data_by_metric.items():
-            grouped_by_date = {}
-            for take_id, d in energy_data.items():
-                if take_id not in br_frames:
-                    continue
+        # Average across takes if multiple exist
+        metric_values = [
+            np.nanmean(metric_series.get(f, [np.nan]))
+            for f in common_frames
+        ]
 
-                date = take_date_map[take_id]
-                grouped_by_date.setdefault(date, []).append((take_id, d))
+        energy_table[metric] = metric_values
 
-            for date, items in grouped_by_date.items():
-                curves = {
-                    tid: {
-                        "frame": [
-                            f - br_frames[tid]
-                            for f in d["frame"]
-                            if window_start <= (f - br_frames[tid]) <= 50
-                        ],
-                        "value": [
-                            v for f, v in zip(d["frame"], d["value"])
-                            if window_start <= (f - br_frames[tid]) <= 50
-                        ]
-                    }
-                    for tid, d in items
-                }
-
-                x, y, _, _ = aggregate_curves(curves, "Mean")
-
-                for f, v in zip(x, y):
-                    table_rows.append({
-                        "Session Date": date,
-                        "Pitch": "Grouped",
-                        "Velocity (mph)": None,
-                        "Metric": metric,
-                        "Frame (rel BR)": f,
-                        "Value": v
-                    })
-
-    if table_rows:
-        df_energy_ts = pd.DataFrame(table_rows)
-
-        with st.expander("Show Energy Flow Time-Series Data"):
-            st.dataframe(
-                df_energy_ts,
-                use_container_width=True,
-                hide_index=True
-            )
+    # 3) Display the table
+    st.dataframe(
+        energy_table,
+        use_container_width=True,
+        height=400
+    )
 
     # -------------------------------
     # Energy Flow Summary Table (structure unchanged)
