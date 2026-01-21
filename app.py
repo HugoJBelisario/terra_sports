@@ -3425,45 +3425,93 @@ with tab_energy:
     st.plotly_chart(fig, use_container_width=True)
 
     # --------------------------------------------------
-    # Energy Flow – Pivoted Table by Metric (ONE frame axis)
+    # Energy Flow Table (Individual mode: per-pitch, long format with velocity)
     # --------------------------------------------------
     import pandas as pd
     import numpy as np
 
-    # 1) Build a common frame axis (relative to BR)
-    common_frames = sorted(
-        set(
-            frame
-            for metric_data in energy_data_by_metric.values()
-            for take_data in metric_data.values()
-            for frame in take_data["frame"]
+    if display_mode == "Individual Throws":
+        rows = []
+
+        for take_id in take_ids:
+            pitch_num = take_order.get(take_id)
+            velo = take_velocity.get(take_id)
+
+            for metric in energy_metrics:
+                metric_data = energy_data_by_metric.get(metric, {})
+                take_data = metric_data.get(take_id)
+
+                if not take_data:
+                    continue
+
+                for frame, value in zip(take_data["frame"], take_data["value"]):
+                    rows.append({
+                        "Pitch": f"Pitch {pitch_num}",
+                        "Frame (rel BR)": frame,
+                        "Velocity (mph)": velo,
+                        metric: value
+                    })
+
+        # Build dataframe
+        energy_df = pd.DataFrame(rows)
+
+        # Pivot so each metric becomes its own column
+        energy_df = (
+            energy_df
+            .groupby(["Pitch", "Frame (rel BR)", "Velocity (mph)"])
+            .first()
+            .reset_index()
         )
-    )
 
-    energy_table = pd.DataFrame({"Frame (rel BR)": common_frames})
+        # Ensure metric columns are ordered after metadata
+        ordered_cols = (
+            ["Pitch", "Frame (rel BR)", "Velocity (mph)"] +
+            [m for m in energy_metrics if m in energy_df.columns]
+        )
 
-    # 2) Add one column per selected metric
-    for metric in energy_metrics:
-        metric_series = {}
+        energy_df = energy_df[ordered_cols]
 
-        for take_id, data in energy_data_by_metric[metric].items():
-            for f, v in zip(data["frame"], data["value"]):
-                metric_series.setdefault(f, []).append(v)
+        st.dataframe(
+            energy_df,
+            use_container_width=True,
+            height=420
+        )
+    else:
+        # (Grouped mode: original table logic remains unchanged)
+        # 1) Build a common frame axis (relative to BR)
+        common_frames = sorted(
+            set(
+                frame
+                for metric_data in energy_data_by_metric.values()
+                for take_data in metric_data.values()
+                for frame in take_data["frame"]
+            )
+        )
 
-        # Average across takes if multiple exist
-        metric_values = [
-            np.nanmean(metric_series.get(f, [np.nan]))
-            for f in common_frames
-        ]
+        energy_table = pd.DataFrame({"Frame (rel BR)": common_frames})
 
-        energy_table[metric] = metric_values
+        # 2) Add one column per selected metric
+        for metric in energy_metrics:
+            metric_series = {}
 
-    # 3) Display the table
-    st.dataframe(
-        energy_table,
-        use_container_width=True,
-        height=400
-    )
+            for take_id, data in energy_data_by_metric[metric].items():
+                for f, v in zip(data["frame"], data["value"]):
+                    metric_series.setdefault(f, []).append(v)
+
+            # Average across takes if multiple exist
+            metric_values = [
+                np.nanmean(metric_series.get(f, [np.nan]))
+                for f in common_frames
+            ]
+
+            energy_table[metric] = metric_values
+
+        # 3) Display the table
+        st.dataframe(
+            energy_table,
+            use_container_width=True,
+            height=400
+        )
 
     # -------------------------------
     # Energy Flow Summary Table (structure unchanged)
