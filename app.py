@@ -2821,12 +2821,7 @@ with tab_joint:
                             color=joint_color_map[kinematic],
                             dash=date_dash_map[take_date_map[take_id]]
                         ),
-                        customdata=[[kinematic, take_date_map[take_id], take_order[take_id], take_velocity[take_id]]] * len(norm_f),
-                        hovertemplate=(
-                            "%{customdata[0]} – %{customdata[1]} | "
-                            "Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
-                            "<extra></extra>"
-                        ),
+                        name=f"{kinematic} – {take_date_map[take_id]} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)",
                         showlegend=False
                     )
                 )
@@ -2906,12 +2901,7 @@ with tab_joint:
                         y=y,
                         mode="lines",
                         line=dict(width=4, color=color, dash=dash),
-                        customdata=[[kinematic, date]] * len(x),
-                        hovertemplate=(
-                            "%{customdata[0]} – %{customdata[1]}"
-                            "<extra></extra>"
-                        ),
-                        showlegend=False
+                        name=f"{kinematic} – {date}"
                     )
                 )
 
@@ -3288,40 +3278,15 @@ with tab_energy:
                             color=metric_color,
                             dash=date_dash_map[date]
                         ),
+                        customdata=[[metric, date, take_order[take_id], take_velocity[take_id]]] * len(norm_f),
+                        hovertemplate=(
+                            "%{customdata[0]} – %{customdata[1]} | "
+                            "Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
+                            "<extra></extra>"
+                        ),
                         showlegend=False
                     )
                 )
-                # --- Label take with Pitch # and Velocity (with marker for hover) ---
-                if norm_f and norm_v:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=[norm_f[-1]],
-                            y=[norm_v[-1]],
-                            mode="markers+text",
-                            marker=dict(
-                                size=6,
-                                color=metric_color,
-                                opacity=0.9
-                            ),
-                            text=[f"P{take_order[take_id]} | {take_velocity[take_id]:.1f} mph"],
-                            textposition="top right",
-                            textfont=dict(
-                                size=11,
-                                color=metric_color
-                            ),
-                            hovertext=[
-                                f"""
-                                Pitch: {take_order[take_id]}<br>
-                                Velocity: {take_velocity[take_id]:.1f} mph<br>
-                                Metric: {metric}<br>
-                                Date: {take_date_map[take_id]}
-                                """
-                            ],
-                            hoverinfo="text",
-                            showlegend=False
-                        )
-                    )
-
                 legend_key = (metric, date)
                 if legend_key not in legend_keys_added:
                     fig.add_trace(
@@ -3359,6 +3324,11 @@ with tab_energy:
                             width=4,
                             color=metric_color,
                             dash=date_dash_map[date]
+                        ),
+                        customdata=[[metric, date]] * len(x),
+                        hovertemplate=(
+                            "%{customdata[0]} – %{customdata[1]}"
+                            "<extra></extra>"
                         ),
                         showlegend=False
                     )
