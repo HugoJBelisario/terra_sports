@@ -2255,25 +2255,7 @@ with tab_kinematic:
                 if not curves:
                     continue
 
-                x, y, q1, q3 = aggregate_curves(curves, "Mean")
-                color = color_map[label]
-
-                # --- Savitzky–Golay smoothing (grouped curves only) ---
-                # Preserves peak timing and magnitude
-                if len(y) >= 11:
-                    y  = savgol_filter(y,  window_length=7, polyorder=3)
-                    #q1 = savgol_filter(q1, window_length=11, polyorder=3)
-                    #q3 = savgol_filter(q3, window_length=11, polyorder=3)
-
-                # --- Grouped curve (NO legend entry, color = segment, dash = session date) ---
-                # Determine date from the first take in this segment's group
-                # (all takes in curves should be from the same date in grouped mode)
-                # But in this code, curves is {take_id: ...} for all takes, possibly from multiple dates
-                # For condensed legend, we want one entry per (segment x date)
-                # So, for each unique date in this segment's curves, plot the curve with its dash and color
-                # (But in the current grouped code, only one curve is plotted per segment, not per date)
-                # To match individual condensed legend, we need to plot one grouped curve per (segment x date)
-                # So, group curves by date:
+                # Group curves by date
                 from collections import defaultdict
                 curves_by_date = defaultdict(dict)
                 for take_id, d in curves.items():
@@ -2281,12 +2263,13 @@ with tab_kinematic:
                     curves_by_date[date][take_id] = d
                 for date, curves_date in curves_by_date.items():
                     x_date, y_date, q1_date, q3_date = aggregate_curves(curves_date, "Mean")
+                    color = color_map[label]
                     # Smoothing
                     if len(y_date) >= 11:
                         y_date = savgol_filter(y_date, window_length=7, polyorder=3)
                     dash = date_dash_map[date]
                     legendgroup = f"{label}_{date}"
-                    # --- Grouped curve (no legend) ---
+                    # --- Grouped curve (no legend, but legendgroup set) ---
                     fig.add_trace(
                         go.Scatter(
                             x=x_date,
@@ -2306,7 +2289,7 @@ with tab_kinematic:
                             legendgroup=legendgroup
                         )
                     )
-                    # --- Legend-only trace (once per Segment + Date) ---
+                    # --- Legend-only trace (once per Segment + Date, legendgroup set) ---
                     legend_key = (label, date)
                     if legend_key not in legend_keys_added:
                         fig.add_trace(
@@ -2370,7 +2353,7 @@ with tab_kinematic:
                                 hoverinfo="skip"
                             )
                         )
-                    # --- IQR band (always shown for grouped mode) ---
+                    # --- IQR band (with legendgroup for toggleitem) ---
                     fig.add_trace(
                         go.Scatter(
                             x=x_date + x_date[::-1],
@@ -2379,7 +2362,8 @@ with tab_kinematic:
                             fillcolor=to_rgba(color, alpha=0.30),
                             line=dict(width=0),
                             showlegend=False,
-                            hoverinfo="skip"
+                            hoverinfo="skip",
+                            legendgroup=legendgroup
                         )
                     )
 
