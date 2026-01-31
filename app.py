@@ -2285,6 +2285,7 @@ with tab_kinematic:
                     if len(y_date) >= 11:
                         y_date = savgol_filter(y_date, window_length=7, polyorder=3)
                     dash = date_dash_map[date]
+                    legendgroup = f"{label}_{date}"
                     # --- Grouped curve (no legend) ---
                     fig.add_trace(
                         go.Scatter(
@@ -2301,7 +2302,8 @@ with tab_kinematic:
                                 "%{customdata[0]} | %{customdata[1]}"
                                 "<extra></extra>"
                             ),
-                            showlegend=False
+                            showlegend=False,
+                            legendgroup=legendgroup
                         )
                     )
                     # --- Legend-only trace (once per Segment + Date) ---
@@ -2318,7 +2320,8 @@ with tab_kinematic:
                                     width=4
                                 ),
                                 name=f"{label} AV | {date}",
-                                showlegend=True
+                                showlegend=True,
+                                legendgroup=legendgroup
                             )
                         )
                         legend_keys_added.add(legend_key)
