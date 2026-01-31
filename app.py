@@ -1988,6 +1988,7 @@ with tab_kinematic:
                 }
 
                 if norm_torso_frames and display_mode == "Individual Throws":
+                    legendgroup = f"Torso_{take_date_map[take_id]}"
                     # Actual data trace (no legend)
                     fig.add_trace(
                         go.Scatter(
@@ -2004,7 +2005,9 @@ with tab_kinematic:
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
                                 "<extra></extra>"
                             ),
-                            showlegend=False
+                            showlegend=False,
+                            legendgroup=legendgroup,
+                            legendgrouptitle_text=None
                         )
                     )
                     # Legend-only trace (once per Torso + Date)
@@ -2021,7 +2024,9 @@ with tab_kinematic:
                                     width=4
                                 ),
                                 name=f"Torso AV | {take_date_map[take_id]}",
-                                showlegend=True
+                                showlegend=True,
+                                legendgroup=legendgroup,
+                                legendgrouptitle_text=None
                             )
                         )
                         legend_keys_added.add(legend_key)
@@ -2052,6 +2057,7 @@ with tab_kinematic:
                 }
 
                 if norm_elbow_frames and display_mode == "Individual Throws":
+                    legendgroup = f"Elbow_{take_date_map[take_id]}"
                     # Actual data trace (no legend)
                     fig.add_trace(
                         go.Scatter(
@@ -2068,7 +2074,9 @@ with tab_kinematic:
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
                                 "<extra></extra>"
                             ),
-                            showlegend=False
+                            showlegend=False,
+                            legendgroup=legendgroup,
+                            legendgrouptitle_text=None
                         )
                     )
                     # Legend-only trace (once per Elbow + Date)
@@ -2085,7 +2093,9 @@ with tab_kinematic:
                                     width=4
                                 ),
                                 name=f"Elbow AV | {take_date_map[take_id]}",
-                                showlegend=True
+                                showlegend=True,
+                                legendgroup=legendgroup,
+                                legendgrouptitle_text=None
                             )
                         )
                         legend_keys_added.add(legend_key)
@@ -2119,6 +2129,7 @@ with tab_kinematic:
                 }
 
                 if norm_sh_frames and display_mode == "Individual Throws":
+                    legendgroup = f"Shoulder IR_{take_date_map[take_id]}"
                     # Actual data trace (no legend)
                     fig.add_trace(
                         go.Scatter(
@@ -2135,7 +2146,9 @@ with tab_kinematic:
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
                                 "<extra></extra>"
                             ),
-                            showlegend=False
+                            showlegend=False,
+                            legendgroup=legendgroup,
+                            legendgrouptitle_text=None
                         )
                     )
                     # Legend-only trace (once per Shoulder IR + Date)
@@ -2152,7 +2165,9 @@ with tab_kinematic:
                                     width=4
                                 ),
                                 name=f"Shoulder IR AV | {take_date_map[take_id]}",
-                                showlegend=True
+                                showlegend=True,
+                                legendgroup=legendgroup,
+                                legendgrouptitle_text=None
                             )
                         )
                         legend_keys_added.add(legend_key)
@@ -2160,6 +2175,7 @@ with tab_kinematic:
                 continue
 
             if display_mode == "Individual Throws":
+                legendgroup = f"Pelvis_{take_date_map[take_id]}"
                 # Actual data trace (no legend)
                 fig.add_trace(
                     go.Scatter(
@@ -2176,7 +2192,9 @@ with tab_kinematic:
                             "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
                             "<extra></extra>"
                         ),
-                        showlegend=False
+                        showlegend=False,
+                        legendgroup=legendgroup,
+                        legendgrouptitle_text=None
                     )
                 )
                 # Legend-only trace (once per Pelvis + Date)
@@ -2193,7 +2211,9 @@ with tab_kinematic:
                                 width=4
                             ),
                             name=f"Pelvis AV | {take_date_map[take_id]}",
-                            showlegend=True
+                            showlegend=True,
+                            legendgroup=legendgroup,
+                            legendgrouptitle_text=None
                         )
                     )
                     legend_keys_added.add(legend_key)
@@ -2456,7 +2476,8 @@ with tab_kinematic:
                 yanchor="top",
                 y=-0.30,
                 xanchor="center",
-                x=0.5
+                x=0.5,
+                groupclick="toggleitem"
             ),
             hoverlabel=dict(
                 namelength=-1,
