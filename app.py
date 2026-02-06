@@ -2650,6 +2650,8 @@ with tab_joint:
             "Trunk Angle",
             "Pelvis Angle",
             "Hip-Shoulder Separation",
+            "Pelvis Rotational Velocity",
+            "Trunk Rotational Velocity",
             "Forearm Pronation/Supination"
         ],
         default=["Elbow Flexion"],
@@ -2666,7 +2668,9 @@ with tab_joint:
         "Shoulder ER": "teal",
         "Shoulder Abduction": "orange",
         "Shoulder Horizontal Abduction": "brown",
-        "Forearm Pronation/Supination": "crimson"
+        "Forearm Pronation/Supination": "crimson",
+        "Pelvis Rotational Velocity": "navy",
+        "Trunk Rotational Velocity": "darkorange",
     }
     joint_color_map.update({
         "Forward Trunk Tilt": "blue",
@@ -2686,6 +2690,13 @@ with tab_joint:
 
     # --- Load joint data conditionally ---
     joint_data = {}
+
+    # --- Pelvis / Trunk rotational velocity (z_data) ---
+    if "Pelvis Rotational Velocity" in selected_kinematics:
+        joint_data["Pelvis Rotational Velocity"] = get_pelvis_angular_velocity(take_ids)
+
+    if "Trunk Rotational Velocity" in selected_kinematics:
+        joint_data["Trunk Rotational Velocity"] = get_torso_angular_velocity(take_ids)
 
     if "Elbow Flexion" in selected_kinematics:
         joint_data["Elbow Flexion"] = get_elbow_flexion_angle(take_ids, handedness)
@@ -2787,8 +2798,15 @@ with tab_joint:
             if take_id not in data_dict or take_id not in br_frames:
                 continue
 
-            frames = data_dict[take_id]["frame"]
-            values = data_dict[take_id]["value"]
+            # --- Support both "value" (angles) and "z" (rotational velocities) dicts ---
+            if "value" in data_dict[take_id]:
+                values = data_dict[take_id]["value"]
+                frames = data_dict[take_id]["frame"]
+            elif "z" in data_dict[take_id]:
+                values = data_dict[take_id]["z"]
+                frames = data_dict[take_id]["frame"]
+            else:
+                continue
             br = br_frames[take_id]
 
             norm_f, norm_v = [], []
@@ -2801,7 +2819,8 @@ with tab_joint:
                     norm_f.append(rel)
 
                     # --- Handedness normalization ---
-                    if handedness == "R" and kinematic in [
+                    # (Keep angles consistent, but DO NOT flip rotational velocities)
+                    if "Velocity" not in kinematic and handedness == "R" and kinematic in [
                         "Shoulder Horizontal Abduction",
                         "Shoulder ER"
                     ]:
@@ -2878,7 +2897,7 @@ with tab_joint:
                     mer_val = value_at_frame(frames, values, mer_frame_rel)
 
                 summary_rows.append({
-                    "Kinematic": kinematic,
+                    "Kinematic": kinematic + (" (°/s)" if "Velocity" in kinematic else ""),
                     "Session Date": take_date_map[take_id],
                     "Average Velocity": take_velocity[take_id],
                     "Max": max_val,
@@ -2944,7 +2963,7 @@ with tab_joint:
                     mer_val = value_at_frame(x, y, median_mer)
 
                 summary_rows.append({
-                    "Kinematic": kinematic,
+                    "Kinematic": kinematic + (" (°/s)" if "Velocity" in kinematic else ""),
                     "Session Date": date,
                     "Average Velocity": np.mean([take_velocity[tid] for tid in curves.keys()]),
                     "Max": max_val,
@@ -3036,8 +3055,8 @@ with tab_joint:
 
     fig.update_layout(
         xaxis_title="Frames Relative to Ball Release",
-        yaxis_title="Joint Angle",
-        yaxis=dict(ticksuffix="°"),
+        yaxis_title="Kinematics",
+        yaxis=dict(),
         xaxis_range=[window_start, 50],
         height=600,
         legend=dict(
