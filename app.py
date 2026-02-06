@@ -2650,8 +2650,8 @@ with tab_joint:
             "Trunk Angle",
             "Pelvis Angle",
             "Hip-Shoulder Separation",
-            "Pelvis Rotational Velocity",
-            "Trunk Rotational Velocity",
+            "Pelvis Rotation Velocity",
+            "Trunk Rotation Velocity",
             "Forearm Pronation/Supination"
         ],
         default=["Elbow Flexion"],
@@ -2669,8 +2669,8 @@ with tab_joint:
         "Shoulder Abduction": "orange",
         "Shoulder Horizontal Abduction": "brown",
         "Forearm Pronation/Supination": "crimson",
-        "Pelvis Rotational Velocity": "navy",
-        "Trunk Rotational Velocity": "darkorange",
+        "Pelvis Rotation Velocity": "navy",
+        "Trunk Rotation Velocity": "darkorange",
     }
     joint_color_map.update({
         "Forward Trunk Tilt": "blue",
@@ -2692,11 +2692,11 @@ with tab_joint:
     joint_data = {}
 
     # --- Pelvis / Trunk rotational velocity (z_data) ---
-    if "Pelvis Rotational Velocity" in selected_kinematics:
-        joint_data["Pelvis Rotational Velocity"] = get_pelvis_angular_velocity(take_ids)
+    if "Pelvis Rotation Velocity" in selected_kinematics:
+        joint_data["Pelvis Rotation Velocity"] = get_pelvis_angular_velocity(take_ids)
 
-    if "Trunk Rotational Velocity" in selected_kinematics:
-        joint_data["Trunk Rotational Velocity"] = get_torso_angular_velocity(take_ids)
+    if "Trunk Rotation Velocity" in selected_kinematics:
+        joint_data["Trunk Rotation Velocity"] = get_torso_angular_velocity(take_ids)
 
     if "Elbow Flexion" in selected_kinematics:
         joint_data["Elbow Flexion"] = get_elbow_flexion_angle(take_ids, handedness)
@@ -2818,15 +2818,15 @@ with tab_joint:
                 if window_start <= rel <= 50:
                     norm_f.append(rel)
 
-                    # --- Handedness normalization ---
-                    # (Keep angles consistent, but DO NOT flip rotational velocities)
-                    if "Velocity" not in kinematic and handedness == "R" and kinematic in [
-                        "Shoulder Horizontal Abduction",
-                        "Shoulder ER"
-                    ]:
-                        norm_v.append(-v)
-                    else:
-                        norm_v.append(v)
+            # --- Handedness normalization ---
+            # (Keep angles consistent, but DO NOT flip rotational velocities)
+            if "Rotation Velocity" not in kinematic and "Velocity" not in kinematic and handedness == "R" and kinematic in [
+                "Shoulder Horizontal Abduction",
+                "Shoulder ER"
+            ]:
+                norm_v.append(-v)
+            else:
+                norm_v.append(v)
 
             grouped[kinematic][take_id] = {"frame": norm_f, "value": norm_v}
 
@@ -2897,7 +2897,7 @@ with tab_joint:
                     mer_val = value_at_frame(frames, values, mer_frame_rel)
 
                 summary_rows.append({
-                    "Kinematic": kinematic + (" (°/s)" if "Velocity" in kinematic else ""),
+                    "Kinematic": kinematic + (" (°/s)" if "Rotation Velocity" in kinematic else ""),
                     "Session Date": take_date_map[take_id],
                     "Average Velocity": take_velocity[take_id],
                     "Max": max_val,
@@ -2932,18 +2932,19 @@ with tab_joint:
                     )
                 )
 
-                # IQR band (color-matched)
-                fig.add_trace(
-                    go.Scatter(
-                        x=x + x[::-1],
-                        y=q3 + q1[::-1],
-                        fill="toself",
-                        fillcolor=to_rgba(color, 0.35),
-                        line=dict(width=0),
-                        showlegend=False,
-                        hoverinfo="skip"
+                if "Rotation Velocity" not in kinematic:
+                    # IQR band (color-matched)
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x + x[::-1],
+                            y=q3 + q1[::-1],
+                            fill="toself",
+                            fillcolor=to_rgba(color, 0.35),
+                            line=dict(width=0),
+                            showlegend=False,
+                            hoverinfo="skip"
+                        )
                     )
-                )
 
                 max_val = np.max(y)
                 br_val = value_at_frame(x, y, 0)
@@ -2953,8 +2954,10 @@ with tab_joint:
                     median_fp = int(np.median(fp_event_frames))
                     fp_val = value_at_frame(x, y, median_fp)
 
-                max_vals = [np.max(d["value"]) for d in curves.values() if d["value"]]
-                sd_val = np.std(max_vals)
+                sd_val = None
+                if "Rotation Velocity" not in kinematic:
+                    max_vals = [np.max(d["value"]) for d in curves.values() if d["value"]]
+                    sd_val = np.std(max_vals)
 
                 # value at MER from grouped mean curve
                 mer_val = None
@@ -2962,16 +2965,20 @@ with tab_joint:
                     median_mer = int(np.median(mer_event_frames))
                     mer_val = value_at_frame(x, y, median_mer)
 
-                summary_rows.append({
-                    "Kinematic": kinematic + (" (°/s)" if "Velocity" in kinematic else ""),
+                row = {
+                    "Kinematic": kinematic + (" (°/s)" if "Rotation Velocity" in kinematic else ""),
                     "Session Date": date,
                     "Average Velocity": np.mean([take_velocity[tid] for tid in curves.keys()]),
                     "Max": max_val,
                     "Foot Plant": fp_val,
                     "Ball Release": br_val,
                     "Max External Rotation": mer_val,
-                    "Standard Deviation": sd_val
-                })
+                }
+
+                if "Rotation Velocity" not in kinematic:
+                    row["Standard Deviation"] = sd_val
+
+                summary_rows.append(row)
 
     # --- Event lines and annotations (match Kinematic Sequence styling) ---
     if knee_event_frames:
@@ -3090,7 +3097,7 @@ with tab_joint:
         ]
 
         if display_mode == "Grouped":
-            column_order = base_columns + ["Standard Deviation"]
+            column_order = base_columns + (["Standard Deviation"] if "Standard Deviation" in df_summary.columns else [])
         else:
             column_order = base_columns
 
@@ -3110,7 +3117,7 @@ with tab_joint:
             "Max External Rotation": lambda x: fmt(x, 2),
         }
 
-        if display_mode == "Grouped":
+        if display_mode == "Grouped" and "Standard Deviation" in df_summary.columns:
             formatters["Standard Deviation"] = lambda x: f"±{fmt(x, 2)}" if x is not None else ""
 
         styled_summary = (
