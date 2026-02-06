@@ -2922,6 +2922,10 @@ with tab_joint:
 
                 x, y, q1, q3 = aggregate_curves(curves, "Mean")
 
+                # Guard: skip if aggregate_curves returns empty
+                if not x or not y:
+                    continue
+
                 # Smooth grouped curve ONLY
                 if len(y) >= 11:
                     y = savgol_filter(y, window_length=11, polyorder=3)
@@ -2953,8 +2957,8 @@ with tab_joint:
                         )
                     )
 
-                max_val = np.max(y)
-                br_val = value_at_frame(x, y, 0)
+                max_val = float(np.max(y)) if len(y) else None
+                br_val = value_at_frame(x, y, 0) if len(y) else None
 
                 fp_val = None
                 if fp_event_frames:
