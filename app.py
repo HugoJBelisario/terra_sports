@@ -2763,9 +2763,22 @@ with tab_joint:
 
     # --- Helper for extracting value at a specific frame ---
     def value_at_frame(frames, values, target_frame):
-        if target_frame in frames:
-            return values[frames.index(target_frame)]
-        return None
+        """Safely return the value at a target frame.
+
+        Works even if frames/values are mismatched lengths (can occur after aggregation).
+        """
+        if frames is None or values is None:
+            return None
+
+        try:
+            idx = frames.index(target_frame)
+        except Exception:
+            return None
+
+        if idx < 0 or idx >= len(values):
+            return None
+
+        return values[idx]
 
     import pandas as pd
     summary_rows = []
