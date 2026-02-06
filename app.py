@@ -1631,7 +1631,7 @@ st.title("Terra Sports Biomechanics Dashboard")
 # Tabs
 # --------------------------------------------------
 tab_kinematic, tab_joint, tab_energy = st.tabs(
-    ["Kinematic Sequence", "Joint Angles", "Energy Flow"]
+    ["Kinematic Sequence", "Kinematics", "Energy Flow"]
 )
 
 
@@ -2627,7 +2627,7 @@ with tab_kinematic:
 
 
 with tab_joint:
-    st.subheader("Joint Angles")
+    st.subheader("Kinematics")
     display_mode = st.radio(
         "Select Display Mode",
         ["Individual Throws", "Grouped"],
@@ -3055,9 +3055,9 @@ with tab_joint:
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- Joint Angle Table ---
+    # --- Kinematics Table ---
     if summary_rows:
-        st.markdown("### Joint Angles Summary")
+        st.markdown("### Kinematics Summary")
         df_summary = pd.DataFrame(summary_rows)
         # Reorder columns explicitly
         base_columns = [
