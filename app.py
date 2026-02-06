@@ -1848,12 +1848,19 @@ with tab_kinematic:
             iqr_high = []
 
             for f in all_frames:
-                vals = [
-                    d["value"][i]
-                    for d in curves_dict.values()
-                    for i, fr in enumerate(d["frame"])
-                    if fr == f
-                ]
+                vals = []
+                for d in curves_dict.values():
+                    frames = d.get("frame", [])
+                    values = d.get("value", [])
+                    for fr, val in zip(frames, values):
+                        if fr != f:
+                            continue
+                        if val is None:
+                            continue
+                        try:
+                            vals.append(float(val))
+                        except Exception:
+                            continue
 
                 if not vals:
                     continue
