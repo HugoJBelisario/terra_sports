@@ -1628,14 +1628,16 @@ else:
 st.title("Terra Sports Biomechanics Dashboard")
 
 # --------------------------------------------------
-# Tabs
+# Section Navigation (stable across reruns)
 # --------------------------------------------------
-tab_kinematic, tab_joint, tab_energy = st.tabs(
-    ["Kinematic Sequence", "Kinematics", "Energy Flow"]
+section = st.sidebar.radio(
+    "Section",
+    ["Kinematic Sequence", "Kinematics", "Energy Flow"],
+    index=0,
+    key="section_nav"
 )
 
-
-with tab_kinematic:
+if section == "Kinematic Sequence":
     st.subheader("Kinematic Sequence")
     display_mode = st.radio(
         "Select Display Mode",
@@ -2625,8 +2627,7 @@ with tab_kinematic:
 
             st.dataframe(styled, use_container_width=True)
 
-
-with tab_joint:
+elif section == "Kinematics":
     st.subheader("Kinematics")
     display_mode = st.radio(
         "Select Display Mode",
@@ -3134,49 +3135,7 @@ with tab_joint:
         )
         st.dataframe(styled_summary, use_container_width=True)
 
-# --------------------------------------------------
-# Energy Flow Tab
-# --------------------------------------------------
-
-
-# --------------------------------------------------
-# Helper: Compute peak distal arm segment power (W) per take
-# --------------------------------------------------
-def compute_peak_segment_power(energy_data, br_frames, fp_event_frames):
-    """
-    Compute peak distal arm segment power (W) per take
-    restricted to Foot Plant → Ball Release.
-    Uses the most negative (minimum) value in the window.
-    """
-    peak_map = {}
-
-    if not fp_event_frames:
-        return peak_map
-
-    median_fp_rel = int(np.median(fp_event_frames))
-
-    for take_id, d in energy_data.items():
-        if take_id not in br_frames:
-            continue
-
-        br = br_frames[take_id]
-        frames = np.array(d["frame"], dtype=int)
-        values = np.array(d["value"], dtype=float)
-
-        rel = frames - br
-
-        # STRICT biomechanical window: Foot Plant → Ball Release
-        mask = (rel >= median_fp_rel) & (rel <= 0)
-
-        if not np.any(mask):
-            continue
-
-        peak_map[take_id] = float(np.nanmin(values[mask]))
-
-    return peak_map
-
-
-with tab_energy:
+elif section == "Energy Flow":
     st.subheader("Energy Flow")
 
     energy_metrics = st.multiselect(
