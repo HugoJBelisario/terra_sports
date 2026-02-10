@@ -1565,15 +1565,6 @@ st.sidebar.image(
 
 st.sidebar.markdown("### Dashboard Controls")
 
-# -------------------------------
-# Throw Type Filter
-# -------------------------------
-throw_type = st.sidebar.selectbox(
-    "Throw Type",
-    options=["Mound", "Pulldown"],
-    index=0,
-    key="throw_type"
-)
 
 # -------------------------------
 # Initialize session state for excluded takes
@@ -1613,6 +1604,20 @@ else:
     else:
         st.sidebar.info("No session dates found for this pitcher.")
         selected_dates = []
+
+# -------------------------------
+# Throw Type Filter (Multi)
+# -------------------------------
+throw_types = st.sidebar.multiselect(
+    "Throw Type",
+    options=["Mound", "Pulldown"],
+    default=["Mound"],
+    key="throw_types"
+)
+
+# Safety fallback: never allow empty selection
+if not throw_types:
+    throw_types = ["Mound"]
 
 # -------------------------------
 # Velocity Filter
@@ -1672,9 +1677,9 @@ with tab_kinematic:
                     FROM takes t
                     JOIN athletes a ON a.athlete_id = t.athlete_id
                     WHERE a.athlete_name = %s
-                      AND t.throw_type = %s
+                      AND t.throw_type = ANY(%s)
                       AND t.pitch_velo BETWEEN %s AND %s
-                """, (selected_pitcher, throw_type, velocity_min, velocity_max))
+                """, (selected_pitcher, throw_types, velocity_min, velocity_max))
                 take_ids = [r[0] for r in cur.fetchall()]
             else:
                 placeholders = ",".join(["%s"] * len(selected_dates))
@@ -1683,10 +1688,10 @@ with tab_kinematic:
                     FROM takes t
                     JOIN athletes a ON a.athlete_id = t.athlete_id
                     WHERE a.athlete_name = %s
-                      AND t.throw_type = %s
+                      AND t.throw_type = ANY(%s)
                       AND t.take_date IN ({placeholders})
                       AND t.pitch_velo BETWEEN %s AND %s
-                """, (selected_pitcher, throw_type, *selected_dates, velocity_min, velocity_max))
+                """, (selected_pitcher, throw_types, *selected_dates, velocity_min, velocity_max))
                 take_ids = [r[0] for r in cur.fetchall()]
     finally:
         conn.close()
