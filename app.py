@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 
 # --------------------------------------------------
 # Page config
@@ -1646,8 +1647,79 @@ st.title("Terra Sports Biomechanics Dashboard")
 # --------------------------------------------------
 # Tabs
 # --------------------------------------------------
-tab_kinematic, tab_joint, tab_energy = st.tabs(
-    ["Kinematic Sequence", "Kinematics", "Energy Flow"]
+tab_labels = ["Kinematic Sequence", "Kinematics", "Energy Flow"]
+tab_kinematic, tab_joint, tab_energy = st.tabs(tab_labels)
+
+# Workaround for Streamlit tab reset on rerun:
+# persist active tab in URL query param and re-select it after rerender.
+components.html(
+    """
+    <script>
+    const TAB_PARAM = "active_tab";
+
+    function getActiveTabFromUrl() {
+      const url = new URL(parent.window.location.href);
+      return url.searchParams.get(TAB_PARAM);
+    }
+
+    function setActiveTabInUrl(tabLabel) {
+      const url = new URL(parent.window.location.href);
+      url.searchParams.set(TAB_PARAM, tabLabel);
+      parent.window.history.replaceState({}, "", url.toString());
+    }
+
+    function getTabButtons() {
+      return Array.from(parent.document.querySelectorAll('button[role="tab"]'));
+    }
+
+    function bindTabClicks() {
+      const buttons = getTabButtons();
+      buttons.forEach((button) => {
+        if (button.dataset.terraTabBound === "1") return;
+        button.dataset.terraTabBound = "1";
+        button.addEventListener("click", () => {
+          setActiveTabInUrl(button.textContent.trim());
+        });
+      });
+    }
+
+    function restoreActiveTab() {
+      const desiredTab = getActiveTabFromUrl();
+      if (!desiredTab) return;
+
+      const buttons = getTabButtons();
+      const target = buttons.find(
+        (button) => button.textContent.trim() === desiredTab
+      );
+      if (!target) return;
+
+      if (target.getAttribute("aria-selected") !== "true") {
+        target.click();
+      }
+    }
+
+    function syncTabs() {
+      bindTabClicks();
+      restoreActiveTab();
+
+      const selected = getTabButtons().find(
+        (button) => button.getAttribute("aria-selected") === "true"
+      );
+      if (selected && !getActiveTabFromUrl()) {
+        setActiveTabInUrl(selected.textContent.trim());
+      }
+    }
+
+    syncTabs();
+    let attempts = 0;
+    const interval = setInterval(() => {
+      syncTabs();
+      attempts += 1;
+      if (attempts > 30) clearInterval(interval);
+    }, 200);
+    </script>
+    """,
+    height=0,
 )
 
 
