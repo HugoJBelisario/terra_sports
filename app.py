@@ -1233,6 +1233,55 @@ def get_hand_cg_velocity(take_ids, handedness):
 
 
 @st.cache_data(ttl=300)
+def get_hand_speed(take_ids, handedness):
+    """
+    Returns hand speed magnitude from CG velocity components:
+      speed = sqrt(x^2 + y^2 + z^2)
+    Category: KINETIC_KINEMATIC_CGVel
+    Segments: RHA / LHA
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "RHA" if handedness == "R" else "LHA"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data,
+                    ts.y_data,
+                    ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'KINETIC_KINEMATIC_CGVel'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+            data = {}
+            for take_id, frame, x, y, z in rows:
+                if x is None or y is None or z is None:
+                    continue
+
+                speed = float(np.sqrt(x**2 + y**2 + z**2))
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(speed)
+
+            return data
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300)
 def get_shoulder_er_angles(take_ids, handedness):
     """
     Returns shoulder joint angle z_data for MER detection.
@@ -2730,6 +2779,7 @@ with tab_joint:
         "Select Kinematics",
         options=[
             "Elbow Flexion",
+            "Hand Speed",
             "Shoulder ER",
             "Shoulder Abduction",
             "Shoulder Horizontal Abduction",
@@ -2755,6 +2805,7 @@ with tab_joint:
     # --- Color map for joint types ---
     joint_color_map = {
         "Elbow Flexion": "purple",
+        "Hand Speed": "deeppink",
         "Shoulder ER": "teal",
         "Shoulder Abduction": "orange",
         "Shoulder Horizontal Abduction": "brown",
@@ -2790,6 +2841,9 @@ with tab_joint:
 
     if "Elbow Flexion" in selected_kinematics:
         joint_data["Elbow Flexion"] = get_elbow_flexion_angle(take_ids, handedness)
+
+    if "Hand Speed" in selected_kinematics:
+        joint_data["Hand Speed"] = get_hand_speed(take_ids, handedness)
 
     if "Shoulder ER" in selected_kinematics:
         joint_data["Shoulder ER"] = get_shoulder_er_angle(take_ids, handedness)
