@@ -1700,6 +1700,13 @@ st.title("Terra Sports Biomechanics Dashboard")
 tab_labels = ["Kinematic Sequence", "Kinematics", "Energy Flow"]
 tab_kinematic, tab_joint, tab_energy = st.tabs(tab_labels)
 
+# Shared state used across tabs; Kinematic Sequence populates these when data exists.
+take_ids = []
+take_order = {}
+take_velocity = {}
+take_date_map = {}
+br_frames = {}
+
 # Workaround for Streamlit tab reset on rerun:
 # persist active tab in URL query param and re-select it after rerender.
 components.html(
