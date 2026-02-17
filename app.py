@@ -16,6 +16,7 @@ KINEMATIC_FPS = 250
 MS_PER_FRAME = 1000 / KINEMATIC_FPS  # 4 ms per frame
 
 import numpy as np
+import plotly.graph_objects as go
 from scipy.signal import savgol_filter
 from dotenv import load_dotenv
 from db.connection import get_connection
@@ -1886,8 +1887,6 @@ with tab_kinematic:
     if not take_ids:
         st.info("No takes found for this selection.")
     else:
-        import plotly.graph_objects as go
-
         data = get_pelvis_angular_velocity(take_ids)
         cg_data = get_hand_cg_velocity(take_ids, handedness)
         torso_data = get_torso_angular_velocity(take_ids)
