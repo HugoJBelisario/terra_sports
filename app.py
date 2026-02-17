@@ -29,7 +29,7 @@ def login():
     if st.session_state.authenticated:
         return True
 
-    st.title("Login")
+    st.title("Login") # Note
 
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
