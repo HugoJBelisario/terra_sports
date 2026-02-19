@@ -2936,6 +2936,14 @@ with tab_joint:
     # --- Per-take normalization and plotting ---
     grouped = {}
     grouped_by_date = {}
+    mound_only_selected = {t.lower() for t in throw_types} == {"mound"}
+    median_pkh_frame = None
+    joint_window_start = window_start
+
+    # For mound throws, ensure the window includes PKH and 20 frames before it.
+    if mound_only_selected and knee_event_frames:
+        median_pkh_frame = int(np.median(knee_event_frames))
+        joint_window_start = min(window_start, median_pkh_frame - 20)
 
     # For condensed legend: track which (kinematic, date) pairs have legend entries
     legend_keys_added = set()
@@ -2965,7 +2973,7 @@ with tab_joint:
                     continue
 
                 rel = f - br
-                if window_start <= rel <= 50:
+                if joint_window_start <= rel <= 50:
                     norm_f.append(rel)
 
                     # --- Handedness normalization ---
@@ -3144,6 +3152,25 @@ with tab_joint:
             align="center"
         )
 
+    if median_pkh_frame is not None:
+        fig.add_vline(
+            x=median_pkh_frame,
+            line_width=3,
+            line_dash="dash",
+            line_color="purple",
+            opacity=0.9
+        )
+        fig.add_annotation(
+            x=median_pkh_frame,
+            y=1.055,
+            xref="x",
+            yref="paper",
+            text="PKH",
+            showarrow=False,
+            font=dict(color="purple", size=14),
+            align="center"
+        )
+
     if fp_event_frames:
         median_fp_frame = int(np.median(fp_event_frames))
         fig.add_vline(
@@ -3207,7 +3234,7 @@ with tab_joint:
         xaxis_title="Frames Relative to Ball Release",
         yaxis_title="Kinematics",
         yaxis=dict(),
-        xaxis_range=[window_start, 50],
+        xaxis_range=[joint_window_start, 50],
         height=600,
         legend=dict(
             orientation="h",
