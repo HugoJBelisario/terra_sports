@@ -2780,6 +2780,16 @@ with tab_joint:
         horizontal=True,
         key="joint_display_mode"
     )
+    joint_mound_only_selected = {t.lower() for t in throw_types} == {"mound"}
+
+    default_joint_selection = ["Elbow Flexion"]
+    if joint_mound_only_selected:
+        default_joint_selection = [
+            "Elbow Flexion",
+            "Shoulder Internal Rotation Velocity",
+            "Trunk Rotational Velocity",
+            "Pelvis Rotational Velocity",
+        ]
 
     selected_kinematics = st.multiselect(
         "Select Kinematics",
@@ -2787,6 +2797,7 @@ with tab_joint:
             "Elbow Flexion",
             "Hand Speed",
             "Shoulder ER",
+            "Shoulder Internal Rotation Velocity",
             "Shoulder Abduction",
             "Shoulder Horizontal Abduction",
             "Front Knee Flexion",
@@ -2800,7 +2811,7 @@ with tab_joint:
             "Trunk Rotational Velocity",
             "Forearm Pronation/Supination"
         ],
-        default=["Elbow Flexion"],
+        default=default_joint_selection,
         key="joint_angles_select"
     )
 
@@ -2813,6 +2824,7 @@ with tab_joint:
         "Elbow Flexion": "purple",
         "Hand Speed": "deeppink",
         "Shoulder ER": "teal",
+        "Shoulder Internal Rotation Velocity": "magenta",
         "Shoulder Abduction": "orange",
         "Shoulder Horizontal Abduction": "brown",
         "Forearm Pronation/Supination": "crimson",
@@ -2853,6 +2865,11 @@ with tab_joint:
 
     if "Shoulder ER" in selected_kinematics:
         joint_data["Shoulder ER"] = get_shoulder_er_angle(take_ids, handedness)
+
+    if "Shoulder Internal Rotation Velocity" in selected_kinematics:
+        joint_data["Shoulder Internal Rotation Velocity"] = get_shoulder_ir_velocity(
+            take_ids, handedness
+        )
 
     if "Shoulder Abduction" in selected_kinematics:
         joint_data["Shoulder Abduction"] = get_shoulder_abduction_angle(take_ids, handedness)
@@ -2964,6 +2981,9 @@ with tab_joint:
             # --- Support both "value" (angles) and "z" (rotational velocities) dicts ---
             if "value" in data_dict[take_id]:
                 values = data_dict[take_id]["value"]
+                frames = data_dict[take_id]["frame"]
+            elif "x" in data_dict[take_id]:
+                values = data_dict[take_id]["x"]
                 frames = data_dict[take_id]["frame"]
             elif "z" in data_dict[take_id]:
                 values = data_dict[take_id]["z"]
