@@ -277,6 +277,49 @@ def get_torso_angular_velocity(take_ids):
         conn.close()
 
 # --------------------------------------------------
+# Torso-Pelvis Angular Velocity (Z) helper
+# --------------------------------------------------
+@st.cache_data(ttl=300)
+def get_torso_pelvis_angular_velocity(take_ids):
+    """
+    Returns torso-pelvis angular velocity (z_data) over frames for given take_ids.
+    Category: ORIGINAL
+    Segment: TORSO_PELVIS_ANGULAR_VELOCITY
+    """
+    if not take_ids:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = 'TORSO_PELVIS_ANGULAR_VELOCITY'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, z in rows:
+                data.setdefault(take_id, {"frame": [], "z": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["z"].append(z)
+
+            return data
+    finally:
+        conn.close()
+
+# --------------------------------------------------
 # Elbow Angular Velocity (X) helper
 # --------------------------------------------------
 @st.cache_data(ttl=300)
@@ -2831,6 +2874,7 @@ with tab_joint:
             "Center of Mass Velocity (X)",
             "Shoulder Internal Rotation Velocity",
             "Trunk Rotational Velocity",
+            "Torso-Pelvis Rotational Velocity",
             "Pelvis Rotational Velocity",
         ]
 
@@ -2853,6 +2897,7 @@ with tab_joint:
             "Hip-Shoulder Separation",
             "Pelvis Rotational Velocity",
             "Trunk Rotational Velocity",
+            "Torso-Pelvis Rotational Velocity",
             "Forearm Pronation/Supination"
         ],
         default=default_joint_selection,
@@ -2875,6 +2920,7 @@ with tab_joint:
         "Forearm Pronation/Supination": "crimson",
         "Pelvis Rotational Velocity": "navy",
         "Trunk Rotational Velocity": "darkorange",
+        "Torso-Pelvis Rotational Velocity": "dodgerblue",
     }
     joint_color_map.update({
         "Forward Trunk Tilt": "blue",
@@ -2901,6 +2947,9 @@ with tab_joint:
 
     if "Trunk Rotational Velocity" in selected_kinematics:
         joint_data["Trunk Rotational Velocity"] = get_torso_angular_velocity(take_ids)
+
+    if "Torso-Pelvis Rotational Velocity" in selected_kinematics:
+        joint_data["Torso-Pelvis Rotational Velocity"] = get_torso_pelvis_angular_velocity(take_ids)
 
     if "Elbow Flexion" in selected_kinematics:
         joint_data["Elbow Flexion"] = get_elbow_flexion_angle(take_ids, handedness)
@@ -3022,6 +3071,7 @@ with tab_joint:
     peak_positive_kinematics = {
         "Shoulder Internal Rotation Velocity",
         "Trunk Rotational Velocity",
+        "Torso-Pelvis Rotational Velocity",
         "Pelvis Rotational Velocity",
     }
     for kinematic, data_dict in joint_data.items():
