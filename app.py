@@ -1288,7 +1288,7 @@ def get_center_of_mass_velocity_x(take_ids):
     Returns Center of Mass velocity in the x direction.
 
     Category: PROCESSED
-    Segment: CenterOfMass_Velo
+    Segment: CenterOfMass_VELO
     """
     if not take_ids:
         return {}
@@ -1306,7 +1306,7 @@ def get_center_of_mass_velocity_x(take_ids):
                 JOIN categories c ON ts.category_id = c.category_id
                 JOIN segments s ON ts.segment_id = s.segment_id
                 WHERE c.category_name = 'PROCESSED'
-                  AND s.segment_name = 'CenterOfMass_Velo'
+                  AND s.segment_name = 'CenterOfMass_VELO'
                   AND ts.take_id IN ({placeholders})
                 ORDER BY ts.take_id, ts.frame
             """, tuple(take_ids))
