@@ -1283,6 +1283,48 @@ def get_hand_speed(take_ids, handedness):
 
 
 @st.cache_data(ttl=300)
+def get_center_of_mass_velocity_x(take_ids):
+    """
+    Returns Center of Mass velocity in the x direction.
+
+    Category: PROCESSED
+    Segment: CenterOfMass_Velocity
+    """
+    if not take_ids:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'PROCESSED'
+                  AND s.segment_name = 'CenterOfMass_Velocity'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, x in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+
+            return data
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300)
 def get_shoulder_er_angles(take_ids, handedness):
     """
     Returns shoulder joint angle z_data for MER detection.
@@ -2786,6 +2828,7 @@ with tab_joint:
     if joint_mound_only_selected:
         default_joint_selection = [
             "Elbow Flexion",
+            "Center of Mass Velocity (X)",
             "Shoulder Internal Rotation Velocity",
             "Trunk Rotational Velocity",
             "Pelvis Rotational Velocity",
@@ -2796,6 +2839,7 @@ with tab_joint:
         options=[
             "Elbow Flexion",
             "Hand Speed",
+            "Center of Mass Velocity (X)",
             "Shoulder ER",
             "Shoulder Internal Rotation Velocity",
             "Shoulder Abduction",
@@ -2823,6 +2867,7 @@ with tab_joint:
     joint_color_map = {
         "Elbow Flexion": "purple",
         "Hand Speed": "deeppink",
+        "Center of Mass Velocity (X)": "cyan",
         "Shoulder ER": "teal",
         "Shoulder Internal Rotation Velocity": "magenta",
         "Shoulder Abduction": "orange",
@@ -2862,6 +2907,9 @@ with tab_joint:
 
     if "Hand Speed" in selected_kinematics:
         joint_data["Hand Speed"] = get_hand_speed(take_ids, handedness)
+
+    if "Center of Mass Velocity (X)" in selected_kinematics:
+        joint_data["Center of Mass Velocity (X)"] = get_center_of_mass_velocity_x(take_ids)
 
     if "Shoulder ER" in selected_kinematics:
         joint_data["Shoulder ER"] = get_shoulder_er_angle(take_ids, handedness)
