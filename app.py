@@ -3132,32 +3132,12 @@ with tab_joint:
                 })
 
     # --- Event lines and annotations (match Kinematic Sequence styling) ---
-    if knee_event_frames:
-        median_knee_frame = int(np.median(knee_event_frames))
-        fig.add_vline(
-            x=median_knee_frame,
-            line_width=3,
-            line_dash="dot",
-            line_color="blue",
-            opacity=0.9
-        )
-        fig.add_annotation(
-            x=median_knee_frame,
-            y=1.055,
-            xref="x",
-            yref="paper",
-            text="Knee",
-            showarrow=False,
-            font=dict(color="blue", size=14),
-            align="center"
-        )
-
     if median_pkh_frame is not None:
         fig.add_vline(
             x=median_pkh_frame,
             line_width=3,
             line_dash="dash",
-            line_color="purple",
+            line_color="gold",
             opacity=0.9
         )
         fig.add_annotation(
@@ -3167,7 +3147,27 @@ with tab_joint:
             yref="paper",
             text="PKH",
             showarrow=False,
-            font=dict(color="purple", size=14),
+            font=dict(color="gold", size=14),
+            align="center"
+        )
+    elif knee_event_frames:
+        # Non-mound fallback: keep a single knee marker when PKH is not enabled.
+        median_knee_frame = int(np.median(knee_event_frames))
+        fig.add_vline(
+            x=median_knee_frame,
+            line_width=3,
+            line_dash="dash",
+            line_color="gold",
+            opacity=0.9
+        )
+        fig.add_annotation(
+            x=median_knee_frame,
+            y=1.055,
+            xref="x",
+            yref="paper",
+            text="Knee",
+            showarrow=False,
+            font=dict(color="gold", size=14),
             align="center"
         )
 
