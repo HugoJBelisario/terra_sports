@@ -2971,6 +2971,11 @@ with tab_joint:
         summary_knee_frame = int(np.median(knee_event_frames))
 
     # Reuse take_order and take_velocity from Kinematic Sequence section if available
+    peak_positive_kinematics = {
+        "Shoulder Internal Rotation Velocity",
+        "Trunk Rotational Velocity",
+        "Pelvis Rotational Velocity",
+    }
     for kinematic, data_dict in joint_data.items():
         grouped[kinematic] = {}
 
@@ -2991,6 +2996,13 @@ with tab_joint:
             else:
                 continue
             br = br_frames[take_id]
+            sign_flip = 1.0
+            if kinematic in peak_positive_kinematics:
+                valid_vals = [v for v in values if v is not None]
+                if valid_vals:
+                    dominant_peak = max(valid_vals, key=lambda x: abs(x))
+                    if dominant_peak < 0:
+                        sign_flip = -1.0
 
             norm_f, norm_v = [], []
             for f, v in zip(frames, values):
@@ -3009,7 +3021,7 @@ with tab_joint:
                     ]:
                         norm_v.append(-v)
                     else:
-                        norm_v.append(v)
+                        norm_v.append(sign_flip * v)
 
             grouped[kinematic][take_id] = {"frame": norm_f, "value": norm_v}
 
