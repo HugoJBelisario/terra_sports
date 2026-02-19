@@ -90,6 +90,10 @@ def to_rgba(color, alpha=0.35):
     # Fallback (neutral gray)
     return f"rgba(150,150,150,{alpha})"
 
+
+def rel_frame_to_ms(rel_frame):
+    return int(round(rel_frame * MS_PER_FRAME))
+
 load_dotenv()
 
 @st.cache_data(ttl=300)
@@ -260,6 +264,49 @@ def get_torso_angular_velocity(take_ids):
                 JOIN segments s ON ts.segment_id = s.segment_id
                 WHERE c.category_name = 'ORIGINAL'
                   AND s.segment_name = 'TORSO_ANGULAR_VELOCITY'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, z in rows:
+                data.setdefault(take_id, {"frame": [], "z": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["z"].append(z)
+
+            return data
+    finally:
+        conn.close()
+
+# --------------------------------------------------
+# Torso-Pelvis Angular Velocity (Z) helper
+# --------------------------------------------------
+@st.cache_data(ttl=300)
+def get_torso_pelvis_angular_velocity(take_ids):
+    """
+    Returns torso-pelvis angular velocity (z_data) over frames for given take_ids.
+    Category: ORIGINAL
+    Segment: TORSO_PELVIS_ANGULAR_VELOCITY
+    """
+    if not take_ids:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = 'TORSO_PELVIS_ANGULAR_VELOCITY'
                   AND ts.take_id IN ({placeholders})
                 ORDER BY ts.take_id, ts.frame
             """, tuple(take_ids))
@@ -2020,6 +2067,9 @@ with tab_kinematic:
         else:
             # fallback: still ensure we have a reasonable window
             window_start = -100
+        window_end = 50
+        window_start_ms = rel_frame_to_ms(window_start)
+        window_end_ms = rel_frame_to_ms(window_end)
 
         def aggregate_curves(curves_dict, stat="Median"):
             """
@@ -2133,8 +2183,8 @@ with tab_kinematic:
                 rel_frame = f - br_frame
 
                 # Keep frames from 50 before median knee height through +50 after BR
-                if rel_frame >= window_start and rel_frame <= 50:
-                    norm_frames.append(rel_frame)
+                if rel_frame >= window_start and rel_frame <= window_end:
+                    norm_frames.append(rel_frame_to_ms(rel_frame))
                     # Handedness normalization for Pelvis AV (Kinematic Sequence only)
                     if handedness == "L":
                         norm_values.append(-v)
@@ -2161,8 +2211,8 @@ with tab_kinematic:
                         continue
 
                     rel_frame = f - br_frame
-                    if rel_frame >= window_start and rel_frame <= 50:
-                        norm_torso_frames.append(rel_frame)
+                    if rel_frame >= window_start and rel_frame <= window_end:
+                        norm_torso_frames.append(rel_frame_to_ms(rel_frame))
                         # Handedness normalization for Torso AV (Kinematic Sequence only)
                         if handedness == "L":
                             norm_torso_values.append(-v)
@@ -2233,8 +2283,8 @@ with tab_kinematic:
                         continue
 
                     rel_frame = f - br_frame
-                    if rel_frame >= window_start and rel_frame <= 50:
-                        norm_elbow_frames.append(rel_frame)
+                    if rel_frame >= window_start and rel_frame <= window_end:
+                        norm_elbow_frames.append(rel_frame_to_ms(rel_frame))
                         # Flip sign so elbow extension is positive on the plot
                         norm_elbow_values.append(-v)
 
@@ -2302,8 +2352,8 @@ with tab_kinematic:
                         continue
 
                     rel_frame = f - br_frame
-                    if rel_frame >= window_start and rel_frame <= 50:
-                        norm_sh_frames.append(rel_frame)
+                    if rel_frame >= window_start and rel_frame <= window_end:
+                        norm_sh_frames.append(rel_frame_to_ms(rel_frame))
                         # Normalize so IR velocity is positive for both handedness
                         if handedness == "L":
                             norm_sh_values.append(-v)
@@ -2499,7 +2549,7 @@ with tab_kinematic:
                     if len(y_date) > 0:
                         # Restrict pelvis & torso peak search to FP → BR
                         if label in ["Pelvis", "Torso"] and fp_event_frames:
-                            fp_rel = int(np.median(fp_event_frames))
+                            fp_rel = rel_frame_to_ms(int(np.median(fp_event_frames)))
                             valid_idxs = [
                                 i for i, xf in enumerate(x_date)
                                 if fp_rel <= xf <= 0
@@ -2516,13 +2566,13 @@ with tab_kinematic:
                         if date == list(curves_by_date.keys())[0]:
                             pelvis_time_ms_grouped = None
                             if label == "Pelvis" and fp_event_frames:
-                                fp_rel = int(np.median(fp_event_frames))  # FP relative to BR (frames)
-                                pelvis_time_ms_grouped = (max_x - fp_rel) * MS_PER_FRAME
+                                fp_rel = rel_frame_to_ms(int(np.median(fp_event_frames)))
+                                pelvis_time_ms_grouped = max_x - fp_rel
 
                             kinematic_peak_rows.append({
                                 "Segment": label,
                                 "Peak Value (°/s)": max_y,
-                                "Peak Frame (rel BR)": max_x,
+                                "Peak Time (ms rel BR)": max_x,
                                 "Peak Time from FP (ms)": pelvis_time_ms_grouped if label == "Pelvis" else None
                             })
                         y_offset = arrow_offset * 0.6
@@ -2556,7 +2606,7 @@ with tab_kinematic:
 
         # Median Peak Glove-Side Knee Height event
         if knee_event_frames:
-            median_knee_frame = int(np.median(knee_event_frames))
+            median_knee_frame = rel_frame_to_ms(int(np.median(knee_event_frames)))
 
             fig.add_vline(
                 x=median_knee_frame,
@@ -2578,7 +2628,7 @@ with tab_kinematic:
 
         # Median Refined Foot Plant (zero-cross) event
         if fp_event_frames:
-            median_fp_frame = int(np.median(fp_event_frames))
+            median_fp_frame = rel_frame_to_ms(int(np.median(fp_event_frames)))
 
             fig.add_vline(
                 x=median_fp_frame,
@@ -2600,7 +2650,7 @@ with tab_kinematic:
 
         # Median Max Shoulder ER event
         if mer_event_frames:
-            median_mer_frame = int(np.median(mer_event_frames))
+            median_mer_frame = rel_frame_to_ms(int(np.median(mer_event_frames)))
 
             fig.add_vline(
                 x=median_mer_frame,
@@ -2640,10 +2690,10 @@ with tab_kinematic:
         )
 
         fig.update_layout(
-            xaxis_title="Frames Relative to Ball Release",
+            xaxis_title="Time Relative to Ball Release (ms)",
             yaxis_title="Angular Velocity",
             yaxis=dict(ticksuffix="°/s"),
-            xaxis_range=[window_start, 50],
+            xaxis_range=[window_start_ms, window_end_ms],
             height=600,
             legend=dict(
                 orientation="h",
@@ -2697,7 +2747,7 @@ with tab_kinematic:
 
                 if pelvis_frame is not None and fp_abs is not None and br_abs is not None:
                     fp_rel = fp_abs - br_abs  # FP relative to BR (frames)
-                    pelvis_time_ms = (pelvis_frame - fp_rel) * MS_PER_FRAME
+                    pelvis_time_ms = pelvis_frame - rel_frame_to_ms(fp_rel)
                 torso_peak, torso_frame = peak_and_frame(grouped_torso)
                 elbow_peak, elbow_frame = peak_and_frame(grouped_elbow)
                 shoulder_peak, shoulder_frame = peak_and_frame(grouped_shoulder_ir)
@@ -2709,11 +2759,11 @@ with tab_kinematic:
                     "Pelvis Peak (°/s)": pelvis_peak,
                     "Pelvis Time from FP (ms)": pelvis_time_ms,
                     "Torso Peak (°/s)": torso_peak,
-                    "Torso Frame": torso_frame,
+                    "Torso Time (ms rel BR)": torso_frame,
                     "Elbow Peak (°/s)": elbow_peak,
-                    "Elbow Frame": elbow_frame,
+                    "Elbow Time (ms rel BR)": elbow_frame,
                     "Shoulder IR Peak (°/s)": shoulder_peak,
-                    "Shoulder IR Frame": shoulder_frame
+                    "Shoulder IR Time (ms rel BR)": shoulder_frame
                 })
 
             if individual_rows:
@@ -2743,9 +2793,9 @@ with tab_kinematic:
                         "Elbow Peak (°/s)": lambda x: fmt(x, 1),
                         "Shoulder IR Peak (°/s)": lambda x: fmt(x, 1),
                         "Pelvis Time from FP (ms)": lambda x: "" if x is None else f"{x:.0f}",
-                        "Torso Frame": lambda x: fmt(x, 0),
-                        "Elbow Frame": lambda x: fmt(x, 0),
-                        "Shoulder IR Frame": lambda x: fmt(x, 0),
+                        "Torso Time (ms rel BR)": lambda x: fmt(x, 0),
+                        "Elbow Time (ms rel BR)": lambda x: fmt(x, 0),
+                        "Shoulder IR Time (ms rel BR)": lambda x: fmt(x, 0),
                     })
                     .set_table_styles([
                         {"selector": "th", "props": [("text-align", "center")]}
@@ -2768,7 +2818,7 @@ with tab_kinematic:
             for _, row in df.iterrows():
                 seg = row["Segment"]
                 pivot[(seg, "Peak (°/s)")] = [row["Peak Value (°/s)"]]
-                pivot[(seg, "Peak Frame")] = [row["Peak Frame (rel BR)"]]
+                pivot[(seg, "Peak Time (ms)")] = [row["Peak Time (ms rel BR)"]]
 
                 if seg == "Pelvis":
                     pivot[(seg, "Peak Time from FP (ms)")] = [row.get("Peak Time from FP (ms)")]
@@ -2831,6 +2881,7 @@ with tab_joint:
             "Center of Mass Velocity (X)",
             "Shoulder Internal Rotation Velocity",
             "Trunk Rotational Velocity",
+            "Torso-Pelvis Rotational Velocity",
             "Pelvis Rotational Velocity",
         ]
 
@@ -2853,6 +2904,7 @@ with tab_joint:
             "Hip-Shoulder Separation",
             "Pelvis Rotational Velocity",
             "Trunk Rotational Velocity",
+            "Torso-Pelvis Rotational Velocity",
             "Forearm Pronation/Supination"
         ],
         default=default_joint_selection,
@@ -2875,6 +2927,7 @@ with tab_joint:
         "Forearm Pronation/Supination": "crimson",
         "Pelvis Rotational Velocity": "navy",
         "Trunk Rotational Velocity": "darkorange",
+        "Torso-Pelvis Rotational Velocity": "dodgerblue",
     }
     joint_color_map.update({
         "Forward Trunk Tilt": "blue",
@@ -2901,6 +2954,9 @@ with tab_joint:
 
     if "Trunk Rotational Velocity" in selected_kinematics:
         joint_data["Trunk Rotational Velocity"] = get_torso_angular_velocity(take_ids)
+
+    if "Torso-Pelvis Rotational Velocity" in selected_kinematics:
+        joint_data["Torso-Pelvis Rotational Velocity"] = get_torso_pelvis_angular_velocity(take_ids)
 
     if "Elbow Flexion" in selected_kinematics:
         joint_data["Elbow Flexion"] = get_elbow_flexion_angle(take_ids, handedness)
@@ -2969,10 +3025,10 @@ with tab_joint:
     if "Hip-Shoulder Separation" in selected_kinematics:
         joint_data["Hip-Shoulder Separation"] = get_hip_shoulder_separation(take_ids)
 
-    # --- Helper for extracting value at a specific frame ---
-    def value_at_frame(frames, values, target_frame):
-        if target_frame in frames:
-            return values[frames.index(target_frame)]
+    # --- Helper for extracting value at a specific time (ms) ---
+    def value_at_time_ms(times_ms, values, target_time_ms):
+        if target_time_ms in times_ms:
+            return values[times_ms.index(target_time_ms)]
         return None
 
     import pandas as pd
@@ -3004,11 +3060,15 @@ with tab_joint:
     mound_only_selected = {t.lower() for t in throw_types} == {"mound"}
     median_pkh_frame = None
     joint_window_start = window_start
+    joint_window_end = 50
+    joint_window_start_ms = rel_frame_to_ms(joint_window_start)
+    joint_window_end_ms = rel_frame_to_ms(joint_window_end)
 
     # For mound throws, ensure the window includes PKH and 20 frames before it.
     if mound_only_selected and knee_event_frames:
         median_pkh_frame = int(np.median(knee_event_frames))
         joint_window_start = min(window_start, median_pkh_frame - 20)
+        joint_window_start_ms = rel_frame_to_ms(joint_window_start)
 
     # For condensed legend: track which (kinematic, date) pairs have legend entries
     legend_keys_added = set()
@@ -3022,6 +3082,7 @@ with tab_joint:
     peak_positive_kinematics = {
         "Shoulder Internal Rotation Velocity",
         "Trunk Rotational Velocity",
+        "Torso-Pelvis Rotational Velocity",
         "Pelvis Rotational Velocity",
     }
     for kinematic, data_dict in joint_data.items():
@@ -3058,8 +3119,8 @@ with tab_joint:
                     continue
 
                 rel = f - br
-                if joint_window_start <= rel <= 50:
-                    norm_f.append(rel)
+                if joint_window_start <= rel <= joint_window_end:
+                    norm_f.append(rel_frame_to_ms(rel))
 
                     # --- Handedness normalization ---
                     # (Keep angles consistent, but DO NOT flip rotational velocities)
@@ -3126,26 +3187,26 @@ with tab_joint:
                 max_val = np.max(values)
                 # sd_val = np.std(values)  # removed as not used below
 
-                br_val = value_at_frame(frames, values, 0)
+                br_val = value_at_time_ms(frames, values, 0)
 
                 fp_val = None
                 if fp_event_frames:
-                    median_fp = int(np.median(fp_event_frames))
-                    fp_val = value_at_frame(frames, values, median_fp)
+                    median_fp = rel_frame_to_ms(int(np.median(fp_event_frames)))
+                    fp_val = value_at_time_ms(frames, values, median_fp)
 
                 # value at MER (same frame used in plot)
                 mer_val = None
                 if take_id in shoulder_er_max_frames:
                     mer_frame_rel = shoulder_er_max_frames[take_id] - br_frames[take_id]
-                    mer_val = value_at_frame(frames, values, mer_frame_rel)
+                    mer_val = value_at_time_ms(frames, values, rel_frame_to_ms(mer_frame_rel))
 
                 # value at per-take PKH frame (fallback to summary knee frame)
                 pkh_val = None
                 if take_id in knee_peak_frames:
                     pkh_frame_rel = knee_peak_frames[take_id] - br_frames[take_id]
-                    pkh_val = value_at_frame(frames, values, pkh_frame_rel)
+                    pkh_val = value_at_time_ms(frames, values, rel_frame_to_ms(pkh_frame_rel))
                 elif summary_knee_frame is not None:
-                    pkh_val = value_at_frame(frames, values, summary_knee_frame)
+                    pkh_val = value_at_time_ms(frames, values, rel_frame_to_ms(summary_knee_frame))
 
                 summary_rows.append({
                     "Kinematic": kinematic + (" (°/s)" if "Velocity" in kinematic else ""),
@@ -3198,12 +3259,12 @@ with tab_joint:
                 )
 
                 max_val = np.max(y)
-                br_val = value_at_frame(x, y, 0)
+                br_val = value_at_time_ms(x, y, 0)
 
                 fp_val = None
                 if fp_event_frames:
-                    median_fp = int(np.median(fp_event_frames))
-                    fp_val = value_at_frame(x, y, median_fp)
+                    median_fp = rel_frame_to_ms(int(np.median(fp_event_frames)))
+                    fp_val = value_at_time_ms(x, y, median_fp)
 
                 max_vals = [np.max(d["value"]) for d in curves.values() if d["value"]]
                 sd_val = np.std(max_vals)
@@ -3211,13 +3272,13 @@ with tab_joint:
                 # value at MER from grouped mean curve
                 mer_val = None
                 if mer_event_frames:
-                    median_mer = int(np.median(mer_event_frames))
-                    mer_val = value_at_frame(x, y, median_mer)
+                    median_mer = rel_frame_to_ms(int(np.median(mer_event_frames)))
+                    mer_val = value_at_time_ms(x, y, median_mer)
 
                 # value at summary PKH frame from grouped mean curve
                 pkh_val = None
                 if summary_knee_frame is not None:
-                    pkh_val = value_at_frame(x, y, summary_knee_frame)
+                    pkh_val = value_at_time_ms(x, y, rel_frame_to_ms(summary_knee_frame))
 
                 summary_rows.append({
                     "Kinematic": kinematic + (" (°/s)" if "Velocity" in kinematic else ""),
@@ -3233,15 +3294,16 @@ with tab_joint:
 
     # --- Event lines and annotations (match Kinematic Sequence styling) ---
     if median_pkh_frame is not None:
+        median_pkh_time_ms = rel_frame_to_ms(median_pkh_frame)
         fig.add_vline(
-            x=median_pkh_frame,
+            x=median_pkh_time_ms,
             line_width=3,
             line_dash="dash",
             line_color="gold",
             opacity=0.9
         )
         fig.add_annotation(
-            x=median_pkh_frame,
+            x=median_pkh_time_ms,
             y=1.055,
             xref="x",
             yref="paper",
@@ -3252,7 +3314,7 @@ with tab_joint:
         )
     elif knee_event_frames:
         # Non-mound fallback: keep a single knee marker when PKH is not enabled.
-        median_knee_frame = int(np.median(knee_event_frames))
+        median_knee_frame = rel_frame_to_ms(int(np.median(knee_event_frames)))
         fig.add_vline(
             x=median_knee_frame,
             line_width=3,
@@ -3272,7 +3334,7 @@ with tab_joint:
         )
 
     if fp_event_frames:
-        median_fp_frame = int(np.median(fp_event_frames))
+        median_fp_frame = rel_frame_to_ms(int(np.median(fp_event_frames)))
         fig.add_vline(
             x=median_fp_frame,
             line_width=3,
@@ -3292,7 +3354,7 @@ with tab_joint:
         )
 
     if mer_event_frames:
-        median_mer_frame = int(np.median(mer_event_frames))
+        median_mer_frame = rel_frame_to_ms(int(np.median(mer_event_frames)))
         fig.add_vline(
             x=median_mer_frame,
             line_width=3,
@@ -3331,10 +3393,10 @@ with tab_joint:
     )
 
     fig.update_layout(
-        xaxis_title="Frames Relative to Ball Release",
+        xaxis_title="Time Relative to Ball Release (ms)",
         yaxis_title="Kinematics",
         yaxis=dict(),
-        xaxis_range=[joint_window_start, 50],
+        xaxis_range=[joint_window_start_ms, joint_window_end_ms],
         height=600,
         legend=dict(
             orientation="h",
@@ -3541,6 +3603,9 @@ with tab_energy:
     }
 
     legend_keys_added = set()
+    energy_window_end = 50
+    energy_window_start_ms = rel_frame_to_ms(window_start)
+    energy_window_end_ms = rel_frame_to_ms(energy_window_end)
 
     # -------------------------------
     # Normalize to Ball Release and Plot
@@ -3562,8 +3627,8 @@ with tab_energy:
             norm_f, norm_v = [], []
             for f, v in zip(frames, values):
                 rel = f - br
-                if window_start <= rel <= 50:
-                    norm_f.append(rel)
+                if window_start <= rel <= energy_window_end:
+                    norm_f.append(rel_frame_to_ms(rel))
                     norm_v.append(v)
 
             grouped_power[take_id] = {"frame": norm_f, "value": norm_v}
@@ -3671,7 +3736,7 @@ with tab_energy:
     # Event Lines (with text labels above)
     # -------------------------------
     if fp_event_frames:
-        median_fp = int(np.median(fp_event_frames))
+        median_fp = rel_frame_to_ms(int(np.median(fp_event_frames)))
         fig.add_vline(x=median_fp, line_width=3, line_dash="dash", line_color="green")
         fig.add_annotation(
             x=median_fp,
@@ -3685,7 +3750,7 @@ with tab_energy:
         )
 
     if mer_event_frames:
-        median_mer = int(np.median(mer_event_frames))
+        median_mer = rel_frame_to_ms(int(np.median(mer_event_frames)))
         fig.add_vline(x=median_mer, line_width=3, line_dash="dash", line_color="red")
         fig.add_annotation(
             x=median_mer,
@@ -3711,9 +3776,9 @@ with tab_energy:
     )
 
     fig.update_layout(
-        xaxis_title="Frames Relative to Ball Release",
+        xaxis_title="Time Relative to Ball Release (ms)",
         yaxis_title="Energy Flow / Segment Power",
-        xaxis_range=[window_start, 50],
+        xaxis_range=[energy_window_start_ms, energy_window_end_ms],
         height=600,
         legend=dict(
             orientation="h",
@@ -3750,10 +3815,14 @@ with tab_energy:
                 if not take_data:
                     continue
 
+                br = br_frames.get(take_id)
+                if br is None:
+                    continue
                 for frame, value in zip(take_data["frame"], take_data["value"]):
+                    rel_time_ms = rel_frame_to_ms(frame - br)
                     rows.append({
                         "Pitch": f"Pitch {pitch_num}",
-                        "Frame (rel BR)": frame,
+                        "Time (ms rel BR)": rel_time_ms,
                         "Velocity (mph)": velo,
                         metric: value
                     })
@@ -3764,14 +3833,14 @@ with tab_energy:
         # Pivot so each metric becomes its own column
         energy_df = (
             energy_df
-            .groupby(["Pitch", "Frame (rel BR)", "Velocity (mph)"])
+            .groupby(["Pitch", "Time (ms rel BR)", "Velocity (mph)"])
             .first()
             .reset_index()
         )
 
         # Ensure metric columns are ordered after metadata
         ordered_cols = (
-            ["Pitch", "Frame (rel BR)", "Velocity (mph)"] +
+            ["Pitch", "Time (ms rel BR)", "Velocity (mph)"] +
             [m for m in energy_metrics if m in energy_df.columns]
         )
 
@@ -3784,30 +3853,35 @@ with tab_energy:
         )
     else:
         # (Grouped mode: original table logic remains unchanged)
-        # 1) Build a common frame axis (relative to BR)
-        common_frames = sorted(
+        # 1) Build a common time axis (ms relative to BR)
+        common_times_ms = sorted(
             set(
-                frame
+                rel_frame_to_ms(frame - br_frames[take_id])
                 for metric_data in energy_data_by_metric.values()
-                for take_data in metric_data.values()
+                for take_id, take_data in metric_data.items()
+                if take_id in br_frames
                 for frame in take_data["frame"]
             )
         )
 
-        energy_table = pd.DataFrame({"Frame (rel BR)": common_frames})
+        energy_table = pd.DataFrame({"Time (ms rel BR)": common_times_ms})
 
         # 2) Add one column per selected metric
         for metric in energy_metrics:
             metric_series = {}
 
             for take_id, data in energy_data_by_metric[metric].items():
+                if take_id not in br_frames:
+                    continue
+                br = br_frames[take_id]
                 for f, v in zip(data["frame"], data["value"]):
-                    metric_series.setdefault(f, []).append(v)
+                    t_ms = rel_frame_to_ms(f - br)
+                    metric_series.setdefault(t_ms, []).append(v)
 
             # Average across takes if multiple exist
             metric_values = [
                 np.nanmean(metric_series.get(f, [np.nan]))
-                for f in common_frames
+                for f in common_times_ms
             ]
 
             energy_table[metric] = metric_values
