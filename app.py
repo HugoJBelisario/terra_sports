@@ -2947,6 +2947,11 @@ with tab_joint:
 
     # For condensed legend: track which (kinematic, date) pairs have legend entries
     legend_keys_added = set()
+    summary_knee_frame = None
+    if median_pkh_frame is not None:
+        summary_knee_frame = median_pkh_frame
+    elif knee_event_frames:
+        summary_knee_frame = int(np.median(knee_event_frames))
 
     # Reuse take_order and take_velocity from Kinematic Sequence section if available
     for kinematic, data_dict in joint_data.items():
@@ -3054,11 +3059,20 @@ with tab_joint:
                     mer_frame_rel = shoulder_er_max_frames[take_id] - br_frames[take_id]
                     mer_val = value_at_frame(frames, values, mer_frame_rel)
 
+                # value at per-take PKH frame (fallback to summary knee frame)
+                pkh_val = None
+                if take_id in knee_peak_frames:
+                    pkh_frame_rel = knee_peak_frames[take_id] - br_frames[take_id]
+                    pkh_val = value_at_frame(frames, values, pkh_frame_rel)
+                elif summary_knee_frame is not None:
+                    pkh_val = value_at_frame(frames, values, summary_knee_frame)
+
                 summary_rows.append({
                     "Kinematic": kinematic + (" (°/s)" if "Velocity" in kinematic else ""),
                     "Session Date": take_date_map[take_id],
                     "Average Velocity": take_velocity[take_id],
                     "Max": max_val,
+                    "Peak Knee Height": pkh_val,
                     "Foot Plant": fp_val,
                     "Ball Release": br_val,
                     "Max External Rotation": mer_val
@@ -3120,11 +3134,17 @@ with tab_joint:
                     median_mer = int(np.median(mer_event_frames))
                     mer_val = value_at_frame(x, y, median_mer)
 
+                # value at summary PKH frame from grouped mean curve
+                pkh_val = None
+                if summary_knee_frame is not None:
+                    pkh_val = value_at_frame(x, y, summary_knee_frame)
+
                 summary_rows.append({
                     "Kinematic": kinematic + (" (°/s)" if "Velocity" in kinematic else ""),
                     "Session Date": date,
                     "Average Velocity": np.mean([take_velocity[tid] for tid in curves.keys()]),
                     "Max": max_val,
+                    "Peak Knee Height": pkh_val,
                     "Foot Plant": fp_val,
                     "Ball Release": br_val,
                     "Max External Rotation": mer_val,
@@ -3261,6 +3281,7 @@ with tab_joint:
             "Session Date",
             "Average Velocity",
             "Max",
+            "Peak Knee Height",
             "Foot Plant",
             "Ball Release",
             "Max External Rotation"
@@ -3282,6 +3303,7 @@ with tab_joint:
         formatters = {
             "Average Velocity": lambda x: fmt(x, 1),
             "Max": lambda x: fmt(x, 2),
+            "Peak Knee Height": lambda x: fmt(x, 2),
             "Foot Plant": lambda x: fmt(x, 2),
             "Ball Release": lambda x: fmt(x, 2),
             "Max External Rotation": lambda x: fmt(x, 2),
