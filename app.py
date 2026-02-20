@@ -1716,66 +1716,75 @@ pitcher_names = get_all_pitchers()
 
 if not pitcher_names:
     st.sidebar.warning("No pitchers found in the database.")
-    selected_pitcher = None
+    selected_pitchers = []
 else:
-    selected_pitcher = st.sidebar.selectbox(
-        "Select Pitcher",
+    selected_pitchers = st.sidebar.multiselect(
+        "Select Pitcher(s)",
         options=pitcher_names,
-        key="select_pitcher"
+        default=[pitcher_names[0]] if pitcher_names else [],
+        key="select_pitchers"
     )
 
 # -------------------------------
-# Select Session Dates
+# Per-Pitcher Filters
 # -------------------------------
-if selected_pitcher is None:
-    selected_dates = []
-else:
-    session_dates = get_session_dates_for_pitcher(selected_pitcher)
+pitcher_filters = {}
+for i, pitcher in enumerate(selected_pitchers):
+    st.sidebar.markdown(f"**{pitcher} Filters**")
 
+    session_dates = get_session_dates_for_pitcher(pitcher)
     if session_dates:
         session_dates_with_all = ["All Dates"] + session_dates
-
-        selected_dates = st.sidebar.multiselect(
-            "Select Session Dates",
+        selected_dates_i = st.sidebar.multiselect(
+            f"Session Dates ({pitcher})",
             options=session_dates_with_all,
             default=["All Dates"],
-            key="select_session_dates"
+            key=f"select_session_dates_{i}"
         )
     else:
-        st.sidebar.info("No session dates found for this pitcher.")
-        selected_dates = []
+        st.sidebar.info(f"No session dates found for {pitcher}.")
+        selected_dates_i = []
 
-# -------------------------------
-# Throw Type Filter (Multi)
-# -------------------------------
-throw_types = st.sidebar.multiselect(
-    "Throw Type",
-    options=["Mound", "Pulldown"],
-    default=["Mound"],
-    key="throw_types"
-)
-
-# Safety fallback: never allow empty selection
-if not throw_types:
-    throw_types = ["Mound"]
-
-# -------------------------------
-# Velocity Filter
-# -------------------------------
-vel_min, vel_max = get_velocity_bounds(selected_pitcher, selected_dates)
-
-if vel_min is not None and vel_max is not None:
-    velocity_range = st.sidebar.slider(
-        "Velocity Range (mph)",
-        min_value=float(vel_min),
-        max_value=float(vel_max),
-        value=(float(vel_min), float(vel_max)),
-        step=0.5
+    throw_types_i = st.sidebar.multiselect(
+        f"Throw Type ({pitcher})",
+        options=["Mound", "Pulldown"],
+        default=["Mound"],
+        key=f"throw_types_{i}"
     )
-    velocity_min, velocity_max = velocity_range
-else:
-    velocity_min, velocity_max = None, None
-    st.sidebar.info("Velocity data not available for this selection.")
+    if not throw_types_i:
+        throw_types_i = ["Mound"]
+
+    vel_min_i, vel_max_i = get_velocity_bounds(pitcher, selected_dates_i)
+    if vel_min_i is not None and vel_max_i is not None:
+        velocity_range_i = st.sidebar.slider(
+            f"Velocity Range ({pitcher}) (mph)",
+            min_value=float(vel_min_i),
+            max_value=float(vel_max_i),
+            value=(float(vel_min_i), float(vel_max_i)),
+            step=0.5,
+            key=f"velocity_range_{i}"
+        )
+        velocity_min_i, velocity_max_i = velocity_range_i
+    else:
+        velocity_min_i, velocity_max_i = None, None
+        st.sidebar.info(f"Velocity data not available for {pitcher}.")
+
+    pitcher_filters[pitcher] = {
+        "selected_dates": selected_dates_i,
+        "throw_types": throw_types_i,
+        "velocity_min": velocity_min_i,
+        "velocity_max": velocity_max_i,
+    }
+
+all_throw_types = sorted({
+    t
+    for cfg in pitcher_filters.values()
+    for t in cfg["throw_types"]
+})
+mound_only_sidebar = bool(pitcher_filters) and all(
+    set(cfg["throw_types"]) == {"Mound"}
+    for cfg in pitcher_filters.values()
+)
 
 
 
@@ -1795,6 +1804,9 @@ take_order = {}
 take_velocity = {}
 take_date_map = {}
 br_frames = {}
+take_pitcher_map = {}
+take_handedness = {}
+take_ids_by_handedness = {}
 
 # Workaround for Streamlit tab reset on rerun:
 # persist active tab in URL query param and re-select it after rerender.
@@ -1878,41 +1890,60 @@ with tab_kinematic:
         horizontal=True,
         key="ks_display_mode"
     )
+    pitcher_handedness = {
+        p: get_pitcher_handedness(p)
+        for p in selected_pitchers
+    }
 
+    take_ids = []
+    take_pitcher_map = {}
 
-
-    handedness = get_pitcher_handedness(selected_pitcher)
-
-    # Resolve take_ids based on pitcher + dates + velocity filter
+    # Resolve take_ids based on per-pitcher filters
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            if selected_pitcher is None:
-                take_ids = []
-            elif "All Dates" in selected_dates or not selected_dates:
-                cur.execute("""
-                    SELECT t.take_id
-                    FROM takes t
-                    JOIN athletes a ON a.athlete_id = t.athlete_id
-                    WHERE a.athlete_name = %s
-                      AND t.throw_type = ANY(%s)
-                      AND t.pitch_velo BETWEEN %s AND %s
-                """, (selected_pitcher, throw_types, velocity_min, velocity_max))
-                take_ids = [r[0] for r in cur.fetchall()]
-            else:
-                placeholders = ",".join(["%s"] * len(selected_dates))
-                cur.execute(f"""
-                    SELECT t.take_id
-                    FROM takes t
-                    JOIN athletes a ON a.athlete_id = t.athlete_id
-                    WHERE a.athlete_name = %s
-                      AND t.throw_type = ANY(%s)
-                      AND t.take_date IN ({placeholders})
-                      AND t.pitch_velo BETWEEN %s AND %s
-                """, (selected_pitcher, throw_types, *selected_dates, velocity_min, velocity_max))
-                take_ids = [r[0] for r in cur.fetchall()]
+            for pitcher, cfg in pitcher_filters.items():
+                selected_dates_i = cfg["selected_dates"]
+                throw_types_i = cfg["throw_types"]
+                velocity_min_i = cfg["velocity_min"]
+                velocity_max_i = cfg["velocity_max"]
+
+                if velocity_min_i is None or velocity_max_i is None:
+                    continue
+
+                if "All Dates" in selected_dates_i or not selected_dates_i:
+                    cur.execute("""
+                        SELECT t.take_id
+                        FROM takes t
+                        JOIN athletes a ON a.athlete_id = t.athlete_id
+                        WHERE a.athlete_name = %s
+                          AND t.throw_type = ANY(%s)
+                          AND t.pitch_velo BETWEEN %s AND %s
+                    """, (pitcher, throw_types_i, velocity_min_i, velocity_max_i))
+                else:
+                    placeholders = ",".join(["%s"] * len(selected_dates_i))
+                    cur.execute(f"""
+                        SELECT t.take_id
+                        FROM takes t
+                        JOIN athletes a ON a.athlete_id = t.athlete_id
+                        WHERE a.athlete_name = %s
+                          AND t.throw_type = ANY(%s)
+                          AND t.take_date IN ({placeholders})
+                          AND t.pitch_velo BETWEEN %s AND %s
+                    """, (pitcher, throw_types_i, *selected_dates_i, velocity_min_i, velocity_max_i))
+
+                for (take_id,) in cur.fetchall():
+                    if take_id not in take_pitcher_map:
+                        take_pitcher_map[take_id] = pitcher
+                        take_ids.append(take_id)
     finally:
         conn.close()
+
+    take_handedness = {
+        tid: pitcher_handedness.get(take_pitcher_map.get(tid))
+        for tid in take_ids
+    }
+    take_ids = [tid for tid in take_ids if take_handedness.get(tid) in ("R", "L")]
 
     # --- Pitch order + velocity lookup ---
     if take_ids:
@@ -1921,10 +1952,11 @@ with tab_kinematic:
             with conn.cursor() as cur:
                 placeholders = ",".join(["%s"] * len(take_ids))
                 cur.execute(f"""
-                    SELECT take_id, pitch_velo, take_date
-                    FROM takes
-                    WHERE take_id IN ({placeholders})
-                    ORDER BY take_date, take_id
+                    SELECT t.take_id, t.pitch_velo, t.take_date, a.athlete_name
+                    FROM takes t
+                    JOIN athletes a ON a.athlete_id = t.athlete_id
+                    WHERE t.take_id IN ({placeholders})
+                    ORDER BY a.athlete_name, t.take_date, t.take_id
                 """, tuple(take_ids))
                 rows = cur.fetchall()
         finally:
@@ -1934,29 +1966,37 @@ with tab_kinematic:
 
         date_groups = defaultdict(list)
 
-        for tid, velo, date in rows:
-            date_groups[date].append((tid, velo))
+        for tid, velo, date, pitcher in rows:
+            date_groups[(pitcher, date)].append((tid, velo))
 
         take_order = {}
         take_velocity = {}
         take_date_map = {}
+        take_pitcher_map = {}
 
-        for date, items in date_groups.items():
+        for (pitcher, date), items in date_groups.items():
             for i, (tid, velo) in enumerate(items, start=1):
                 take_order[tid] = i
                 take_velocity[tid] = velo
                 take_date_map[tid] = date.strftime("%Y-%m-%d")
+                take_pitcher_map[tid] = pitcher
 
         # -------------------------------
         # Sidebar: Exclude Takes
         # -------------------------------
         exclude_options = [
-            f"{take_date_map[tid]} – Pitch {take_order[tid]} ({take_velocity[tid]:.1f} mph)"
+            (
+                f"{take_pitcher_map[tid]} | {take_date_map[tid]} – "
+                f"Pitch {take_order[tid]} ({take_velocity[tid]:.1f} mph)"
+            )
             for tid in take_ids
         ]
 
         label_to_take_id = {
-            f"{take_date_map[tid]} – Pitch {take_order[tid]} ({take_velocity[tid]:.1f} mph)": tid
+            (
+                f"{take_pitcher_map[tid]} | {take_date_map[tid]} – "
+                f"Pitch {take_order[tid]} ({take_velocity[tid]:.1f} mph)"
+            ): tid
             for tid in take_ids
         }
 
@@ -1983,11 +2023,26 @@ with tab_kinematic:
     if not take_ids:
         st.info("No takes found for this selection.")
     else:
+        from collections import defaultdict
+
+        take_ids_by_handedness = defaultdict(list)
+        for tid in take_ids:
+            hand = take_handedness.get(tid)
+            if hand in ("R", "L"):
+                take_ids_by_handedness[hand].append(tid)
+
+        def load_by_handedness(loader_fn):
+            merged = {}
+            for hand, ids in take_ids_by_handedness.items():
+                if ids:
+                    merged.update(loader_fn(ids, hand))
+            return merged
+
         data = get_pelvis_angular_velocity(take_ids)
-        cg_data = get_hand_cg_velocity(take_ids, handedness)
+        cg_data = load_by_handedness(get_hand_cg_velocity)
         torso_data = get_torso_angular_velocity(take_ids)
-        elbow_data = get_elbow_angular_velocity(take_ids, handedness)
-        shoulder_ir_data = get_shoulder_ir_velocity(take_ids, handedness)
+        elbow_data = load_by_handedness(get_elbow_angular_velocity)
+        shoulder_ir_data = load_by_handedness(get_shoulder_ir_velocity)
         # Cache Ball Release frames per take
         br_frames = {}
 
@@ -2000,7 +2055,7 @@ with tab_kinematic:
                 if valid:
                     idx, _ = max(valid, key=lambda x: x[1])
                     br_frames[take_id] = cg_frames[idx]
-        shoulder_data = get_shoulder_er_angles(take_ids, handedness)
+        shoulder_data = load_by_handedness(get_shoulder_er_angles)
         # Cache max shoulder ER frames per take
         shoulder_er_max_frames = {}
 
@@ -2012,35 +2067,37 @@ with tab_kinematic:
             if not valid:
                 continue
 
-            if handedness == "R":
+            hand = take_handedness.get(take_id)
+            if hand == "R":
                 er_frame, _ = min(valid, key=lambda x: x[1])  # most negative
             else:
                 er_frame, _ = max(valid, key=lambda x: x[1])  # most positive
 
             shoulder_er_max_frames[take_id] = er_frame
-        knee_peak_frames = get_peak_glove_knee_pre_br(
-            take_ids,
-            handedness,
-            br_frames
-        )
-
-        foot_plant_frames = get_foot_plant_frame(
-            take_ids,
-            handedness,
-            knee_peak_frames,
-            br_frames
-        )
-        ankle_prox_x_peak_frames = get_peak_ankle_prox_x_velocity(
-            take_ids,
-            handedness
-        )
-
-        foot_plant_zero_cross_frames = get_foot_plant_frame_zero_cross(
-            take_ids,
-            handedness,
-            ankle_prox_x_peak_frames,
-            shoulder_er_max_frames
-        )
+        knee_peak_frames = {}
+        foot_plant_frames = {}
+        ankle_prox_x_peak_frames = {}
+        foot_plant_zero_cross_frames = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if not ids:
+                continue
+            knee_peak_frames.update(
+                get_peak_glove_knee_pre_br(ids, hand, br_frames)
+            )
+            foot_plant_frames.update(
+                get_foot_plant_frame(ids, hand, knee_peak_frames, br_frames)
+            )
+            ankle_prox_x_peak_frames.update(
+                get_peak_ankle_prox_x_velocity(ids, hand)
+            )
+            foot_plant_zero_cross_frames.update(
+                get_foot_plant_frame_zero_cross(
+                    ids,
+                    hand,
+                    ankle_prox_x_peak_frames,
+                    shoulder_er_max_frames
+                )
+            )
 
         # Collect normalized peak knee height frames for aggregation
         knee_event_frames = []
@@ -2125,6 +2182,7 @@ with tab_kinematic:
         for take_id, d in data.items():
             frames = d["frame"]
             values = d["z"]
+            take_hand = take_handedness.get(take_id)
 
             # -----------------------------
             # Ball Release Detection (CGVel)
@@ -2163,7 +2221,7 @@ with tab_kinematic:
                 ]
 
                 if valid_sh:
-                    if handedness == "R":
+                    if take_hand == "R":
                         mer_frame, _ = min(valid_sh, key=lambda x: x[1])  # negative max
                     else:
                         mer_frame, _ = max(valid_sh, key=lambda x: x[1])  # positive max
@@ -2186,7 +2244,7 @@ with tab_kinematic:
                 if rel_frame >= window_start and rel_frame <= window_end:
                     norm_frames.append(rel_frame_to_ms(rel_frame))
                     # Handedness normalization for Pelvis AV (Kinematic Sequence only)
-                    if handedness == "L":
+                    if take_hand == "L":
                         norm_values.append(-v)
                     else:
                         norm_values.append(v)
@@ -2214,7 +2272,7 @@ with tab_kinematic:
                     if rel_frame >= window_start and rel_frame <= window_end:
                         norm_torso_frames.append(rel_frame_to_ms(rel_frame))
                         # Handedness normalization for Torso AV (Kinematic Sequence only)
-                        if handedness == "L":
+                        if take_hand == "L":
                             norm_torso_values.append(-v)
                         else:
                             norm_torso_values.append(v)
@@ -2355,7 +2413,7 @@ with tab_kinematic:
                     if rel_frame >= window_start and rel_frame <= window_end:
                         norm_sh_frames.append(rel_frame_to_ms(rel_frame))
                         # Normalize so IR velocity is positive for both handedness
-                        if handedness == "L":
+                        if take_hand == "L":
                             norm_sh_values.append(-v)
                         else:
                             norm_sh_values.append(v)
@@ -2872,7 +2930,7 @@ with tab_joint:
         horizontal=True,
         key="joint_display_mode"
     )
-    joint_mound_only_selected = {t.lower() for t in throw_types} == {"mound"}
+    joint_mound_only_selected = mound_only_sidebar
 
     default_joint_selection = ["Elbow Flexion"]
     if joint_mound_only_selected:
@@ -2948,6 +3006,13 @@ with tab_joint:
     # --- Load joint data conditionally ---
     joint_data = {}
 
+    def load_joint_by_handedness(loader_fn):
+        merged = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if ids:
+                merged.update(loader_fn(ids, hand))
+        return merged
+
     # --- Pelvis / Trunk rotational velocity (z_data) ---
     if "Pelvis Rotational Velocity" in selected_kinematics:
         joint_data["Pelvis Rotational Velocity"] = get_pelvis_angular_velocity(take_ids)
@@ -2959,43 +3024,39 @@ with tab_joint:
         joint_data["Torso-Pelvis Rotational Velocity"] = get_torso_pelvis_angular_velocity(take_ids)
 
     if "Elbow Flexion" in selected_kinematics:
-        joint_data["Elbow Flexion"] = get_elbow_flexion_angle(take_ids, handedness)
+        joint_data["Elbow Flexion"] = load_joint_by_handedness(get_elbow_flexion_angle)
 
     if "Hand Speed" in selected_kinematics:
-        joint_data["Hand Speed"] = get_hand_speed(take_ids, handedness)
+        joint_data["Hand Speed"] = load_joint_by_handedness(get_hand_speed)
 
     if "Center of Mass Velocity (X)" in selected_kinematics:
         joint_data["Center of Mass Velocity (X)"] = get_center_of_mass_velocity_x(take_ids)
 
     if "Shoulder ER" in selected_kinematics:
-        joint_data["Shoulder ER"] = get_shoulder_er_angle(take_ids, handedness)
+        joint_data["Shoulder ER"] = load_joint_by_handedness(get_shoulder_er_angle)
 
     if "Shoulder Internal Rotation Velocity" in selected_kinematics:
-        joint_data["Shoulder Internal Rotation Velocity"] = get_shoulder_ir_velocity(
-            take_ids, handedness
-        )
+        joint_data["Shoulder Internal Rotation Velocity"] = load_joint_by_handedness(get_shoulder_ir_velocity)
 
     if "Shoulder Abduction" in selected_kinematics:
-        joint_data["Shoulder Abduction"] = get_shoulder_abduction_angle(take_ids, handedness)
+        joint_data["Shoulder Abduction"] = load_joint_by_handedness(get_shoulder_abduction_angle)
 
     if "Shoulder Horizontal Abduction" in selected_kinematics:
-        joint_data["Shoulder Horizontal Abduction"] = get_shoulder_horizontal_abduction_angle(
-            take_ids, handedness
+        joint_data["Shoulder Horizontal Abduction"] = load_joint_by_handedness(
+            get_shoulder_horizontal_abduction_angle
         )
 
     if "Forearm Pronation/Supination" in selected_kinematics:
-        joint_data["Forearm Pronation/Supination"] = get_forearm_pron_sup_angle(
-            take_ids, handedness
+        joint_data["Forearm Pronation/Supination"] = load_joint_by_handedness(
+            get_forearm_pron_sup_angle
         )
 
     if "Front Knee Flexion" in selected_kinematics:
-        joint_data["Front Knee Flexion"] = get_front_knee_flexion_angle(
-            take_ids, handedness
-        )
+        joint_data["Front Knee Flexion"] = load_joint_by_handedness(get_front_knee_flexion_angle)
 
     if "Front Knee Extension Velocity" in selected_kinematics:
-        joint_data["Front Knee Extension Velocity"] = get_front_knee_extension_velocity(
-            take_ids, handedness
+        joint_data["Front Knee Extension Velocity"] = load_joint_by_handedness(
+            get_front_knee_extension_velocity
         )
 
     # --- Load Torso Angle components conditionally ---
@@ -3057,7 +3118,7 @@ with tab_joint:
     # --- Per-take normalization and plotting ---
     grouped = {}
     grouped_by_date = {}
-    mound_only_selected = {t.lower() for t in throw_types} == {"mound"}
+    mound_only_selected = mound_only_sidebar
     median_pkh_frame = None
     joint_window_start = window_start
     joint_window_end = 50
@@ -3124,7 +3185,8 @@ with tab_joint:
 
                     # --- Handedness normalization ---
                     # (Keep angles consistent, but DO NOT flip rotational velocities)
-                    if "Velocity" not in kinematic and handedness == "R" and kinematic in [
+                    take_hand = take_handedness.get(take_id)
+                    if "Velocity" not in kinematic and take_hand == "R" and kinematic in [
                         "Shoulder Horizontal Abduction",
                         "Shoulder ER"
                     ]:
@@ -3566,23 +3628,30 @@ with tab_energy:
     # --- Load all selected metrics ---
     energy_data_by_metric = {}
 
+    def load_energy_by_handedness(loader_fn):
+        merged = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if ids:
+                merged.update(loader_fn(ids, hand))
+        return merged
+
     for metric in energy_metrics:
         if metric == "Distal Arm Segment Power":
-            energy_data_by_metric[metric] = get_distal_arm_segment_power(take_ids, handedness)
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_distal_arm_segment_power)
         elif metric == "Arm Proximal Energy Transfer":
-            energy_data_by_metric[metric] = get_arm_proximal_energy_transfer(take_ids, handedness)
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_proximal_energy_transfer)
         elif metric == "Trunk-Shoulder Rotational Energy Flow":
-            energy_data_by_metric[metric] = get_trunk_shoulder_rot_energy_flow(take_ids, handedness)
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_rot_energy_flow)
         elif metric == "Trunk-Shoulder Elevation/Depression Energy Flow":
-            energy_data_by_metric[metric] = get_trunk_shoulder_elev_energy_flow(take_ids, handedness)
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_elev_energy_flow)
         elif metric == "Trunk-Shoulder Horizontal Abd/Add Energy Flow":
-            energy_data_by_metric[metric] = get_trunk_shoulder_horizabd_energy_flow(take_ids, handedness)
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_horizabd_energy_flow)
         elif metric == "Arm Rotational Energy Flow":
-            energy_data_by_metric[metric] = get_arm_rot_energy_flow(take_ids, handedness)
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_rot_energy_flow)
         elif metric == "Arm Elevation/Depression Energy Flow":
-            energy_data_by_metric[metric] = get_arm_elev_energy_flow(take_ids, handedness)
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_elev_energy_flow)
         elif metric == "Arm Horizontal Abd/Add Energy Flow":
-            energy_data_by_metric[metric] = get_arm_horizabd_energy_flow(take_ids, handedness)
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_horizabd_energy_flow)
 
     energy_data_by_metric = {
         k: v for k, v in energy_data_by_metric.items() if v
