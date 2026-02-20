@@ -2969,87 +2969,39 @@ with tab_kinematic:
             st.markdown("### Kinematic Sequence - Grouped")
 
             df = pd.DataFrame(kinematic_peak_rows)
+            df_display = df.copy().rename(columns={
+                "Peak Value (°/s)": "Peak (°/s)",
+                "Peak Time (ms rel BR)": "Peak Time (ms rel BR)"
+            })
+            cols = [
+                c for c in [
+                    "Pitcher",
+                    "Session Date",
+                    "Segment",
+                    "Peak (°/s)",
+                    "Peak Time (ms rel BR)",
+                    "Peak Time from FP (ms)"
+                ] if c in df_display.columns
+            ]
+            df_display = df_display[cols]
+            sort_cols = [c for c in ["Pitcher", "Session Date", "Segment"] if c in df_display.columns]
+            if sort_cols:
+                df_display = df_display.sort_values(sort_cols)
 
-            if multi_pitcher_mode:
-                df_display = df.copy()
-                df_display = df_display.rename(columns={
-                    "Peak Value (°/s)": "Peak (°/s)",
-                    "Peak Time (ms rel BR)": "Peak Time (ms rel BR)"
+            styled = (
+                df_display
+                .style
+                .format({
+                    "Peak (°/s)": lambda x: "" if x is None else f"{x:.1f}",
+                    "Peak Time (ms rel BR)": lambda x: "" if x is None else f"{x:.0f}",
+                    "Peak Time from FP (ms)": lambda x: "" if x is None else f"{x:.0f}",
                 })
-                cols = [
-                    c for c in [
-                        "Pitcher",
-                        "Session Date",
-                        "Segment",
-                        "Peak (°/s)",
-                        "Peak Time (ms rel BR)",
-                        "Peak Time from FP (ms)"
-                    ] if c in df_display.columns
-                ]
-                df_display = df_display[cols]
-                styled = (
-                    df_display
-                    .style
-                    .format({
-                        "Peak (°/s)": lambda x: "" if x is None else f"{x:.1f}",
-                        "Peak Time (ms rel BR)": lambda x: "" if x is None else f"{x:.0f}",
-                        "Peak Time from FP (ms)": lambda x: "" if x is None else f"{x:.0f}",
-                    })
-                    .set_table_styles([
-                        {"selector": "th", "props": [("text-align", "center")]}
-                    ])
-                    .set_properties(**{"text-align": "center"})
-                )
-                st.dataframe(styled, use_container_width=True)
-            else:
-                # Pivot into segment-based column groups
-                pivot = {}
-                for _, row in df.iterrows():
-                    seg = row["Segment"]
-                    pivot[(seg, "Peak (°/s)")] = [row["Peak Value (°/s)"]]
-                    pivot[(seg, "Peak Time (ms)")] = [row["Peak Time (ms rel BR)"]]
-
-                    if seg == "Pelvis":
-                        pivot[(seg, "Peak Time from FP (ms)")] = [row.get("Peak Time from FP (ms)")]
-
-                df_pivot = pd.DataFrame(pivot)
-                df_pivot.columns = pd.MultiIndex.from_tuples(df_pivot.columns)
-
-                # --- Styling ---
-                segment_colors = {
-                    "Pelvis":   "rgba(0, 128, 0, 0.12)",     # green
-                    "Torso":    "rgba(255, 215, 0, 0.12)",   # yellow
-                    "Elbow":    "rgba(128, 0, 128, 0.12)",   # purple
-                    "Shoulder": "rgba(255, 0, 0, 0.12)"      # red
-                }
-
-                def style_segments(col):
-                    seg = col[0]
-                    if seg in segment_colors:
-                        return [f"background-color: {segment_colors[seg]}"] * len(df_pivot)
-                    return [""] * len(df_pivot)
-
-                # --- Pre-format values safely (NO Styler value mutation) ---
-                df_display = df_pivot.copy()
-
-                for col in df_display.columns:
-                    if "Peak" in col[1] and "°/s" in col[1]:
-                        df_display[col] = df_display[col].map(lambda x: f"{x:.1f}")
-                    elif "Time from FP" in col[1]:
-                        df_display[col] = df_display[col].map(lambda x: "" if x is None else f"{x:.0f}")
-
-                # --- Styling (CSS only) ---
-                styled = (
-                    df_display
-                    .style
-                    .apply(style_segments, axis=0)
-                    .set_properties(**{
-                        "text-align": "center",
-                        "font-weight": "500"
-                    })
-                )
-
-                st.dataframe(styled, use_container_width=True)
+                .set_table_styles([
+                    {"selector": "th", "props": [("text-align", "center")]}
+                ])
+                .set_properties(**{"text-align": "center"})
+            )
+            st.dataframe(styled, use_container_width=True)
 
 
 with tab_joint:
