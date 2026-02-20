@@ -771,6 +771,48 @@ def get_pelvis_angle(take_ids):
 
 
 @st.cache_data(ttl=300)
+def get_pelvic_lateral_tilt(take_ids):
+    """
+    Returns pelvic lateral tilt from pelvis angle (y_data).
+
+    Category: ORIGINAL
+    Segment: PELVIS_ANGLE
+    """
+    if not take_ids:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.y_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = 'PELVIS_ANGLE'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, y in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(y)
+
+            return data
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300)
 def get_hip_shoulder_separation(take_ids):
     """
     Returns hip–shoulder separation angle (z_data).
@@ -3022,6 +3064,7 @@ with tab_joint:
             "Lateral Trunk Tilt",
             "Trunk Angle",
             "Pelvis Angle",
+            "Pelvic Lateral Tilt",
             "Hip-Shoulder Separation",
             "Pelvis Rotational Velocity",
             "Trunk Rotational Velocity",
@@ -3057,6 +3100,7 @@ with tab_joint:
     })
     joint_color_map.update({
         "Pelvis Angle": "darkblue",
+        "Pelvic Lateral Tilt": "#FF4FA3",
         "Hip-Shoulder Separation": "darkred"
     })
     joint_color_map.update({
@@ -3145,6 +3189,9 @@ with tab_joint:
 
     if "Pelvis Angle" in selected_kinematics:
         joint_data["Pelvis Angle"] = get_pelvis_angle(take_ids)
+
+    if "Pelvic Lateral Tilt" in selected_kinematics:
+        joint_data["Pelvic Lateral Tilt"] = get_pelvic_lateral_tilt(take_ids)
 
     if "Hip-Shoulder Separation" in selected_kinematics:
         joint_data["Hip-Shoulder Separation"] = get_hip_shoulder_separation(take_ids)
