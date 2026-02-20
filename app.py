@@ -66,7 +66,7 @@ def to_rgba(color, alpha=0.35):
         "gray": (127, 127, 127),
         "olive": (188, 189, 34),
         "teal": (23, 190, 207),
-        "black": (0, 0, 0),
+        "charcoal": (55, 65, 81),
         "darkblue": (0, 0, 139),
         "darkred": (139, 0, 0),
         "darkgreen": (0, 100, 0)
@@ -2932,7 +2932,7 @@ with tab_joint:
     joint_color_map.update({
         "Forward Trunk Tilt": "blue",
         "Lateral Trunk Tilt": "green",
-        "Trunk Angle": "black"
+        "Trunk Angle": "charcoal"
     })
     joint_color_map.update({
         "Pelvis Angle": "darkblue",
