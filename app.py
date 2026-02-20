@@ -1729,14 +1729,17 @@ else:
 # Per-Pitcher Filters
 # -------------------------------
 pitcher_filters = {}
+multi_pitcher_mode = len(selected_pitchers) > 1
 for i, pitcher in enumerate(selected_pitchers):
-    st.sidebar.markdown(f"**{pitcher} Filters**")
+    label_suffix = f" - {pitcher}" if multi_pitcher_mode else ""
+    if multi_pitcher_mode:
+        st.sidebar.markdown(f"**{pitcher} Filters**")
 
     session_dates = get_session_dates_for_pitcher(pitcher)
     if session_dates:
         session_dates_with_all = ["All Dates"] + session_dates
         selected_dates_i = st.sidebar.multiselect(
-            f"Session Dates ({pitcher})",
+            f"Session Dates{label_suffix}",
             options=session_dates_with_all,
             default=["All Dates"],
             key=f"select_session_dates_{i}"
@@ -1746,7 +1749,7 @@ for i, pitcher in enumerate(selected_pitchers):
         selected_dates_i = []
 
     throw_types_i = st.sidebar.multiselect(
-        f"Throw Type ({pitcher})",
+        f"Throw Type{label_suffix}",
         options=["Mound", "Pulldown"],
         default=["Mound"],
         key=f"throw_types_{i}"
@@ -1757,7 +1760,7 @@ for i, pitcher in enumerate(selected_pitchers):
     vel_min_i, vel_max_i = get_velocity_bounds(pitcher, selected_dates_i)
     if vel_min_i is not None and vel_max_i is not None:
         velocity_range_i = st.sidebar.slider(
-            f"Velocity Range ({pitcher}) (mph)",
+            f"Velocity Range{label_suffix} (mph)",
             min_value=float(vel_min_i),
             max_value=float(vel_max_i),
             value=(float(vel_min_i), float(vel_max_i)),
