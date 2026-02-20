@@ -2287,6 +2287,7 @@ with tab_kinematic:
 
                 if norm_torso_frames and display_mode == "Individual Throws":
                     legendgroup = f"Torso_{take_date_map[take_id]}"
+                    pitcher_name = take_pitcher_map.get(take_id, "")
                     # Actual data trace (no legend)
                     fig.add_trace(
                         go.Scatter(
@@ -2297,11 +2298,12 @@ with tab_kinematic:
                                 color="orange",
                                 dash=date_dash_map[take_date_map[take_id]]
                             ),
-                            customdata=[[ "Torso", take_date_map[take_id], take_order[take_id], take_velocity[take_id] ]] * len(norm_torso_frames),
+                            customdata=[[ "Torso", take_date_map[take_id], take_order[take_id], take_velocity[take_id], pitcher_name ]] * len(norm_torso_frames),
                             hovertemplate=(
                                 "%{customdata[0]} – %{customdata[1]} | "
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
-                                "<extra></extra>"
+                                + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                                + "<extra></extra>"
                             ),
                             showlegend=False,
                             legendgroup=legendgroup,
@@ -2321,7 +2323,11 @@ with tab_kinematic:
                                     dash=date_dash_map[take_date_map[take_id]],
                                     width=4
                                 ),
-                                name=f"Torso AV | {take_date_map[take_id]}",
+                                name=(
+                                    f"Torso AV | {take_date_map[take_id]} | {pitcher_name}"
+                                    if multi_pitcher_mode else
+                                    f"Torso AV | {take_date_map[take_id]}"
+                                ),
                                 showlegend=True,
                                 legendgroup=legendgroup,
                                 legendgrouptitle_text=None
@@ -2356,6 +2362,7 @@ with tab_kinematic:
 
                 if norm_elbow_frames and display_mode == "Individual Throws":
                     legendgroup = f"Elbow_{take_date_map[take_id]}"
+                    pitcher_name = take_pitcher_map.get(take_id, "")
                     # Actual data trace (no legend)
                     fig.add_trace(
                         go.Scatter(
@@ -2366,11 +2373,12 @@ with tab_kinematic:
                                 color="green",
                                 dash=date_dash_map[take_date_map[take_id]]
                             ),
-                            customdata=[[ "Elbow", take_date_map[take_id], take_order[take_id], take_velocity[take_id] ]] * len(norm_elbow_frames),
+                            customdata=[[ "Elbow", take_date_map[take_id], take_order[take_id], take_velocity[take_id], pitcher_name ]] * len(norm_elbow_frames),
                             hovertemplate=(
                                 "%{customdata[0]} – %{customdata[1]} | "
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
-                                "<extra></extra>"
+                                + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                                + "<extra></extra>"
                             ),
                             showlegend=False,
                             legendgroup=legendgroup,
@@ -2390,7 +2398,11 @@ with tab_kinematic:
                                     dash=date_dash_map[take_date_map[take_id]],
                                     width=4
                                 ),
-                                name=f"Elbow AV | {take_date_map[take_id]}",
+                                name=(
+                                    f"Elbow AV | {take_date_map[take_id]} | {pitcher_name}"
+                                    if multi_pitcher_mode else
+                                    f"Elbow AV | {take_date_map[take_id]}"
+                                ),
                                 showlegend=True,
                                 legendgroup=legendgroup,
                                 legendgrouptitle_text=None
@@ -2428,6 +2440,7 @@ with tab_kinematic:
 
                 if norm_sh_frames and display_mode == "Individual Throws":
                     legendgroup = f"Shoulder IR_{take_date_map[take_id]}"
+                    pitcher_name = take_pitcher_map.get(take_id, "")
                     # Actual data trace (no legend)
                     fig.add_trace(
                         go.Scatter(
@@ -2438,11 +2451,12 @@ with tab_kinematic:
                                 color="red",
                                 dash=date_dash_map[take_date_map[take_id]]
                             ),
-                            customdata=[[ "Shoulder", take_date_map[take_id], take_order[take_id], take_velocity[take_id] ]] * len(norm_sh_frames),
+                            customdata=[[ "Shoulder", take_date_map[take_id], take_order[take_id], take_velocity[take_id], pitcher_name ]] * len(norm_sh_frames),
                             hovertemplate=(
                                 "%{customdata[0]} – %{customdata[1]} | "
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
-                                "<extra></extra>"
+                                + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                                + "<extra></extra>"
                             ),
                             showlegend=False,
                             legendgroup=legendgroup,
@@ -2462,7 +2476,11 @@ with tab_kinematic:
                                     dash=date_dash_map[take_date_map[take_id]],
                                     width=4
                                 ),
-                                name=f"Shoulder IR AV | {take_date_map[take_id]}",
+                                name=(
+                                    f"Shoulder IR AV | {take_date_map[take_id]} | {pitcher_name}"
+                                    if multi_pitcher_mode else
+                                    f"Shoulder IR AV | {take_date_map[take_id]}"
+                                ),
                                 showlegend=True,
                                 legendgroup=legendgroup,
                                 legendgrouptitle_text=None
@@ -2474,6 +2492,7 @@ with tab_kinematic:
 
             if display_mode == "Individual Throws":
                 legendgroup = f"Pelvis_{take_date_map[take_id]}"
+                pitcher_name = take_pitcher_map.get(take_id, "")
                 # Actual data trace (no legend)
                 fig.add_trace(
                     go.Scatter(
@@ -2484,11 +2503,12 @@ with tab_kinematic:
                             color="blue",
                             dash=date_dash_map[take_date_map[take_id]]
                         ),
-                        customdata=[[ "Pelvis", take_date_map[take_id], take_order[take_id], take_velocity[take_id] ]] * len(norm_frames),
+                        customdata=[[ "Pelvis", take_date_map[take_id], take_order[take_id], take_velocity[take_id], pitcher_name ]] * len(norm_frames),
                         hovertemplate=(
                             "%{customdata[0]} – %{customdata[1]} | "
                             "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
-                            "<extra></extra>"
+                            + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                            + "<extra></extra>"
                         ),
                         showlegend=False,
                         legendgroup=legendgroup,
@@ -2508,7 +2528,11 @@ with tab_kinematic:
                                 dash=date_dash_map[take_date_map[take_id]],
                                 width=4
                             ),
-                            name=f"Pelvis AV | {take_date_map[take_id]}",
+                            name=(
+                                f"Pelvis AV | {take_date_map[take_id]} | {pitcher_name}"
+                                if multi_pitcher_mode else
+                                f"Pelvis AV | {take_date_map[take_id]}"
+                            ),
                             showlegend=True,
                             legendgroup=legendgroup,
                             legendgrouptitle_text=None
@@ -2558,15 +2582,22 @@ with tab_kinematic:
                 curves_by_date = defaultdict(dict)
                 for take_id, d in curves.items():
                     date = take_date_map[take_id]
-                    curves_by_date[date][take_id] = d
-                for date, curves_date in curves_by_date.items():
+                    pitcher_name = take_pitcher_map.get(take_id, "")
+                    date_key = (pitcher_name, date) if multi_pitcher_mode else date
+                    curves_by_date[date_key][take_id] = d
+                for date_key, curves_date in curves_by_date.items():
+                    if multi_pitcher_mode:
+                        pitcher_name, date = date_key
+                    else:
+                        date = date_key
+                        pitcher_name = ""
                     x_date, y_date, q1_date, q3_date = aggregate_curves(curves_date, "Mean")
                     color = color_map[label]
                     # Smoothing
                     if len(y_date) >= 11:
                         y_date = savgol_filter(y_date, window_length=7, polyorder=3)
                     dash = date_dash_map[date]
-                    legendgroup = f"{label}_{date}"
+                    legendgroup = f"{label}_{date}_{pitcher_name}" if multi_pitcher_mode else f"{label}_{date}"
                     # --- Grouped curve (no legend, but legendgroup set) ---
                     fig.add_trace(
                         go.Scatter(
@@ -2578,17 +2609,18 @@ with tab_kinematic:
                                 color=color,
                                 dash=dash,
                             ),
-                            customdata=[[label, date]] * len(x_date),
+                            customdata=[[label, date, pitcher_name]] * len(x_date),
                             hovertemplate=(
                                 "%{customdata[0]} | %{customdata[1]}"
-                                "<extra></extra>"
+                                + (" | %{customdata[2]}" if multi_pitcher_mode else "")
+                                + "<extra></extra>"
                             ),
                             showlegend=False,
                             legendgroup=legendgroup
                         )
                     )
                     # --- Legend-only trace (once per Segment + Date, legendgroup set) ---
-                    legend_key = (label, date)
+                    legend_key = (label, date, pitcher_name) if multi_pitcher_mode else (label, date)
                     if legend_key not in legend_keys_added:
                         fig.add_trace(
                             go.Scatter(
@@ -2600,7 +2632,11 @@ with tab_kinematic:
                                     dash=dash,
                                     width=4
                                 ),
-                                name=f"{label} AV | {date}",
+                                name=(
+                                    f"{label} AV | {date} | {pitcher_name}"
+                                    if multi_pitcher_mode else
+                                    f"{label} AV | {date}"
+                                ),
                                 showlegend=True,
                                 legendgroup=legendgroup
                             )
@@ -2631,6 +2667,7 @@ with tab_kinematic:
                                 pelvis_time_ms_grouped = max_x - fp_rel
 
                             kinematic_peak_rows.append({
+                                **({"Pitcher": pitcher_name} if multi_pitcher_mode else {}),
                                 "Segment": label,
                                 "Peak Value (°/s)": max_y,
                                 "Peak Time (ms rel BR)": max_x,
@@ -2814,6 +2851,7 @@ with tab_kinematic:
                 shoulder_peak, shoulder_frame = peak_and_frame(grouped_shoulder_ir)
 
                 individual_rows.append({
+                    **({"Pitcher": take_pitcher_map.get(take_id)} if multi_pitcher_mode else {}),
                     "Session Date": take_date_map[take_id],
                     "Pitch": take_order[take_id],
                     "Velocity (mph)": take_velocity[take_id],
@@ -2835,9 +2873,10 @@ with tab_kinematic:
                 df_individual = pd.DataFrame(individual_rows)
 
                 # Sort logically: date → pitch order
-                df_individual = df_individual.sort_values(
-                    ["Session Date", "Pitch"]
-                )
+                sort_cols = ["Session Date", "Pitch"]
+                if multi_pitcher_mode and "Pitcher" in df_individual.columns:
+                    sort_cols = ["Pitcher"] + sort_cols
+                df_individual = df_individual.sort_values(sort_cols)
 
                 def fmt(val, decimals=2):
                     if val is None or (isinstance(val, float) and np.isnan(val)):
@@ -2874,54 +2913,75 @@ with tab_kinematic:
 
             df = pd.DataFrame(kinematic_peak_rows)
 
-            # Pivot into segment-based column groups
-            pivot = {}
-            for _, row in df.iterrows():
-                seg = row["Segment"]
-                pivot[(seg, "Peak (°/s)")] = [row["Peak Value (°/s)"]]
-                pivot[(seg, "Peak Time (ms)")] = [row["Peak Time (ms rel BR)"]]
-
-                if seg == "Pelvis":
-                    pivot[(seg, "Peak Time from FP (ms)")] = [row.get("Peak Time from FP (ms)")]
-
-            df_pivot = pd.DataFrame(pivot)
-            df_pivot.columns = pd.MultiIndex.from_tuples(df_pivot.columns)
-
-            # --- Styling ---
-            segment_colors = {
-                "Pelvis":   "rgba(0, 128, 0, 0.12)",     # green
-                "Torso":    "rgba(255, 215, 0, 0.12)",   # yellow
-                "Elbow":    "rgba(128, 0, 128, 0.12)",   # purple
-                "Shoulder": "rgba(255, 0, 0, 0.12)"      # red
-            }
-
-            def style_segments(col):
-                seg = col[0]
-                if seg in segment_colors:
-                    return [f"background-color: {segment_colors[seg]}"] * len(df_pivot)
-                return [""] * len(df_pivot)
-
-            # --- Pre-format values safely (NO Styler value mutation) ---
-            df_display = df_pivot.copy()
-
-            for col in df_display.columns:
-                if "Peak" in col[1] and "°/s" in col[1]:
-                    df_display[col] = df_display[col].map(lambda x: f"{x:.1f}")
-                elif "Time from FP" in col[1]:
-                    df_display[col] = df_display[col].map(lambda x: "" if x is None else f"{x:.0f}")
-
-            # --- Styling (CSS only) ---
-            styled = (
-                df_display
-                .style
-                .apply(style_segments, axis=0)
-                .set_properties(**{
-                    "text-align": "center",
-                    "font-weight": "500"
+            if multi_pitcher_mode:
+                df_display = df.copy()
+                df_display = df_display.rename(columns={
+                    "Peak Value (°/s)": "Peak (°/s)",
+                    "Peak Time (ms rel BR)": "Peak Time (ms rel BR)"
                 })
-            )
+                styled = (
+                    df_display
+                    .style
+                    .format({
+                        "Peak (°/s)": lambda x: "" if x is None else f"{x:.1f}",
+                        "Peak Time (ms rel BR)": lambda x: "" if x is None else f"{x:.0f}",
+                        "Peak Time from FP (ms)": lambda x: "" if x is None else f"{x:.0f}",
+                    })
+                    .set_table_styles([
+                        {"selector": "th", "props": [("text-align", "center")]}
+                    ])
+                    .set_properties(**{"text-align": "center"})
+                )
+                st.dataframe(styled, use_container_width=True)
+            else:
+                # Pivot into segment-based column groups
+                pivot = {}
+                for _, row in df.iterrows():
+                    seg = row["Segment"]
+                    pivot[(seg, "Peak (°/s)")] = [row["Peak Value (°/s)"]]
+                    pivot[(seg, "Peak Time (ms)")] = [row["Peak Time (ms rel BR)"]]
 
-            st.dataframe(styled, use_container_width=True)
+                    if seg == "Pelvis":
+                        pivot[(seg, "Peak Time from FP (ms)")] = [row.get("Peak Time from FP (ms)")]
+
+                df_pivot = pd.DataFrame(pivot)
+                df_pivot.columns = pd.MultiIndex.from_tuples(df_pivot.columns)
+
+                # --- Styling ---
+                segment_colors = {
+                    "Pelvis":   "rgba(0, 128, 0, 0.12)",     # green
+                    "Torso":    "rgba(255, 215, 0, 0.12)",   # yellow
+                    "Elbow":    "rgba(128, 0, 128, 0.12)",   # purple
+                    "Shoulder": "rgba(255, 0, 0, 0.12)"      # red
+                }
+
+                def style_segments(col):
+                    seg = col[0]
+                    if seg in segment_colors:
+                        return [f"background-color: {segment_colors[seg]}"] * len(df_pivot)
+                    return [""] * len(df_pivot)
+
+                # --- Pre-format values safely (NO Styler value mutation) ---
+                df_display = df_pivot.copy()
+
+                for col in df_display.columns:
+                    if "Peak" in col[1] and "°/s" in col[1]:
+                        df_display[col] = df_display[col].map(lambda x: f"{x:.1f}")
+                    elif "Time from FP" in col[1]:
+                        df_display[col] = df_display[col].map(lambda x: "" if x is None else f"{x:.0f}")
+
+                # --- Styling (CSS only) ---
+                styled = (
+                    df_display
+                    .style
+                    .apply(style_segments, axis=0)
+                    .set_properties(**{
+                        "text-align": "center",
+                        "font-weight": "500"
+                    })
+                )
+
+                st.dataframe(styled, use_container_width=True)
 
 
 with tab_joint:
@@ -3201,7 +3261,9 @@ with tab_joint:
 
             # --- Store by date for grouped plotting ---
             date = take_date_map[take_id]
-            grouped_by_date.setdefault(date, {}).setdefault(kinematic, {})[take_id] = {
+            pitcher_name = take_pitcher_map.get(take_id, "")
+            date_key = (pitcher_name, date) if multi_pitcher_mode else date
+            grouped_by_date.setdefault(date_key, {}).setdefault(kinematic, {})[take_id] = {
                 "frame": norm_f,
                 "value": norm_v
             }
@@ -3217,12 +3279,17 @@ with tab_joint:
                             color=joint_color_map[kinematic],
                             dash=date_dash_map[take_date_map[take_id]]
                         ),
-                        name=f"{kinematic} – {take_date_map[take_id]} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)",
+                        name=(
+                            f"{kinematic} – {take_date_map[take_id]} | Pitch {take_order[take_id]} "
+                            f"({take_velocity[take_id]:.1f} mph) | {pitcher_name}"
+                            if multi_pitcher_mode else
+                            f"{kinematic} – {take_date_map[take_id]} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
+                        ),
                         showlegend=False
                     )
                 )
                 # Add one legend-only trace per (kinematic, date) (shows color + dash)
-                legend_key = (kinematic, date)
+                legend_key = (kinematic, date_key)
                 if legend_key not in legend_keys_added:
                     fig.add_trace(
                         go.Scatter(
@@ -3234,7 +3301,11 @@ with tab_joint:
                                 dash=date_dash_map[date],
                                 width=4
                             ),
-                            name=f"{kinematic} | {date}",
+                            name=(
+                                f"{kinematic} | {date} | {pitcher_name}"
+                                if multi_pitcher_mode else
+                                f"{kinematic} | {date}"
+                            ),
                             showlegend=True
                         )
                     )
@@ -3274,6 +3345,7 @@ with tab_joint:
                     pkh_val = value_at_time_ms(frames, values, rel_frame_to_ms(summary_knee_frame))
 
                 summary_rows.append({
+                    **({"Pitcher": take_pitcher_map.get(take_id)} if multi_pitcher_mode else {}),
                     "Kinematic": kinematic + (" (°/s)" if "Velocity" in kinematic else ""),
                     "Session Date": take_date_map[take_id],
                     "Average Velocity": take_velocity[take_id],
@@ -3286,7 +3358,12 @@ with tab_joint:
 
     # --- Grouped plot (mean + IQR per date) ---
     if display_mode == "Grouped":
-        for date, kin_dict in grouped_by_date.items():
+        for date_key, kin_dict in grouped_by_date.items():
+            if multi_pitcher_mode:
+                pitcher_name, date = date_key
+            else:
+                date = date_key
+                pitcher_name = ""
             for kinematic, curves in kin_dict.items():
                 if not curves:
                     continue
@@ -3306,7 +3383,11 @@ with tab_joint:
                         y=y,
                         mode="lines",
                         line=dict(width=4, color=color, dash=dash),
-                        name=f"{kinematic} – {date}"
+                        name=(
+                            f"{kinematic} – {date} | {pitcher_name}"
+                            if multi_pitcher_mode else
+                            f"{kinematic} – {date}"
+                        )
                     )
                 )
 
@@ -3346,6 +3427,7 @@ with tab_joint:
                     pkh_val = value_at_time_ms(x, y, rel_frame_to_ms(summary_knee_frame))
 
                 summary_rows.append({
+                    **({"Pitcher": pitcher_name} if multi_pitcher_mode else {}),
                     "Kinematic": kinematic + (" (°/s)" if "Velocity" in kinematic else ""),
                     "Session Date": date,
                     "Average Velocity": np.mean([take_velocity[tid] for tid in curves.keys()]),
@@ -3493,6 +3575,8 @@ with tab_joint:
             "Ball Release",
             "Max External Rotation"
         ]
+        if multi_pitcher_mode:
+            base_columns = ["Pitcher"] + base_columns
 
         if display_mode == "Grouped":
             column_order = base_columns + ["Standard Deviation"]
@@ -3706,7 +3790,9 @@ with tab_energy:
             grouped_power[take_id] = {"frame": norm_f, "value": norm_v}
 
             date = take_date_map[take_id]
-            grouped_by_date.setdefault(date, {})[take_id] = {
+            pitcher_name = take_pitcher_map.get(take_id, "")
+            date_key = (pitcher_name, date) if multi_pitcher_mode else date
+            grouped_by_date.setdefault(date_key, {})[take_id] = {
                 "frame": norm_f,
                 "value": norm_v
             }
@@ -3721,16 +3807,17 @@ with tab_energy:
                             color=metric_color,
                             dash=date_dash_map[date]
                         ),
-                        customdata=[[metric, date, take_order[take_id], take_velocity[take_id]]] * len(norm_f),
+                        customdata=[[metric, date, take_order[take_id], take_velocity[take_id], pitcher_name]] * len(norm_f),
                         hovertemplate=(
                             "%{customdata[0]} – %{customdata[1]} | "
                             "Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
-                            "<extra></extra>"
+                            + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                            + "<extra></extra>"
                         ),
                         showlegend=False
                     )
                 )
-                legend_key = (metric, date)
+                legend_key = (metric, date_key)
                 if legend_key not in legend_keys_added:
                     fig.add_trace(
                         go.Scatter(
@@ -3742,7 +3829,11 @@ with tab_energy:
                                 dash=date_dash_map[date],
                                 width=4
                             ),
-                            name=f"{metric} | {date}",
+                            name=(
+                                f"{metric} | {date} | {pitcher_name}"
+                                if multi_pitcher_mode else
+                                f"{metric} | {date}"
+                            ),
                             showlegend=True
                         )
                     )
@@ -3752,7 +3843,12 @@ with tab_energy:
         # Grouped (Mean + IQR per date)
         # -------------------------------
         if display_mode == "Grouped":
-            for date, curves in grouped_by_date.items():
+            for date_key, curves in grouped_by_date.items():
+                if multi_pitcher_mode:
+                    pitcher_name, date = date_key
+                else:
+                    date = date_key
+                    pitcher_name = ""
                 x, y, q1, q3 = aggregate_curves(curves, "Mean")
 
                 if len(y) >= 11:
@@ -3768,10 +3864,11 @@ with tab_energy:
                             color=metric_color,
                             dash=date_dash_map[date]
                         ),
-                        customdata=[[metric, date]] * len(x),
+                        customdata=[[metric, date, pitcher_name]] * len(x),
                         hovertemplate=(
                             "%{customdata[0]} – %{customdata[1]}"
-                            "<extra></extra>"
+                            + (" | %{customdata[2]}" if multi_pitcher_mode else "")
+                            + "<extra></extra>"
                         ),
                         showlegend=False
                     )
@@ -3799,7 +3896,11 @@ with tab_energy:
                             dash=date_dash_map[date],
                             width=4
                         ),
-                        name=f"{metric} | {date}",
+                        name=(
+                            f"{metric} | {date} | {pitcher_name}"
+                            if multi_pitcher_mode else
+                            f"{metric} | {date}"
+                        ),
                         showlegend=True
                     )
                 )
@@ -3893,6 +3994,7 @@ with tab_energy:
                 for frame, value in zip(take_data["frame"], take_data["value"]):
                     rel_time_ms = rel_frame_to_ms(frame - br)
                     rows.append({
+                        **({"Pitcher": take_pitcher_map.get(take_id)} if multi_pitcher_mode else {}),
                         "Pitch": f"Pitch {pitch_num}",
                         "Time (ms rel BR)": rel_time_ms,
                         "Velocity (mph)": velo,
@@ -3905,14 +4007,18 @@ with tab_energy:
         # Pivot so each metric becomes its own column
         energy_df = (
             energy_df
-            .groupby(["Pitch", "Time (ms rel BR)", "Velocity (mph)"])
+            .groupby(
+                (["Pitcher"] if multi_pitcher_mode else [])
+                + ["Pitch", "Time (ms rel BR)", "Velocity (mph)"]
+            )
             .first()
             .reset_index()
         )
 
         # Ensure metric columns are ordered after metadata
         ordered_cols = (
-            ["Pitch", "Time (ms rel BR)", "Velocity (mph)"] +
+            (["Pitcher"] if multi_pitcher_mode else [])
+            + ["Pitch", "Time (ms rel BR)", "Velocity (mph)"] +
             [m for m in energy_metrics if m in energy_df.columns]
         )
 
@@ -3924,39 +4030,84 @@ with tab_energy:
             height=420
         )
     else:
-        # (Grouped mode: original table logic remains unchanged)
-        # 1) Build a common time axis (ms relative to BR)
-        common_times_ms = sorted(
-            set(
-                rel_frame_to_ms(frame - br_frames[take_id])
+        if multi_pitcher_mode:
+            grouped_rows = []
+            pitchers_in_data = sorted({
+                take_pitcher_map.get(take_id)
                 for metric_data in energy_data_by_metric.values()
-                for take_id, take_data in metric_data.items()
-                if take_id in br_frames
-                for frame in take_data["frame"]
+                for take_id in metric_data.keys()
+                if take_id in br_frames and take_pitcher_map.get(take_id)
+            })
+
+            for pitcher_name in pitchers_in_data:
+                pitcher_take_ids = {
+                    tid for tid, p in take_pitcher_map.items()
+                    if p == pitcher_name
+                }
+
+                common_times_ms = sorted(
+                    set(
+                        rel_frame_to_ms(frame - br_frames[take_id])
+                        for metric_data in energy_data_by_metric.values()
+                        for take_id, take_data in metric_data.items()
+                        if take_id in pitcher_take_ids and take_id in br_frames
+                        for frame in take_data["frame"]
+                    )
+                )
+
+                for t_ms in common_times_ms:
+                    row = {
+                        "Pitcher": pitcher_name,
+                        "Time (ms rel BR)": t_ms,
+                    }
+                    for metric in energy_metrics:
+                        vals = []
+                        for take_id, data in energy_data_by_metric[metric].items():
+                            if take_id not in pitcher_take_ids or take_id not in br_frames:
+                                continue
+                            br = br_frames[take_id]
+                            for f, v in zip(data["frame"], data["value"]):
+                                if rel_frame_to_ms(f - br) == t_ms:
+                                    vals.append(v)
+                        row[metric] = np.nanmean(vals) if vals else np.nan
+                    grouped_rows.append(row)
+
+            energy_table = pd.DataFrame(grouped_rows)
+            ordered_cols = ["Pitcher", "Time (ms rel BR)"] + [m for m in energy_metrics if m in energy_table.columns]
+            energy_table = energy_table[ordered_cols] if not energy_table.empty else energy_table
+        else:
+            # 1) Build a common time axis (ms relative to BR)
+            common_times_ms = sorted(
+                set(
+                    rel_frame_to_ms(frame - br_frames[take_id])
+                    for metric_data in energy_data_by_metric.values()
+                    for take_id, take_data in metric_data.items()
+                    if take_id in br_frames
+                    for frame in take_data["frame"]
+                )
             )
-        )
 
-        energy_table = pd.DataFrame({"Time (ms rel BR)": common_times_ms})
+            energy_table = pd.DataFrame({"Time (ms rel BR)": common_times_ms})
 
-        # 2) Add one column per selected metric
-        for metric in energy_metrics:
-            metric_series = {}
+            # 2) Add one column per selected metric
+            for metric in energy_metrics:
+                metric_series = {}
 
-            for take_id, data in energy_data_by_metric[metric].items():
-                if take_id not in br_frames:
-                    continue
-                br = br_frames[take_id]
-                for f, v in zip(data["frame"], data["value"]):
-                    t_ms = rel_frame_to_ms(f - br)
-                    metric_series.setdefault(t_ms, []).append(v)
+                for take_id, data in energy_data_by_metric[metric].items():
+                    if take_id not in br_frames:
+                        continue
+                    br = br_frames[take_id]
+                    for f, v in zip(data["frame"], data["value"]):
+                        t_ms = rel_frame_to_ms(f - br)
+                        metric_series.setdefault(t_ms, []).append(v)
 
-            # Average across takes if multiple exist
-            metric_values = [
-                np.nanmean(metric_series.get(f, [np.nan]))
-                for f in common_times_ms
-            ]
+                # Average across takes if multiple exist
+                metric_values = [
+                    np.nanmean(metric_series.get(f, [np.nan]))
+                    for f in common_times_ms
+                ]
 
-            energy_table[metric] = metric_values
+                energy_table[metric] = metric_values
 
         # 3) Display the table
         st.dataframe(
