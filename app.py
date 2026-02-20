@@ -2981,7 +2981,7 @@ with tab_kinematic:
             )
 
             # Reorder to (Segment, Metric) like the original grouped summary layout
-            df_pivot = df_pivot.swaplevel(0, 1, axis=1).sort_index(axis=1, level=[0, 1])
+            df_pivot = df_pivot.swaplevel(0, 1, axis=1)
             metric_map = {
                 "Peak Value (°/s)": "Peak (°/s)",
                 "Peak Time (ms rel BR)": "Peak Time (ms)",
@@ -2990,6 +2990,16 @@ with tab_kinematic:
             df_pivot.columns = pd.MultiIndex.from_tuples(
                 [(seg, metric_map.get(metric, metric)) for seg, metric in df_pivot.columns]
             )
+            segment_order = ["Pelvis", "Torso", "Elbow", "Shoulder"]
+            metric_order = ["Peak (°/s)", "Peak Time (ms)", "Peak Time from FP (ms)"]
+            ordered_cols = [
+                (seg, met)
+                for seg in segment_order
+                for met in metric_order
+                if (seg, met) in df_pivot.columns
+            ]
+            if ordered_cols:
+                df_pivot = df_pivot[ordered_cols]
 
             segment_colors = {
                 "Pelvis":   "rgba(0, 128, 0, 0.12)",
