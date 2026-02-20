@@ -2353,7 +2353,11 @@ with tab_kinematic:
                         )
                     )
                     # Legend-only trace (once per Torso + Date)
-                    legend_key = ("Torso", take_date_map[take_id])
+                    legend_key = (
+                        ("Torso", take_date_map[take_id], pitcher_name)
+                        if multi_pitcher_mode else
+                        ("Torso", take_date_map[take_id])
+                    )
                     if legend_key not in legend_keys_added:
                         fig.add_trace(
                             go.Scatter(
@@ -2428,7 +2432,11 @@ with tab_kinematic:
                         )
                     )
                     # Legend-only trace (once per Elbow + Date)
-                    legend_key = ("Elbow", take_date_map[take_id])
+                    legend_key = (
+                        ("Elbow", take_date_map[take_id], pitcher_name)
+                        if multi_pitcher_mode else
+                        ("Elbow", take_date_map[take_id])
+                    )
                     if legend_key not in legend_keys_added:
                         fig.add_trace(
                             go.Scatter(
@@ -2506,7 +2514,11 @@ with tab_kinematic:
                         )
                     )
                     # Legend-only trace (once per Shoulder IR + Date)
-                    legend_key = ("Shoulder IR", take_date_map[take_id])
+                    legend_key = (
+                        ("Shoulder IR", take_date_map[take_id], pitcher_name)
+                        if multi_pitcher_mode else
+                        ("Shoulder IR", take_date_map[take_id])
+                    )
                     if legend_key not in legend_keys_added:
                         fig.add_trace(
                             go.Scatter(
@@ -2558,7 +2570,11 @@ with tab_kinematic:
                     )
                 )
                 # Legend-only trace (once per Pelvis + Date)
-                legend_key = ("Pelvis", take_date_map[take_id])
+                legend_key = (
+                    ("Pelvis", take_date_map[take_id], pitcher_name)
+                    if multi_pitcher_mode else
+                    ("Pelvis", take_date_map[take_id])
+                )
                 if legend_key not in legend_keys_added:
                     fig.add_trace(
                         go.Scatter(
@@ -2701,20 +2717,19 @@ with tab_kinematic:
                             max_idx = int(np.argmax(y_date))
                         max_x = x_date[max_idx]
                         max_y = y_date[max_idx]
-                        # Store peak for summary table (only once per segment, keep old logic)
-                        if date == list(curves_by_date.keys())[0]:
-                            pelvis_time_ms_grouped = None
-                            if label == "Pelvis" and fp_event_frames:
-                                fp_rel = rel_frame_to_ms(int(np.median(fp_event_frames)))
-                                pelvis_time_ms_grouped = max_x - fp_rel
+                        pelvis_time_ms_grouped = None
+                        if label == "Pelvis" and fp_event_frames:
+                            fp_rel = rel_frame_to_ms(int(np.median(fp_event_frames)))
+                            pelvis_time_ms_grouped = max_x - fp_rel
 
-                            kinematic_peak_rows.append({
-                                **({"Pitcher": pitcher_name} if multi_pitcher_mode else {}),
-                                "Segment": label,
-                                "Peak Value (°/s)": max_y,
-                                "Peak Time (ms rel BR)": max_x,
-                                "Peak Time from FP (ms)": pelvis_time_ms_grouped if label == "Pelvis" else None
-                            })
+                        kinematic_peak_rows.append({
+                            **({"Pitcher": pitcher_name} if multi_pitcher_mode else {}),
+                            "Session Date": date,
+                            "Segment": label,
+                            "Peak Value (°/s)": max_y,
+                            "Peak Time (ms rel BR)": max_x,
+                            "Peak Time from FP (ms)": pelvis_time_ms_grouped if label == "Pelvis" else None
+                        })
                         y_offset = arrow_offset * 0.6
                         fig.add_trace(
                             go.Scatter(
@@ -2961,6 +2976,17 @@ with tab_kinematic:
                     "Peak Value (°/s)": "Peak (°/s)",
                     "Peak Time (ms rel BR)": "Peak Time (ms rel BR)"
                 })
+                cols = [
+                    c for c in [
+                        "Pitcher",
+                        "Session Date",
+                        "Segment",
+                        "Peak (°/s)",
+                        "Peak Time (ms rel BR)",
+                        "Peak Time from FP (ms)"
+                    ] if c in df_display.columns
+                ]
+                df_display = df_display[cols]
                 styled = (
                     df_display
                     .style
