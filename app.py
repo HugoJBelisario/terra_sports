@@ -2969,37 +2969,58 @@ with tab_kinematic:
             st.markdown("### Kinematic Sequence - Grouped")
 
             df = pd.DataFrame(kinematic_peak_rows)
-            df_display = df.copy().rename(columns={
+            index_cols = ["Session Date"]
+            if multi_pitcher_mode and "Pitcher" in df.columns:
+                index_cols = ["Pitcher", "Session Date"]
+
+            df_pivot = df.pivot_table(
+                index=index_cols,
+                columns="Segment",
+                values=["Peak Value (°/s)", "Peak Time (ms rel BR)", "Peak Time from FP (ms)"],
+                aggfunc="first"
+            )
+
+            # Reorder to (Segment, Metric) like the original grouped summary layout
+            df_pivot = df_pivot.swaplevel(0, 1, axis=1).sort_index(axis=1, level=[0, 1])
+            metric_map = {
                 "Peak Value (°/s)": "Peak (°/s)",
-                "Peak Time (ms rel BR)": "Peak Time (ms rel BR)"
-            })
-            cols = [
-                c for c in [
-                    "Pitcher",
-                    "Session Date",
-                    "Segment",
-                    "Peak (°/s)",
-                    "Peak Time (ms rel BR)",
-                    "Peak Time from FP (ms)"
-                ] if c in df_display.columns
-            ]
-            df_display = df_display[cols]
-            sort_cols = [c for c in ["Pitcher", "Session Date", "Segment"] if c in df_display.columns]
-            if sort_cols:
-                df_display = df_display.sort_values(sort_cols)
+                "Peak Time (ms rel BR)": "Peak Time (ms)",
+                "Peak Time from FP (ms)": "Peak Time from FP (ms)",
+            }
+            df_pivot.columns = pd.MultiIndex.from_tuples(
+                [(seg, metric_map.get(metric, metric)) for seg, metric in df_pivot.columns]
+            )
+
+            segment_colors = {
+                "Pelvis":   "rgba(0, 128, 0, 0.12)",
+                "Torso":    "rgba(255, 215, 0, 0.12)",
+                "Elbow":    "rgba(128, 0, 128, 0.12)",
+                "Shoulder": "rgba(255, 0, 0, 0.12)"
+            }
+
+            def style_segments(col):
+                seg = col[0]
+                if seg in segment_colors:
+                    return [f"background-color: {segment_colors[seg]}"] * len(df_pivot)
+                return [""] * len(df_pivot)
+
+            df_display = df_pivot.copy()
+            for col in df_display.columns:
+                if col[1] == "Peak (°/s)":
+                    df_display[col] = df_display[col].map(lambda x: "" if x is None or pd.isna(x) else f"{x:.1f}")
+                elif "Time" in col[1]:
+                    df_display[col] = df_display[col].map(lambda x: "" if x is None or pd.isna(x) else f"{x:.0f}")
 
             styled = (
                 df_display
                 .style
-                .format({
-                    "Peak (°/s)": lambda x: "" if x is None else f"{x:.1f}",
-                    "Peak Time (ms rel BR)": lambda x: "" if x is None else f"{x:.0f}",
-                    "Peak Time from FP (ms)": lambda x: "" if x is None else f"{x:.0f}",
-                })
+                .apply(style_segments, axis=0)
                 .set_table_styles([
-                    {"selector": "th", "props": [("text-align", "center")]}
+                    {"selector": "th", "props": [("text-align", "center")]},
+                    {"selector": "th.row_heading", "props": [("text-align", "center")]},
+                    {"selector": "th.index_name", "props": [("text-align", "center")]},
                 ])
-                .set_properties(**{"text-align": "center"})
+                .set_properties(**{"text-align": "center", "font-weight": "500"})
             )
             st.dataframe(styled, use_container_width=True)
 
