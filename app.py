@@ -2932,7 +2932,7 @@ with tab_joint:
     joint_color_map.update({
         "Forward Trunk Tilt": "blue",
         "Lateral Trunk Tilt": "green",
-        "Trunk Angle": "#FFFFFF"
+        "Trunk Angle": "#E9FF70"
     })
     joint_color_map.update({
         "Pelvis Angle": "darkblue",
