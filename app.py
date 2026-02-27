@@ -1746,6 +1746,17 @@ st.sidebar.image(
 
 
 st.sidebar.markdown("### Dashboard Controls")
+st.markdown(
+    """
+    <style>
+    div[data-testid="stSidebar"] button {
+        font-size: 1.17em;
+        font-weight: 600;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 
 # -------------------------------
@@ -2053,6 +2064,12 @@ with tab_kinematic:
                 if tid in st.session_state["excluded_take_ids"]
             ],
             key="exclude_takes"
+        )
+
+        st.sidebar.button(
+            "Create Custom Groups",
+            key="create_custom_groups",
+            use_container_width=True
         )
 
         st.session_state["excluded_take_ids"] = [
