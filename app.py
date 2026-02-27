@@ -1280,6 +1280,41 @@ def get_arm_horizabd_energy_flow(take_ids, handedness):
         conn.close()
 
 @st.cache_data(ttl=300)
+def get_energy_flow_from_segment(take_ids, segment_name):
+    """
+    Generic energy-flow loader by segment name (x_data).
+    """
+    if not take_ids or not segment_name:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.x_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+            data = {}
+            for take_id, frame, x in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+            return data
+    finally:
+        conn.close()
+
+@st.cache_data(ttl=300)
 def get_hand_cg_velocity(take_ids, handedness):
     """
     Returns CG velocity (x_data) for the throwing hand based on handedness.
@@ -3760,7 +3795,9 @@ with tab_energy:
             "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
             "Arm Rotational Energy Flow",
             "Arm Elevation/Depression Energy Flow",
-            "Arm Horizontal Abd/Add Energy Flow"
+            "Arm Horizontal Abd/Add Energy Flow",
+            "RT_SHOULDER_RTA_MMT",
+            "LT_RT_SHOULDER_MMT"
         ],
         default=["Distal Arm Segment Power"]
     )
@@ -3790,7 +3827,9 @@ with tab_energy:
         "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",     # strong green
         "Arm Rotational Energy Flow": "#F59E0B",        # amber
         "Arm Elevation/Depression Energy Flow": "#06B6D4",  # cyan
-        "Arm Horizontal Abd/Add Energy Flow": "#9333EA"     # violet
+        "Arm Horizontal Abd/Add Energy Flow": "#9333EA",     # violet
+        "RT_SHOULDER_RTA_MMT": "#FB8C00",
+        "LT_RT_SHOULDER_MMT": "#00ACC1"
     }
 
     # --- Load all selected metrics ---
@@ -3820,6 +3859,10 @@ with tab_energy:
             energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_elev_energy_flow)
         elif metric == "Arm Horizontal Abd/Add Energy Flow":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_horizabd_energy_flow)
+        elif metric == "RT_SHOULDER_RTA_MMT":
+            energy_data_by_metric[metric] = get_energy_flow_from_segment(take_ids, "RT_SHOULDER_RTA_MMT")
+        elif metric == "LT_RT_SHOULDER_MMT":
+            energy_data_by_metric[metric] = get_energy_flow_from_segment(take_ids, "LT_RT_SHOULDER_MMT")
 
     energy_data_by_metric = {
         k: v for k, v in energy_data_by_metric.items() if v
