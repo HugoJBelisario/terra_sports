@@ -1749,9 +1749,17 @@ st.sidebar.markdown("### Dashboard Controls")
 st.markdown(
     """
     <style>
-    div[data-testid="stSidebar"] button {
+    div[data-testid="stSidebar"] .stButton > button {
         font-size: 1.17em;
         font-weight: 600;
+        background-color: #C62828;
+        color: #FFFFFF;
+        border: 1px solid #C62828;
+    }
+    div[data-testid="stSidebar"] .stButton > button:hover {
+        background-color: #B71C1C;
+        color: #FFFFFF;
+        border: 1px solid #B71C1C;
     }
     </style>
     """,
