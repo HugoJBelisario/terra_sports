@@ -1280,12 +1280,17 @@ def get_arm_horizabd_energy_flow(take_ids, handedness):
         conn.close()
 
 @st.cache_data(ttl=300)
-def get_energy_flow_from_segment(take_ids, segment_name):
+def get_energy_flow_from_segment(take_ids, segment_name, component="x"):
     """
-    Generic energy-flow loader by segment name (x_data).
+    Generic energy-flow loader by segment name and component.
     """
     if not take_ids or not segment_name:
         return {}
+    component_col = {
+        "x": "ts.x_data",
+        "y": "ts.y_data",
+        "z": "ts.z_data",
+    }.get(component, "ts.x_data")
 
     conn = get_connection()
     try:
@@ -1295,12 +1300,12 @@ def get_energy_flow_from_segment(take_ids, segment_name):
                 SELECT
                     ts.take_id,
                     ts.frame,
-                    ts.x_data
+                    {component_col}
                 FROM time_series_data ts
                 JOIN segments s ON ts.segment_id = s.segment_id
                 WHERE s.segment_name = %s
                   AND ts.take_id IN ({placeholders})
-                  AND ts.x_data IS NOT NULL
+                  AND {component_col} IS NOT NULL
                 ORDER BY ts.take_id, ts.frame
             """, (segment_name, *take_ids))
 
@@ -3796,8 +3801,7 @@ with tab_energy:
             "Arm Rotational Energy Flow",
             "Arm Elevation/Depression Energy Flow",
             "Arm Horizontal Abd/Add Energy Flow",
-            "RT_SHOULDER_RTA_MMT",
-            "LT_RT_SHOULDER_MMT"
+            "Throwing Arm RTA MMT (Z)"
         ],
         default=["Distal Arm Segment Power"]
     )
@@ -3828,8 +3832,7 @@ with tab_energy:
         "Arm Rotational Energy Flow": "#F59E0B",        # amber
         "Arm Elevation/Depression Energy Flow": "#06B6D4",  # cyan
         "Arm Horizontal Abd/Add Energy Flow": "#9333EA",     # violet
-        "RT_SHOULDER_RTA_MMT": "#FB8C00",
-        "LT_RT_SHOULDER_MMT": "#00ACC1"
+        "Throwing Arm RTA MMT (Z)": "#FB8C00"
     }
 
     # --- Load all selected metrics ---
@@ -3859,10 +3862,25 @@ with tab_energy:
             energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_elev_energy_flow)
         elif metric == "Arm Horizontal Abd/Add Energy Flow":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_horizabd_energy_flow)
-        elif metric == "RT_SHOULDER_RTA_MMT":
-            energy_data_by_metric[metric] = get_energy_flow_from_segment(take_ids, "RT_SHOULDER_RTA_MMT")
-        elif metric == "LT_RT_SHOULDER_MMT":
-            energy_data_by_metric[metric] = get_energy_flow_from_segment(take_ids, "LT_RT_SHOULDER_MMT")
+        elif metric == "Throwing Arm RTA MMT (Z)":
+            mmt_data = {}
+            if take_ids_by_handedness.get("R"):
+                mmt_data.update(
+                    get_energy_flow_from_segment(
+                        take_ids_by_handedness["R"],
+                        "RT_SHOULDER_RTA_MMT",
+                        component="z"
+                    )
+                )
+            if take_ids_by_handedness.get("L"):
+                mmt_data.update(
+                    get_energy_flow_from_segment(
+                        take_ids_by_handedness["L"],
+                        "LT_SHOULDER_RTA_MMT",
+                        component="z"
+                    )
+                )
+            energy_data_by_metric[metric] = mmt_data
 
     energy_data_by_metric = {
         k: v for k, v in energy_data_by_metric.items() if v
