@@ -3104,7 +3104,7 @@ with tab_joint:
     st.subheader("Kinematics")
     joint_view_mode = st.radio(
         "View Mode",
-        ["Single Plot", "Two Plot Compare"],
+        ["Single", "Comparison"],
         index=0,
         horizontal=True,
         key="joint_view_mode"
@@ -3252,7 +3252,7 @@ with tab_joint:
     compare_energy_metrics = []
     compare_energy_display_mode = "Grouped"
 
-    if joint_view_mode == "Two Plot Compare":
+    if joint_view_mode == "Comparison":
         control_left_col, control_right_col = st.columns(2)
         with control_left_col:
             display_mode = st.radio(
@@ -3317,7 +3317,7 @@ with tab_joint:
 
     if not selected_kinematics:
         st.info("Select at least one kinematic.")
-        if joint_view_mode == "Single Plot":
+        if joint_view_mode == "Single":
             st.stop()
 
     # --- Color map for joint types ---
@@ -3871,7 +3871,7 @@ with tab_joint:
         )
     )
 
-    if joint_view_mode == "Two Plot Compare":
+    if joint_view_mode == "Comparison":
         plot_left_col, plot_right_col = st.columns(2)
         with plot_left_col:
             st.markdown("#### Kinematics")
