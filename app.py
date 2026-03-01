@@ -3253,6 +3253,10 @@ with tab_joint:
         "Select Kinematics",
         options=kinematic_options,
         default=[],
+        help=(
+            "Select one or more kinematics to plot. "
+            "Hover any line in the chart to see that metric's definition."
+        ),
         key="joint_angles_select"
     )
 
@@ -3503,6 +3507,13 @@ with tab_joint:
                         x=norm_f,
                         y=norm_v,
                         mode="lines",
+                        customdata=[[kinematic_definitions.get(kinematic, {}).get("definition", "")]] * len(norm_f),
+                        hovertemplate=(
+                            "<b>%{fullData.name}</b><br>"
+                            "Time: %{x:.1f} ms<br>"
+                            "Value: %{y:.2f}<br>"
+                            "Definition: %{customdata[0]}<extra></extra>"
+                        ),
                         line=dict(
                             color=joint_color_map[kinematic],
                             dash=date_dash_map[take_date_map[take_id]]
@@ -3610,6 +3621,13 @@ with tab_joint:
                         x=x,
                         y=y,
                         mode="lines",
+                        customdata=[[kinematic_definitions.get(kinematic, {}).get("definition", "")]] * len(x),
+                        hovertemplate=(
+                            "<b>%{fullData.name}</b><br>"
+                            "Time: %{x:.1f} ms<br>"
+                            "Value: %{y:.2f}<br>"
+                            "Definition: %{customdata[0]}<extra></extra>"
+                        ),
                         line=dict(width=4, color=color, dash=dash),
                         name=(
                             f"{kinematic} – {date} | {pitcher_name}"
@@ -3857,11 +3875,14 @@ with tab_joint:
         metric_info = kinematic_definitions.get(metric, {})
         if not metric_info:
             continue
-        st.markdown(f"**{metric}**")
-        st.caption(f"Definition: {metric_info.get('definition', '')}")
-        st.caption(f"Measured as: {metric_info.get('measured_as', '')}")
-        st.caption(f"Why it matters: {metric_info.get('why', '')}")
-        st.caption(f"Interpretation: {metric_info.get('interpretation', '')}")
+        st.markdown(
+            (
+                f"<div style='font-size:1.15rem; line-height:1.6; margin:0.35rem 0 0.9rem 0;'>"
+                f"<strong>{metric}:</strong> {metric_info.get('definition', '')}"
+                f"</div>"
+            ),
+            unsafe_allow_html=True,
+        )
 
 # --------------------------------------------------
 # Energy Flow Tab
