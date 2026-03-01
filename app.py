@@ -3441,6 +3441,14 @@ with tab_joint:
         "Torso-Pelvis Rotational Velocity",
         "Pelvis Rotational Velocity",
     }
+    right_hand_mirror_kinematics = {
+        "Shoulder Horizontal Abduction",
+        "Shoulder ER",
+    }
+    left_hand_mirror_kinematics = {
+        "Forward Trunk Tilt",
+        "Lateral Trunk Tilt",
+    }
     for kinematic, data_dict in joint_data.items():
         grouped[kinematic] = {}
 
@@ -3479,15 +3487,18 @@ with tab_joint:
                     norm_f.append(rel_frame_to_ms(rel))
 
                     # --- Handedness normalization ---
-                    # (Keep angles consistent, but DO NOT flip rotational velocities)
                     take_hand = take_handedness.get(take_id)
-                    if "Velocity" not in kinematic and take_hand == "R" and kinematic in [
-                        "Shoulder Horizontal Abduction",
-                        "Shoulder ER"
-                    ]:
-                        norm_v.append(-v)
-                    else:
-                        norm_v.append(sign_flip * v)
+                    handedness_factor = 1.0
+
+                    # Keep selected angle directions aligned to a shared orientation.
+                    if "Velocity" not in kinematic and take_hand == "R" and kinematic in right_hand_mirror_kinematics:
+                        handedness_factor = -1.0
+
+                    # Mirror left-handed trunk tilt curves to right-handed orientation.
+                    if take_hand == "L" and kinematic in left_hand_mirror_kinematics:
+                        handedness_factor = -1.0
+
+                    norm_v.append(sign_flip * handedness_factor * v)
 
             grouped[kinematic][take_id] = {"frame": norm_f, "value": norm_v}
 
