@@ -3109,45 +3109,171 @@ with tab_joint:
         horizontal=True,
         key="joint_display_mode"
     )
-    joint_mound_only_selected = mound_only_sidebar
 
-    default_joint_selection = ["Elbow Flexion"]
-    if joint_mound_only_selected:
-        default_joint_selection = [
-            "Elbow Flexion",
-            "Center of Mass Velocity (X)",
-            "Shoulder Internal Rotation Velocity",
-            "Trunk Rotational Velocity",
-            "Torso-Pelvis Rotational Velocity",
-            "Pelvis Rotational Velocity",
-        ]
+    kinematic_options = [
+        "Elbow Flexion",
+        "Hand Speed",
+        "Center of Mass Velocity (X)",
+        "Shoulder ER",
+        "Shoulder Internal Rotation Velocity",
+        "Shoulder Abduction",
+        "Shoulder Horizontal Abduction",
+        "Front Knee Flexion",
+        "Front Knee Extension Velocity",
+        "Forward Trunk Tilt",
+        "Lateral Trunk Tilt",
+        "Trunk Angle",
+        "Pelvis Angle",
+        "Pelvic Lateral Tilt",
+        "Hip-Shoulder Separation",
+        "Pelvis Rotational Velocity",
+        "Trunk Rotational Velocity",
+        "Torso-Pelvis Rotational Velocity",
+        "Forearm Pronation/Supination"
+    ]
+
+    kinematic_definitions = {
+        "Elbow Flexion": {
+            "definition": "How bent the throwing elbow is throughout the motion.",
+            "measured_as": "Joint angle in degrees (deg).",
+            "why": "Helps describe arm path and timing during arm acceleration.",
+            "interpretation": "Higher values generally mean a more flexed elbow position."
+        },
+        "Hand Speed": {
+            "definition": "Linear speed of the throwing hand over time.",
+            "measured_as": "Speed in meters per second (m/s).",
+            "why": "Relates to how quickly force is transferred to the hand.",
+            "interpretation": "Higher peak hand speed is usually associated with faster throws."
+        },
+        "Center of Mass Velocity (X)": {
+            "definition": "Forward/backward velocity of the body center of mass.",
+            "measured_as": "Velocity along the X axis in m/s.",
+            "why": "Captures how efficiently momentum moves toward the plate.",
+            "interpretation": "More positive forward values indicate stronger forward drive."
+        },
+        "Shoulder ER": {
+            "definition": "External rotation angle of the shoulder as the arm cocks back.",
+            "measured_as": "Joint angle in degrees (deg).",
+            "why": "A key marker of arm-cocking position and timing.",
+            "interpretation": "Larger peaks indicate greater external rotation range."
+        },
+        "Shoulder Internal Rotation Velocity": {
+            "definition": "Speed of inward shoulder rotation during acceleration.",
+            "measured_as": "Angular velocity in degrees per second (deg/s).",
+            "why": "Reflects rapid arm acceleration demands near ball release.",
+            "interpretation": "Higher peaks indicate faster inward rotational acceleration."
+        },
+        "Shoulder Abduction": {
+            "definition": "How far the upper arm is elevated away from the torso.",
+            "measured_as": "Joint angle in degrees (deg).",
+            "why": "Provides context on arm slot and shoulder loading profile.",
+            "interpretation": "Higher values generally mean a more elevated arm position."
+        },
+        "Shoulder Horizontal Abduction": {
+            "definition": "How far the upper arm moves backward/forward in the horizontal plane.",
+            "measured_as": "Joint angle in degrees (deg).",
+            "why": "Helps describe scapular and shoulder positioning through cocking.",
+            "interpretation": "Larger positive magnitude usually means more horizontal layback."
+        },
+        "Front Knee Flexion": {
+            "definition": "Bend angle of the lead knee during stride and bracing.",
+            "measured_as": "Joint angle in degrees (deg).",
+            "why": "Important for lead-leg stabilization and force transfer.",
+            "interpretation": "Lower values typically indicate a straighter, more braced lead leg."
+        },
+        "Front Knee Extension Velocity": {
+            "definition": "Speed at which the lead knee extends or straightens.",
+            "measured_as": "Angular velocity in degrees per second (deg/s).",
+            "why": "Represents how quickly the front side firms up.",
+            "interpretation": "Higher extension speed often aligns with stronger front-leg blocking."
+        },
+        "Forward Trunk Tilt": {
+            "definition": "Forward lean angle of the trunk relative to upright.",
+            "measured_as": "Angle component in degrees (deg).",
+            "why": "Influences release posture and ball direction.",
+            "interpretation": "Higher values indicate more forward trunk lean."
+        },
+        "Lateral Trunk Tilt": {
+            "definition": "Side-to-side trunk lean angle during the throw.",
+            "measured_as": "Angle component in degrees (deg).",
+            "why": "Helps characterize trunk positioning and arm-slot adaptation.",
+            "interpretation": "Magnitude reflects how much the torso tilts laterally."
+        },
+        "Trunk Angle": {
+            "definition": "Rotational orientation of the trunk segment.",
+            "measured_as": "Angle component in degrees (deg).",
+            "why": "Tracks torso orientation through rotation and release.",
+            "interpretation": "Changes indicate how trunk orientation evolves over time."
+        },
+        "Pelvis Angle": {
+            "definition": "Rotational orientation of the pelvis segment.",
+            "measured_as": "Angle in degrees (deg).",
+            "why": "Used to evaluate lower-body rotational contribution.",
+            "interpretation": "Steeper progression indicates faster pelvis opening."
+        },
+        "Pelvic Lateral Tilt": {
+            "definition": "Side-to-side tilt of the pelvis.",
+            "measured_as": "Angle in degrees (deg).",
+            "why": "Provides insight into balance and lower-body control.",
+            "interpretation": "Greater magnitude indicates more pelvic obliquity."
+        },
+        "Hip-Shoulder Separation": {
+            "definition": "Difference in rotational angle between pelvis and shoulders.",
+            "measured_as": "Relative angle in degrees (deg).",
+            "why": "Classic measure of rotational sequencing and stretch.",
+            "interpretation": "Larger separation can indicate greater torso-pelvis dissociation."
+        },
+        "Pelvis Rotational Velocity": {
+            "definition": "Speed of pelvis rotation around the vertical axis.",
+            "measured_as": "Angular velocity in degrees per second (deg/s).",
+            "why": "Describes rotational contribution from the lower body.",
+            "interpretation": "Higher peak values indicate faster pelvis turn."
+        },
+        "Trunk Rotational Velocity": {
+            "definition": "Speed of torso rotation around the vertical axis.",
+            "measured_as": "Angular velocity in degrees per second (deg/s).",
+            "why": "A major contributor to upper-body energy transfer.",
+            "interpretation": "Higher peaks indicate faster trunk rotation toward release."
+        },
+        "Torso-Pelvis Rotational Velocity": {
+            "definition": "Relative rotational speed between torso and pelvis.",
+            "measured_as": "Differential angular velocity in degrees per second (deg/s).",
+            "why": "Highlights how quickly the torso rotates relative to the hips.",
+            "interpretation": "Higher values suggest faster torso-over-pelvis separation rate."
+        },
+        "Forearm Pronation/Supination": {
+            "definition": "Rotation of the forearm around its long axis.",
+            "measured_as": "Joint angle in degrees (deg).",
+            "why": "Useful for arm action context before and after release.",
+            "interpretation": "Curve direction indicates pronation versus supination dominance."
+        },
+    }
 
     selected_kinematics = st.multiselect(
         "Select Kinematics",
-        options=[
-            "Elbow Flexion",
-            "Hand Speed",
-            "Center of Mass Velocity (X)",
-            "Shoulder ER",
-            "Shoulder Internal Rotation Velocity",
-            "Shoulder Abduction",
-            "Shoulder Horizontal Abduction",
-            "Front Knee Flexion",
-            "Front Knee Extension Velocity",
-            "Forward Trunk Tilt",
-            "Lateral Trunk Tilt",
-            "Trunk Angle",
-            "Pelvis Angle",
-            "Pelvic Lateral Tilt",
-            "Hip-Shoulder Separation",
-            "Pelvis Rotational Velocity",
-            "Trunk Rotational Velocity",
-            "Torso-Pelvis Rotational Velocity",
-            "Forearm Pronation/Supination"
-        ],
-        default=default_joint_selection,
+        options=kinematic_options,
+        default=[],
         key="joint_angles_select"
     )
+
+    if selected_kinematics:
+        default_metric_for_info = (
+            "Shoulder Internal Rotation Velocity"
+            if "Shoulder Internal Rotation Velocity" in selected_kinematics
+            else selected_kinematics[0]
+        )
+        selected_metric_info = st.selectbox(
+            "Metric definition",
+            options=selected_kinematics,
+            index=selected_kinematics.index(default_metric_for_info),
+            key="kinematic_metric_info_select"
+        )
+        metric_info = kinematic_definitions.get(selected_metric_info, {})
+        if metric_info:
+            st.caption(f"Definition: {metric_info.get('definition', '')}")
+            st.caption(f"Measured as: {metric_info.get('measured_as', '')}")
+            st.caption(f"Why it matters: {metric_info.get('why', '')}")
+            st.caption(f"Interpretation: {metric_info.get('interpretation', '')}")
 
     if not selected_kinematics:
         st.info("Select at least one kinematic.")
