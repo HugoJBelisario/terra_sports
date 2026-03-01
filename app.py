@@ -4086,10 +4086,40 @@ with tab_joint:
                     if fp_event_frames:
                         median_fp = rel_frame_to_ms(int(np.median(fp_event_frames)))
                         energy_fig.add_vline(x=median_fp, line_width=3, line_dash="dash", line_color="green")
+                        energy_fig.add_annotation(
+                            x=median_fp,
+                            y=1.06,
+                            xref="x",
+                            yref="paper",
+                            text="FP",
+                            showarrow=False,
+                            font=dict(color="green", size=13, family="Arial"),
+                            align="center"
+                        )
                     if mer_event_frames:
                         median_mer = rel_frame_to_ms(int(np.median(mer_event_frames)))
                         energy_fig.add_vline(x=median_mer, line_width=3, line_dash="dash", line_color="red")
+                        energy_fig.add_annotation(
+                            x=median_mer,
+                            y=1.06,
+                            xref="x",
+                            yref="paper",
+                            text="MER",
+                            showarrow=False,
+                            font=dict(color="red", size=13, family="Arial"),
+                            align="center"
+                        )
                     energy_fig.add_vline(x=0, line_width=3, line_dash="dash", line_color="blue")
+                    energy_fig.add_annotation(
+                        x=0,
+                        y=1.06,
+                        xref="x",
+                        yref="paper",
+                        text="BR",
+                        showarrow=False,
+                        font=dict(color="blue", size=13, family="Arial"),
+                        align="center"
+                    )
 
                     energy_fig.update_layout(
                         xaxis_title="Time Relative to Ball Release (ms)",
