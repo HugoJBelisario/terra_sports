@@ -3256,25 +3256,6 @@ with tab_joint:
         key="joint_angles_select"
     )
 
-    if selected_kinematics:
-        default_metric_for_info = (
-            "Shoulder Internal Rotation Velocity"
-            if "Shoulder Internal Rotation Velocity" in selected_kinematics
-            else selected_kinematics[0]
-        )
-        selected_metric_info = st.selectbox(
-            "Metric definition",
-            options=selected_kinematics,
-            index=selected_kinematics.index(default_metric_for_info),
-            key="kinematic_metric_info_select"
-        )
-        metric_info = kinematic_definitions.get(selected_metric_info, {})
-        if metric_info:
-            st.caption(f"Definition: {metric_info.get('definition', '')}")
-            st.caption(f"Measured as: {metric_info.get('measured_as', '')}")
-            st.caption(f"Why it matters: {metric_info.get('why', '')}")
-            st.caption(f"Interpretation: {metric_info.get('interpretation', '')}")
-
     if not selected_kinematics:
         st.info("Select at least one kinematic.")
         st.stop()
@@ -3870,6 +3851,17 @@ with tab_joint:
             )
         )
         st.dataframe(styled_summary, use_container_width=True)
+
+    st.markdown("### Kinematic Definitions")
+    for metric in selected_kinematics:
+        metric_info = kinematic_definitions.get(metric, {})
+        if not metric_info:
+            continue
+        st.markdown(f"**{metric}**")
+        st.caption(f"Definition: {metric_info.get('definition', '')}")
+        st.caption(f"Measured as: {metric_info.get('measured_as', '')}")
+        st.caption(f"Why it matters: {metric_info.get('why', '')}")
+        st.caption(f"Interpretation: {metric_info.get('interpretation', '')}")
 
 # --------------------------------------------------
 # Energy Flow Tab
