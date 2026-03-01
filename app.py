@@ -3102,12 +3102,12 @@ with tab_kinematic:
 
 with tab_joint:
     st.subheader("Kinematics")
-    display_mode = st.radio(
-        "Select Display Mode",
-        ["Individual Throws", "Grouped"],
-        index=1,
+    joint_view_mode = st.radio(
+        "View Mode",
+        ["Single Plot", "Two Plot Compare"],
+        index=0,
         horizontal=True,
-        key="joint_display_mode"
+        key="joint_view_mode"
     )
 
     kinematic_options = [
@@ -3249,20 +3249,76 @@ with tab_joint:
         },
     }
 
-    selected_kinematics = st.multiselect(
-        "Select Kinematics",
-        options=kinematic_options,
-        default=[],
-        help=(
-            "Select one or more kinematics to plot. "
-            "Hover any line in the chart to see that metric's definition."
-        ),
-        key="joint_angles_select"
-    )
+    compare_energy_metrics = []
+    compare_energy_display_mode = "Grouped"
+
+    if joint_view_mode == "Two Plot Compare":
+        control_left_col, control_right_col = st.columns(2)
+        with control_left_col:
+            display_mode = st.radio(
+                "Kinematics Display Mode",
+                ["Individual Throws", "Grouped"],
+                index=1,
+                horizontal=True,
+                key="joint_display_mode_compare"
+            )
+            selected_kinematics = st.multiselect(
+                "Select Kinematics",
+                options=kinematic_options,
+                default=[],
+                help=(
+                    "Select one or more kinematics to plot. "
+                    "Hover any line in the chart to see that metric's definition."
+                ),
+                key="joint_angles_select_compare"
+            )
+        with control_right_col:
+            compare_energy_display_mode = st.radio(
+                "Energy Flow Display Mode",
+                ["Individual Throws", "Grouped"],
+                index=1,
+                horizontal=True,
+                key="joint_energy_display_mode_compare"
+            )
+            compare_energy_metrics = st.multiselect(
+                "Select Energy Flow Metrics",
+                [
+                    "Distal Arm Segment Power",
+                    "Arm Proximal Energy Transfer",
+                    "Trunk-Shoulder Rotational Energy Flow",
+                    "Trunk-Shoulder Elevation/Depression Energy Flow",
+                    "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
+                    "Arm Rotational Energy Flow",
+                    "Arm Elevation/Depression Energy Flow",
+                    "Arm Horizontal Abd/Add Energy Flow",
+                    "Throwing Arm RTA MMT (Z)"
+                ],
+                default=[],
+                key="joint_energy_metrics_compare"
+            )
+    else:
+        display_mode = st.radio(
+            "Select Display Mode",
+            ["Individual Throws", "Grouped"],
+            index=1,
+            horizontal=True,
+            key="joint_display_mode"
+        )
+        selected_kinematics = st.multiselect(
+            "Select Kinematics",
+            options=kinematic_options,
+            default=[],
+            help=(
+                "Select one or more kinematics to plot. "
+                "Hover any line in the chart to see that metric's definition."
+            ),
+            key="joint_angles_select"
+        )
 
     if not selected_kinematics:
         st.info("Select at least one kinematic.")
-        st.stop()
+        if joint_view_mode == "Single Plot":
+            st.stop()
 
     # --- Color map for joint types ---
     joint_color_map = {
@@ -3815,7 +3871,246 @@ with tab_joint:
         )
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    if joint_view_mode == "Two Plot Compare":
+        plot_left_col, plot_right_col = st.columns(2)
+        with plot_left_col:
+            st.markdown("#### Kinematics")
+            st.plotly_chart(fig, use_container_width=True)
+
+        with plot_right_col:
+            st.markdown("#### Energy Flow")
+            if not compare_energy_metrics:
+                st.info("Select at least one energy flow metric to render the right-side plot.")
+            elif not take_ids:
+                st.info("No takes available for Energy Flow.")
+            else:
+                energy_color_map = {
+                    "Distal Arm Segment Power": "#4C1D95",
+                    "Arm Proximal Energy Transfer": "#7C2D12",
+                    "Trunk-Shoulder Rotational Energy Flow": "#DC2626",
+                    "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",
+                    "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",
+                    "Arm Rotational Energy Flow": "#F59E0B",
+                    "Arm Elevation/Depression Energy Flow": "#06B6D4",
+                    "Arm Horizontal Abd/Add Energy Flow": "#9333EA",
+                    "Throwing Arm RTA MMT (Z)": "#FB8C00"
+                }
+
+                compare_energy_data_by_metric = {}
+
+                def load_compare_energy_by_handedness(loader_fn):
+                    merged = {}
+                    for hand, ids in take_ids_by_handedness.items():
+                        if ids:
+                            merged.update(loader_fn(ids, hand))
+                    return merged
+
+                for metric in compare_energy_metrics:
+                    if metric == "Distal Arm Segment Power":
+                        compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_distal_arm_segment_power)
+                    elif metric == "Arm Proximal Energy Transfer":
+                        compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_arm_proximal_energy_transfer)
+                    elif metric == "Trunk-Shoulder Rotational Energy Flow":
+                        compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_trunk_shoulder_rot_energy_flow)
+                    elif metric == "Trunk-Shoulder Elevation/Depression Energy Flow":
+                        compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_trunk_shoulder_elev_energy_flow)
+                    elif metric == "Trunk-Shoulder Horizontal Abd/Add Energy Flow":
+                        compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_trunk_shoulder_horizabd_energy_flow)
+                    elif metric == "Arm Rotational Energy Flow":
+                        compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_arm_rot_energy_flow)
+                    elif metric == "Arm Elevation/Depression Energy Flow":
+                        compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_arm_elev_energy_flow)
+                    elif metric == "Arm Horizontal Abd/Add Energy Flow":
+                        compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_arm_horizabd_energy_flow)
+                    elif metric == "Throwing Arm RTA MMT (Z)":
+                        mmt_data = {}
+                        if take_ids_by_handedness.get("R"):
+                            mmt_data.update(
+                                get_energy_flow_from_segment(
+                                    take_ids_by_handedness["R"],
+                                    "RT_SHOULDER_RTA_MMT",
+                                    component="z"
+                                )
+                            )
+                        if take_ids_by_handedness.get("L"):
+                            mmt_data.update(
+                                get_energy_flow_from_segment(
+                                    take_ids_by_handedness["L"],
+                                    "LT_SHOULDER_RTA_MMT",
+                                    component="z"
+                                )
+                            )
+                        compare_energy_data_by_metric[metric] = mmt_data
+
+                compare_energy_data_by_metric = {
+                    k: v for k, v in compare_energy_data_by_metric.items() if v
+                }
+
+                if not compare_energy_data_by_metric:
+                    st.warning("No energy flow data found for the selected metrics.")
+                else:
+                    energy_fig = go.Figure()
+                    unique_dates = sorted(set(take_date_map.values()))
+                    dash_styles = ["solid", "dash", "dot", "dashdot"]
+                    date_dash_map = {
+                        d: dash_styles[i % len(dash_styles)]
+                        for i, d in enumerate(unique_dates)
+                    }
+
+                    energy_legend_keys = set()
+                    energy_window_end = 50
+                    energy_window_start_ms = rel_frame_to_ms(window_start)
+                    energy_window_end_ms = rel_frame_to_ms(energy_window_end)
+
+                    for metric, energy_data in compare_energy_data_by_metric.items():
+                        metric_color = energy_color_map.get(metric, "#444")
+                        grouped_by_date = {}
+
+                        for take_id, d in energy_data.items():
+                            if take_id not in br_frames:
+                                continue
+
+                            frames = d["frame"]
+                            values = d["value"]
+                            br = br_frames[take_id]
+
+                            norm_f, norm_v = [], []
+                            for f, v in zip(frames, values):
+                                rel = f - br
+                                if window_start <= rel <= energy_window_end:
+                                    norm_f.append(rel_frame_to_ms(rel))
+                                    norm_v.append(v)
+
+                            date = take_date_map[take_id]
+                            pitcher_name = take_pitcher_map.get(take_id, "")
+                            date_key = (pitcher_name, date) if multi_pitcher_mode else date
+                            grouped_by_date.setdefault(date_key, {})[take_id] = {
+                                "frame": norm_f,
+                                "value": norm_v
+                            }
+
+                            if compare_energy_display_mode == "Individual Throws":
+                                energy_fig.add_trace(
+                                    go.Scatter(
+                                        x=norm_f,
+                                        y=norm_v,
+                                        mode="lines",
+                                        line=dict(
+                                            color=metric_color,
+                                            dash=date_dash_map[date]
+                                        ),
+                                        customdata=[[metric, date, take_order[take_id], take_velocity[take_id], pitcher_name]] * len(norm_f),
+                                        hovertemplate=(
+                                            "%{customdata[0]} – %{customdata[1]} | "
+                                            "Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
+                                            + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                                            + "<extra></extra>"
+                                        ),
+                                        showlegend=False
+                                    )
+                                )
+                                legend_key = (metric, date_key)
+                                if legend_key not in energy_legend_keys:
+                                    energy_fig.add_trace(
+                                        go.Scatter(
+                                            x=[None],
+                                            y=[None],
+                                            mode="lines",
+                                            line=dict(
+                                                color=metric_color,
+                                                dash=date_dash_map[date],
+                                                width=4
+                                            ),
+                                            name=(
+                                                f"{metric} | {date} | {pitcher_name}"
+                                                if multi_pitcher_mode else
+                                                f"{metric} | {date}"
+                                            ),
+                                            showlegend=True
+                                        )
+                                    )
+                                    energy_legend_keys.add(legend_key)
+
+                        if compare_energy_display_mode == "Grouped":
+                            for date_key, curves in grouped_by_date.items():
+                                if multi_pitcher_mode:
+                                    pitcher_name, date = date_key
+                                else:
+                                    date = date_key
+                                    pitcher_name = ""
+                                x, y, q1, q3 = aggregate_curves(curves, "Mean")
+                                if len(y) >= 11:
+                                    y = savgol_filter(y, window_length=11, polyorder=3)
+
+                                energy_fig.add_trace(
+                                    go.Scatter(
+                                        x=x,
+                                        y=y,
+                                        mode="lines",
+                                        line=dict(width=4, color=metric_color, dash=date_dash_map[date]),
+                                        customdata=[[metric, date, pitcher_name]] * len(x),
+                                        hovertemplate=(
+                                            "%{customdata[0]} – %{customdata[1]}"
+                                            + (" | %{customdata[2]}" if multi_pitcher_mode else "")
+                                            + "<extra></extra>"
+                                        ),
+                                        showlegend=False
+                                    )
+                                )
+                                energy_fig.add_trace(
+                                    go.Scatter(
+                                        x=x + x[::-1],
+                                        y=q3 + q1[::-1],
+                                        fill="toself",
+                                        fillcolor=to_rgba(metric_color, alpha=0.35),
+                                        line=dict(width=0),
+                                        showlegend=False,
+                                        hoverinfo="skip"
+                                    )
+                                )
+                                energy_fig.add_trace(
+                                    go.Scatter(
+                                        x=[None],
+                                        y=[None],
+                                        mode="lines",
+                                        line=dict(color=metric_color, dash=date_dash_map[date], width=4),
+                                        name=(
+                                            f"{metric} | {date} | {pitcher_name}"
+                                            if multi_pitcher_mode else
+                                            f"{metric} | {date}"
+                                        ),
+                                        showlegend=True
+                                    )
+                                )
+
+                    if fp_event_frames:
+                        median_fp = rel_frame_to_ms(int(np.median(fp_event_frames)))
+                        energy_fig.add_vline(x=median_fp, line_width=3, line_dash="dash", line_color="green")
+                    if mer_event_frames:
+                        median_mer = rel_frame_to_ms(int(np.median(mer_event_frames)))
+                        energy_fig.add_vline(x=median_mer, line_width=3, line_dash="dash", line_color="red")
+                    energy_fig.add_vline(x=0, line_width=3, line_dash="dash", line_color="blue")
+
+                    energy_fig.update_layout(
+                        xaxis_title="Time Relative to Ball Release (ms)",
+                        yaxis_title="Energy Flow / Segment Power",
+                        xaxis_range=[energy_window_start_ms, energy_window_end_ms],
+                        height=600,
+                        legend=dict(
+                            orientation="h",
+                            yanchor="top",
+                            y=-0.30,
+                            xanchor="center",
+                            x=0.5
+                        ),
+                        hoverlabel=dict(
+                            namelength=-1,
+                            font_size=13
+                        )
+                    )
+                    st.plotly_chart(energy_fig, use_container_width=True)
+    else:
+        st.plotly_chart(fig, use_container_width=True)
 
     # --- Kinematics Table ---
     if summary_rows:
