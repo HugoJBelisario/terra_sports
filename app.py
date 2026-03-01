@@ -2929,7 +2929,7 @@ with tab_kinematic:
             )
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="kinematic_sequence_plot")
 
         # --- Kinematic Sequence Peak Summary Table (Individual Throws) ---
         if display_mode == "Individual Throws":
@@ -3875,7 +3875,7 @@ with tab_joint:
         plot_left_col, plot_right_col = st.columns(2)
         with plot_left_col:
             st.markdown("#### Kinematics")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="joint_plot_compare_left")
 
         with plot_right_col:
             st.markdown("#### Energy Flow")
@@ -4138,9 +4138,9 @@ with tab_joint:
                             font_size=13
                         )
                     )
-                    st.plotly_chart(energy_fig, use_container_width=True)
+                    st.plotly_chart(energy_fig, use_container_width=True, key="joint_plot_compare_right_energy")
     else:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="joint_plot_single")
 
     # --- Kinematics Table ---
     if summary_rows:
@@ -4583,7 +4583,7 @@ with tab_energy:
         )
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="energy_plot_main_tab")
 
     # --------------------------------------------------
     # Energy Flow Table (Individual mode: per-pitch, long format with velocity)
