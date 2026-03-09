@@ -1801,6 +1801,18 @@ st.markdown(
         color: #FFFFFF;
         border: 1px solid #B71C1C;
     }
+    /* Make selected multiselect tags readable in the sidebar */
+    div[data-testid="stSidebar"] div[data-baseweb="tag"] {
+        max-width: 100% !important;
+        height: auto !important;
+        white-space: normal !important;
+    }
+    div[data-testid="stSidebar"] div[data-baseweb="tag"] > span {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: unset !important;
+        line-height: 1.25 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -1993,6 +2005,18 @@ else:
                 default=group_take_options,
                 key=f"group{group_idx}_selected_takes"
             )
+            if selected_group_take_labels:
+                selected_take_lines = "<br>".join(selected_group_take_labels)
+                st.sidebar.markdown(
+                    (
+                        "<div style='font-size:0.86rem; line-height:1.35; "
+                        "max-height:140px; overflow-y:auto; padding:0.45rem 0.5rem; "
+                        "border:1px solid #D0D0D0; border-radius:0.35rem; background:#FAFAFA;'>"
+                        f"{selected_take_lines}"
+                        "</div>"
+                    ),
+                    unsafe_allow_html=True,
+                )
             selected_group_take_ids = [
                 group_label_to_take_id[label]
                 for label in selected_group_take_labels
