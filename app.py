@@ -1819,97 +1819,165 @@ if st.sidebar.button("Create Groups", key="create_groups_mode_btn", use_containe
     st.session_state["create_groups_mode"] = True
 
 group_mode_enabled = st.session_state.get("create_groups_mode", False)
+if "group_count" not in st.session_state:
+    st.session_state["group_count"] = 1
 
 pitcher_names = get_all_pitchers()
+group_configs = []
+selected_pitchers = []
+pitcher_filters = {}
+
+def build_pitcher_filters_for_group(selected_group_pitchers, group_index, show_group_prefix):
+    group_pitcher_filters = {}
+    multi_pitcher_group = len(selected_group_pitchers) > 1
+
+    for i, pitcher in enumerate(selected_group_pitchers):
+        label_suffix = f" - {pitcher}" if multi_pitcher_group else ""
+        if multi_pitcher_group:
+            st.sidebar.markdown(f"**{pitcher} Filters**")
+
+        session_dates = get_session_dates_for_pitcher(pitcher)
+        if session_dates:
+            session_dates_with_all = ["All Dates"] + session_dates
+            session_dates_label = (
+                f"Group {group_index} Session Dates{label_suffix}"
+                if show_group_prefix else
+                f"Session Dates{label_suffix}"
+            )
+            selected_dates_i = st.sidebar.multiselect(
+                session_dates_label,
+                options=session_dates_with_all,
+                default=["All Dates"],
+                key=f"group{group_index}_select_session_dates_{i}"
+            )
+        else:
+            st.sidebar.info(f"No session dates found for {pitcher}.")
+            selected_dates_i = []
+
+        throw_type_label = (
+            f"Group {group_index} Throw Type{label_suffix}"
+            if show_group_prefix else
+            f"Throw Type{label_suffix}"
+        )
+        throw_types_i = st.sidebar.multiselect(
+            throw_type_label,
+            options=["Mound", "Pulldown"],
+            default=["Mound"],
+            key=f"group{group_index}_throw_types_{i}"
+        )
+        if not throw_types_i:
+            throw_types_i = ["Mound"]
+
+        vel_min_i, vel_max_i = get_velocity_bounds(pitcher, selected_dates_i)
+        if vel_min_i is not None and vel_max_i is not None:
+            velocity_label = (
+                f"Group {group_index} Velocity Range{label_suffix} (mph)"
+                if show_group_prefix else
+                f"Velocity Range{label_suffix} (mph)"
+            )
+            velocity_range_i = st.sidebar.slider(
+                velocity_label,
+                min_value=float(vel_min_i),
+                max_value=float(vel_max_i),
+                value=(float(vel_min_i), float(vel_max_i)),
+                step=0.5,
+                key=f"group{group_index}_velocity_range_{i}"
+            )
+            velocity_min_i, velocity_max_i = velocity_range_i
+        else:
+            velocity_min_i, velocity_max_i = None, None
+            st.sidebar.info(f"Velocity data not available for {pitcher}.")
+
+        group_pitcher_filters[pitcher] = {
+            "selected_dates": selected_dates_i,
+            "throw_types": throw_types_i,
+            "velocity_min": velocity_min_i,
+            "velocity_max": velocity_max_i,
+        }
+
+    return group_pitcher_filters
 
 if not pitcher_names:
     st.sidebar.warning("No pitchers found in the database.")
-    selected_pitchers = []
 else:
-    pitcher_select_label = "Select Group 1 Pitchers" if group_mode_enabled else "Select Pitcher(s)"
-    pitcher_select_key = "select_group1_pitchers" if group_mode_enabled else "select_pitchers"
-    selected_pitchers = st.sidebar.multiselect(
-        pitcher_select_label,
-        options=pitcher_names,
-        default=[pitcher_names[0]] if pitcher_names else [],
-        key=pitcher_select_key
-    )
+    if group_mode_enabled:
+        group_count = max(1, int(st.session_state.get("group_count", 1)))
+        st.session_state["group_count"] = group_count
 
-# -------------------------------
-# Per-Pitcher Filters
-# -------------------------------
-pitcher_filters = {}
-multi_pitcher_mode = len(selected_pitchers) > 1
-for i, pitcher in enumerate(selected_pitchers):
-    label_suffix = f" - {pitcher}" if multi_pitcher_mode else ""
-    if multi_pitcher_mode:
-        st.sidebar.markdown(f"**{pitcher} Filters**")
+        for group_idx in range(1, group_count + 1):
+            st.sidebar.markdown(f"**Group {group_idx}**")
+            selected_group_pitchers = st.sidebar.multiselect(
+                f"Select Group {group_idx} Pitchers",
+                options=pitcher_names,
+                default=[pitcher_names[0]] if group_idx == 1 and pitcher_names else [],
+                key=f"group{group_idx}_select_pitchers"
+            )
+            group_pitcher_filters = build_pitcher_filters_for_group(
+                selected_group_pitchers,
+                group_idx,
+                show_group_prefix=True
+            )
+            group_configs.append({
+                "group_index": group_idx,
+                "selected_pitchers": selected_group_pitchers,
+                "pitcher_filters": group_pitcher_filters,
+            })
 
-    session_dates = get_session_dates_for_pitcher(pitcher)
-    if session_dates:
-        session_dates_with_all = ["All Dates"] + session_dates
-        session_dates_label = (
-            f"Group 1 Session Dates{label_suffix}"
-            if group_mode_enabled else
-            f"Session Dates{label_suffix}"
-        )
-        session_dates_key = (
-            f"group1_select_session_dates_{i}"
-            if group_mode_enabled else
-            f"select_session_dates_{i}"
-        )
-        selected_dates_i = st.sidebar.multiselect(
-            session_dates_label,
-            options=session_dates_with_all,
-            default=["All Dates"],
-            key=session_dates_key
-        )
+            if group_idx < group_count:
+                st.sidebar.markdown("---")
+
+        st.sidebar.markdown("---")
+        if st.sidebar.button("Create Another Group", key="create_another_group_btn", use_container_width=True):
+            st.session_state["group_count"] = group_count + 1
+            st.rerun()
+
+        # Merge group filters into the existing downstream data model.
+        for group_cfg in group_configs:
+            for pitcher in group_cfg["selected_pitchers"]:
+                if pitcher not in selected_pitchers:
+                    selected_pitchers.append(pitcher)
+
+            for pitcher, cfg in group_cfg["pitcher_filters"].items():
+                if pitcher not in pitcher_filters:
+                    pitcher_filters[pitcher] = {
+                        "selected_dates": list(cfg["selected_dates"]),
+                        "throw_types": list(cfg["throw_types"]),
+                        "velocity_min": cfg["velocity_min"],
+                        "velocity_max": cfg["velocity_max"],
+                    }
+                    continue
+
+                existing = pitcher_filters[pitcher]
+                existing_dates = existing.get("selected_dates", [])
+                new_dates = cfg.get("selected_dates", [])
+                if "All Dates" in existing_dates or "All Dates" in new_dates:
+                    existing["selected_dates"] = ["All Dates"]
+                else:
+                    existing["selected_dates"] = sorted(set(existing_dates + new_dates))
+
+                existing["throw_types"] = sorted(set(existing.get("throw_types", []) + cfg.get("throw_types", [])))
+
+                vmins = [v for v in [existing.get("velocity_min"), cfg.get("velocity_min")] if v is not None]
+                vmaxs = [v for v in [existing.get("velocity_max"), cfg.get("velocity_max")] if v is not None]
+                existing["velocity_min"] = min(vmins) if vmins else None
+                existing["velocity_max"] = max(vmaxs) if vmaxs else None
     else:
-        st.sidebar.info(f"No session dates found for {pitcher}.")
-        selected_dates_i = []
-
-    throw_type_label = (
-        f"Group 1 Throw Type{label_suffix}"
-        if group_mode_enabled else
-        f"Throw Type{label_suffix}"
-    )
-    throw_type_key = f"group1_throw_types_{i}" if group_mode_enabled else f"throw_types_{i}"
-    throw_types_i = st.sidebar.multiselect(
-        throw_type_label,
-        options=["Mound", "Pulldown"],
-        default=["Mound"],
-        key=throw_type_key
-    )
-    if not throw_types_i:
-        throw_types_i = ["Mound"]
-
-    vel_min_i, vel_max_i = get_velocity_bounds(pitcher, selected_dates_i)
-    if vel_min_i is not None and vel_max_i is not None:
-        velocity_label = (
-            f"Group 1 Velocity Range{label_suffix} (mph)"
-            if group_mode_enabled else
-            f"Velocity Range{label_suffix} (mph)"
+        selected_pitchers = st.sidebar.multiselect(
+            "Select Pitcher(s)",
+            options=pitcher_names,
+            default=[pitcher_names[0]] if pitcher_names else [],
+            key="select_pitchers"
         )
-        velocity_key = f"group1_velocity_range_{i}" if group_mode_enabled else f"velocity_range_{i}"
-        velocity_range_i = st.sidebar.slider(
-            velocity_label,
-            min_value=float(vel_min_i),
-            max_value=float(vel_max_i),
-            value=(float(vel_min_i), float(vel_max_i)),
-            step=0.5,
-            key=velocity_key
+        pitcher_filters = build_pitcher_filters_for_group(
+            selected_pitchers,
+            group_index=0,
+            show_group_prefix=False
         )
-        velocity_min_i, velocity_max_i = velocity_range_i
-    else:
-        velocity_min_i, velocity_max_i = None, None
-        st.sidebar.info(f"Velocity data not available for {pitcher}.")
-
-    pitcher_filters[pitcher] = {
-        "selected_dates": selected_dates_i,
-        "throw_types": throw_types_i,
-        "velocity_min": velocity_min_i,
-        "velocity_max": velocity_max_i,
-    }
+        group_configs = [{
+            "group_index": 1,
+            "selected_pitchers": selected_pitchers,
+            "pitcher_filters": pitcher_filters,
+        }]
 
 all_throw_types = sorted({
     t
@@ -1924,33 +1992,42 @@ mound_only_sidebar = bool(pitcher_filters) and all(
 def render_group_selection_summary():
     if not group_mode_enabled:
         return
-    if not selected_pitchers:
-        st.caption("Group 1 active. No pitchers selected.")
+    if not group_configs:
+        st.caption("Group mode active. No groups configured.")
         return
 
-    throw_types = sorted({
-        throw_type
-        for cfg in pitcher_filters.values()
-        for throw_type in cfg.get("throw_types", [])
-    })
-    throw_types_label = ", ".join(throw_types) if throw_types else "None"
+    for group_cfg in group_configs:
+        group_idx = group_cfg["group_index"]
+        group_pitchers = group_cfg["selected_pitchers"]
+        group_pitcher_filters = group_cfg["pitcher_filters"]
 
-    per_pitcher_ranges = []
-    for pitcher in selected_pitchers:
-        cfg = pitcher_filters.get(pitcher, {})
-        vmin = cfg.get("velocity_min")
-        vmax = cfg.get("velocity_max")
-        if vmin is None or vmax is None:
+        if not group_pitchers:
+            st.caption(f"Group {group_idx} | No pitchers selected.")
             continue
-        per_pitcher_ranges.append(f"{pitcher}: {vmin:.1f}-{vmax:.1f}")
 
-    velocity_label = "; ".join(per_pitcher_ranges) if per_pitcher_ranges else "N/A"
-    st.caption(
-        "Group 1 | "
-        f"Pitchers: {', '.join(selected_pitchers)} | "
-        f"Throw Type: {throw_types_label} | "
-        f"Velocity Range (mph): {velocity_label}"
-    )
+        throw_types = sorted({
+            throw_type
+            for cfg in group_pitcher_filters.values()
+            for throw_type in cfg.get("throw_types", [])
+        })
+        throw_types_label = ", ".join(throw_types) if throw_types else "None"
+
+        per_pitcher_ranges = []
+        for pitcher in group_pitchers:
+            cfg = group_pitcher_filters.get(pitcher, {})
+            vmin = cfg.get("velocity_min")
+            vmax = cfg.get("velocity_max")
+            if vmin is None or vmax is None:
+                continue
+            per_pitcher_ranges.append(f"{pitcher}: {vmin:.1f}-{vmax:.1f}")
+
+        velocity_label = "; ".join(per_pitcher_ranges) if per_pitcher_ranges else "N/A"
+        st.caption(
+            f"Group {group_idx} | "
+            f"Pitchers: {', '.join(group_pitchers)} | "
+            f"Throw Type: {throw_types_label} | "
+            f"Velocity Range (mph): {velocity_label}"
+        )
 
 
 
