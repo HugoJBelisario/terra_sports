@@ -2002,21 +2002,9 @@ else:
             selected_group_take_labels = st.sidebar.multiselect(
                 f"Group {group_idx} Selected Takes",
                 options=group_take_options,
-                default=group_take_options,
+                default=[],
                 key=f"group{group_idx}_selected_takes"
             )
-            if selected_group_take_labels:
-                selected_take_lines = "<br>".join(selected_group_take_labels)
-                st.sidebar.markdown(
-                    (
-                        "<div style='font-size:0.86rem; line-height:1.35; "
-                        "max-height:140px; overflow-y:auto; padding:0.45rem 0.5rem; "
-                        "border:1px solid #D0D0D0; border-radius:0.35rem; background:#FAFAFA;'>"
-                        f"{selected_take_lines}"
-                        "</div>"
-                    ),
-                    unsafe_allow_html=True,
-                )
             selected_group_take_ids = [
                 group_label_to_take_id[label]
                 for label in selected_group_take_labels
