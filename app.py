@@ -2079,6 +2079,20 @@ if group_mode_enabled:
     for group_cfg in group_configs:
         selected_take_ids_union.update(group_cfg.get("selected_take_ids", []))
 
+group_palette = [
+    "#1F77B4", "#D62728", "#2CA02C", "#FF7F0E", "#9467BD",
+    "#17BECF", "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22"
+]
+group_color_map = {}
+take_group_map = {}
+if group_mode_enabled:
+    for idx, group_cfg in enumerate(group_configs):
+        group_label = f"Group {group_cfg['group_index']}"
+        group_color_map[group_label] = group_palette[idx % len(group_palette)]
+        for tid in group_cfg.get("selected_take_ids", []):
+            if tid not in take_group_map:
+                take_group_map[tid] = group_label
+
 all_throw_types = sorted({
     t
     for cfg in pitcher_filters.values()
@@ -3705,6 +3719,11 @@ with tab_joint:
     dash_styles = ["solid", "dash", "dot", "dashdot"]
     for i, d in enumerate(unique_dates):
         date_dash_map[d] = dash_styles[i % len(dash_styles)]
+    use_group_colors_joint = (
+        group_mode_enabled
+        and len(selected_kinematics) == 1
+        and len(group_color_map) >= 2
+    )
 
     # --- Per-take normalization and plotting ---
     grouped = {}
@@ -3800,12 +3819,21 @@ with tab_joint:
 
             # --- Store by date for grouped plotting ---
             date = take_date_map[take_id]
+            group_label = take_group_map.get(take_id, "Ungrouped")
             pitcher_name = take_pitcher_map.get(take_id, "")
-            date_key = (pitcher_name, date) if multi_pitcher_mode else date
+            if use_group_colors_joint:
+                date_key = (group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date)
+            else:
+                date_key = (pitcher_name, date) if multi_pitcher_mode else date
             grouped_by_date.setdefault(date_key, {}).setdefault(kinematic, {})[take_id] = {
                 "frame": norm_f,
                 "value": norm_v
             }
+            trace_color = (
+                group_color_map.get(group_label, joint_color_map[kinematic])
+                if use_group_colors_joint else
+                joint_color_map[kinematic]
+            )
 
             if display_mode == "Individual Throws":
                 # Use kinematic color and date-based dash for individual throws
@@ -3822,14 +3850,24 @@ with tab_joint:
                             "Definition: %{customdata[0]}<extra></extra>"
                         ),
                         line=dict(
-                            color=joint_color_map[kinematic],
+                            color=trace_color,
                             dash=date_dash_map[take_date_map[take_id]]
                         ),
                         name=(
+                            (
+                                f"{group_label} | {kinematic} – {take_date_map[take_id]} | "
+                                f"Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph) | {pitcher_name}"
+                            ) if (multi_pitcher_mode and use_group_colors_joint) else
+                            (
+                                f"{group_label} | {kinematic} – {take_date_map[take_id]} | "
+                                f"Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
+                            ) if use_group_colors_joint else
+                            (
                             f"{kinematic} – {take_date_map[take_id]} | Pitch {take_order[take_id]} "
                             f"({take_velocity[take_id]:.1f} mph) | {pitcher_name}"
                             if multi_pitcher_mode else
                             f"{kinematic} – {take_date_map[take_id]} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
+                            )
                         ),
                         showlegend=False
                     )
@@ -3843,11 +3881,15 @@ with tab_joint:
                             y=[None],
                             mode="lines",
                             line=dict(
-                                color=joint_color_map[kinematic],
+                                color=trace_color,
                                 dash=date_dash_map[date],
                                 width=4
                             ),
                             name=(
+                                f"{group_label} | {kinematic} | {date} | {pitcher_name}"
+                                if (multi_pitcher_mode and use_group_colors_joint) else
+                                f"{group_label} | {kinematic} | {date}"
+                                if use_group_colors_joint else
                                 f"{kinematic} | {date} | {pitcher_name}"
                                 if multi_pitcher_mode else
                                 f"{kinematic} | {date}"
@@ -3905,11 +3947,18 @@ with tab_joint:
     # --- Grouped plot (mean + IQR per date) ---
     if display_mode == "Grouped":
         for date_key, kin_dict in grouped_by_date.items():
-            if multi_pitcher_mode:
+            if use_group_colors_joint and multi_pitcher_mode:
+                group_label, pitcher_name, date = date_key
+            elif use_group_colors_joint:
+                group_label, date = date_key
+                pitcher_name = ""
+            elif multi_pitcher_mode:
                 pitcher_name, date = date_key
+                group_label = ""
             else:
                 date = date_key
                 pitcher_name = ""
+                group_label = ""
             for kinematic, curves in kin_dict.items():
                 if not curves:
                     continue
@@ -3920,7 +3969,11 @@ with tab_joint:
                 if len(y) >= 11:
                     y = savgol_filter(y, window_length=11, polyorder=3)
 
-                color = joint_color_map.get(kinematic, "#444")
+                color = (
+                    group_color_map.get(group_label, joint_color_map.get(kinematic, "#444"))
+                    if use_group_colors_joint else
+                    joint_color_map.get(kinematic, "#444")
+                )
                 dash = date_dash_map[date]
 
                 fig.add_trace(
@@ -3937,6 +3990,10 @@ with tab_joint:
                         ),
                         line=dict(width=4, color=color, dash=dash),
                         name=(
+                            f"{group_label} | {kinematic} – {date} | {pitcher_name}"
+                            if (multi_pitcher_mode and use_group_colors_joint) else
+                            f"{group_label} | {kinematic} – {date}"
+                            if use_group_colors_joint else
                             f"{kinematic} – {date} | {pitcher_name}"
                             if multi_pitcher_mode else
                             f"{kinematic} – {date}"
@@ -4620,6 +4677,11 @@ with tab_energy:
     energy_window_end = 50
     energy_window_start_ms = rel_frame_to_ms(window_start)
     energy_window_end_ms = rel_frame_to_ms(energy_window_end)
+    use_group_colors_energy = (
+        group_mode_enabled
+        and len(energy_metrics) == 1
+        and len(group_color_map) >= 2
+    )
 
     # -------------------------------
     # Normalize to Ball Release and Plot
@@ -4648,12 +4710,21 @@ with tab_energy:
             grouped_power[take_id] = {"frame": norm_f, "value": norm_v}
 
             date = take_date_map[take_id]
+            group_label = take_group_map.get(take_id, "Ungrouped")
             pitcher_name = take_pitcher_map.get(take_id, "")
-            date_key = (pitcher_name, date) if multi_pitcher_mode else date
+            if use_group_colors_energy:
+                date_key = (group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date)
+            else:
+                date_key = (pitcher_name, date) if multi_pitcher_mode else date
             grouped_by_date.setdefault(date_key, {})[take_id] = {
                 "frame": norm_f,
                 "value": norm_v
             }
+            trace_color = (
+                group_color_map.get(group_label, metric_color)
+                if use_group_colors_energy else
+                metric_color
+            )
 
             if display_mode == "Individual Throws":
                 fig.add_trace(
@@ -4662,7 +4733,7 @@ with tab_energy:
                         y=norm_v,
                         mode="lines",
                         line=dict(
-                            color=metric_color,
+                            color=trace_color,
                             dash=date_dash_map[date]
                         ),
                         customdata=[[metric, date, take_order[take_id], take_velocity[take_id], pitcher_name]] * len(norm_f),
@@ -4683,11 +4754,15 @@ with tab_energy:
                             y=[None],
                             mode="lines",
                             line=dict(
-                                color=metric_color,
+                                color=trace_color,
                                 dash=date_dash_map[date],
                                 width=4
                             ),
                             name=(
+                                f"{group_label} | {metric} | {date} | {pitcher_name}"
+                                if (multi_pitcher_mode and use_group_colors_energy) else
+                                f"{group_label} | {metric} | {date}"
+                                if use_group_colors_energy else
                                 f"{metric} | {date} | {pitcher_name}"
                                 if multi_pitcher_mode else
                                 f"{metric} | {date}"
@@ -4702,11 +4777,18 @@ with tab_energy:
         # -------------------------------
         if display_mode == "Grouped":
             for date_key, curves in grouped_by_date.items():
-                if multi_pitcher_mode:
+                if use_group_colors_energy and multi_pitcher_mode:
+                    group_label, pitcher_name, date = date_key
+                elif use_group_colors_energy:
+                    group_label, date = date_key
+                    pitcher_name = ""
+                elif multi_pitcher_mode:
                     pitcher_name, date = date_key
+                    group_label = ""
                 else:
                     date = date_key
                     pitcher_name = ""
+                    group_label = ""
                 x, y, q1, q3 = aggregate_curves(curves, "Mean")
 
                 if len(y) >= 11:
@@ -4719,7 +4801,11 @@ with tab_energy:
                         mode="lines",
                         line=dict(
                             width=4,
-                            color=metric_color,
+                            color=(
+                                group_color_map.get(group_label, metric_color)
+                                if use_group_colors_energy else
+                                metric_color
+                            ),
                             dash=date_dash_map[date]
                         ),
                         customdata=[[metric, date, pitcher_name]] * len(x),
@@ -4737,7 +4823,12 @@ with tab_energy:
                         x=x + x[::-1],
                         y=q3 + q1[::-1],
                         fill="toself",
-                        fillcolor=to_rgba(metric_color, alpha=0.35),
+                        fillcolor=to_rgba(
+                            group_color_map.get(group_label, metric_color)
+                            if use_group_colors_energy else
+                            metric_color,
+                            alpha=0.35
+                        ),
                         line=dict(width=0),
                         showlegend=False,
                         hoverinfo="skip"
@@ -4750,11 +4841,19 @@ with tab_energy:
                         y=[None],
                         mode="lines",
                         line=dict(
-                            color=metric_color,
+                            color=(
+                                group_color_map.get(group_label, metric_color)
+                                if use_group_colors_energy else
+                                metric_color
+                            ),
                             dash=date_dash_map[date],
                             width=4
                         ),
                         name=(
+                            f"{group_label} | {metric} | {date} | {pitcher_name}"
+                            if (multi_pitcher_mode and use_group_colors_energy) else
+                            f"{group_label} | {metric} | {date}"
+                            if use_group_colors_energy else
                             f"{metric} | {date} | {pitcher_name}"
                             if multi_pitcher_mode else
                             f"{metric} | {date}"
