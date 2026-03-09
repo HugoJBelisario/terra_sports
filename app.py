@@ -1812,6 +1812,13 @@ st.markdown(
 # -------------------------------
 if "excluded_take_ids" not in st.session_state:
     st.session_state["excluded_take_ids"] = []
+if "create_groups_mode" not in st.session_state:
+    st.session_state["create_groups_mode"] = False
+
+if st.sidebar.button("Create Groups", key="create_groups_mode_btn", use_container_width=True):
+    st.session_state["create_groups_mode"] = True
+
+group_mode_enabled = st.session_state.get("create_groups_mode", False)
 
 pitcher_names = get_all_pitchers()
 
@@ -1819,11 +1826,13 @@ if not pitcher_names:
     st.sidebar.warning("No pitchers found in the database.")
     selected_pitchers = []
 else:
+    pitcher_select_label = "Select Group 1 Pitchers" if group_mode_enabled else "Select Pitcher(s)"
+    pitcher_select_key = "select_group1_pitchers" if group_mode_enabled else "select_pitchers"
     selected_pitchers = st.sidebar.multiselect(
-        "Select Pitcher(s)",
+        pitcher_select_label,
         options=pitcher_names,
         default=[pitcher_names[0]] if pitcher_names else [],
-        key="select_pitchers"
+        key=pitcher_select_key
     )
 
 # -------------------------------
@@ -1839,34 +1848,56 @@ for i, pitcher in enumerate(selected_pitchers):
     session_dates = get_session_dates_for_pitcher(pitcher)
     if session_dates:
         session_dates_with_all = ["All Dates"] + session_dates
+        session_dates_label = (
+            f"Group 1 Session Dates{label_suffix}"
+            if group_mode_enabled else
+            f"Session Dates{label_suffix}"
+        )
+        session_dates_key = (
+            f"group1_select_session_dates_{i}"
+            if group_mode_enabled else
+            f"select_session_dates_{i}"
+        )
         selected_dates_i = st.sidebar.multiselect(
-            f"Session Dates{label_suffix}",
+            session_dates_label,
             options=session_dates_with_all,
             default=["All Dates"],
-            key=f"select_session_dates_{i}"
+            key=session_dates_key
         )
     else:
         st.sidebar.info(f"No session dates found for {pitcher}.")
         selected_dates_i = []
 
+    throw_type_label = (
+        f"Group 1 Throw Type{label_suffix}"
+        if group_mode_enabled else
+        f"Throw Type{label_suffix}"
+    )
+    throw_type_key = f"group1_throw_types_{i}" if group_mode_enabled else f"throw_types_{i}"
     throw_types_i = st.sidebar.multiselect(
-        f"Throw Type{label_suffix}",
+        throw_type_label,
         options=["Mound", "Pulldown"],
         default=["Mound"],
-        key=f"throw_types_{i}"
+        key=throw_type_key
     )
     if not throw_types_i:
         throw_types_i = ["Mound"]
 
     vel_min_i, vel_max_i = get_velocity_bounds(pitcher, selected_dates_i)
     if vel_min_i is not None and vel_max_i is not None:
+        velocity_label = (
+            f"Group 1 Velocity Range{label_suffix} (mph)"
+            if group_mode_enabled else
+            f"Velocity Range{label_suffix} (mph)"
+        )
+        velocity_key = f"group1_velocity_range_{i}" if group_mode_enabled else f"velocity_range_{i}"
         velocity_range_i = st.sidebar.slider(
-            f"Velocity Range{label_suffix} (mph)",
+            velocity_label,
             min_value=float(vel_min_i),
             max_value=float(vel_max_i),
             value=(float(vel_min_i), float(vel_max_i)),
             step=0.5,
-            key=f"velocity_range_{i}"
+            key=velocity_key
         )
         velocity_min_i, velocity_max_i = velocity_range_i
     else:
@@ -1889,6 +1920,37 @@ mound_only_sidebar = bool(pitcher_filters) and all(
     set(cfg["throw_types"]) == {"Mound"}
     for cfg in pitcher_filters.values()
 )
+
+def render_group_selection_summary():
+    if not group_mode_enabled:
+        return
+    if not selected_pitchers:
+        st.caption("Group 1 active. No pitchers selected.")
+        return
+
+    throw_types = sorted({
+        throw_type
+        for cfg in pitcher_filters.values()
+        for throw_type in cfg.get("throw_types", [])
+    })
+    throw_types_label = ", ".join(throw_types) if throw_types else "None"
+
+    per_pitcher_ranges = []
+    for pitcher in selected_pitchers:
+        cfg = pitcher_filters.get(pitcher, {})
+        vmin = cfg.get("velocity_min")
+        vmax = cfg.get("velocity_max")
+        if vmin is None or vmax is None:
+            continue
+        per_pitcher_ranges.append(f"{pitcher}: {vmin:.1f}-{vmax:.1f}")
+
+    velocity_label = "; ".join(per_pitcher_ranges) if per_pitcher_ranges else "N/A"
+    st.caption(
+        "Group 1 | "
+        f"Pitchers: {', '.join(selected_pitchers)} | "
+        f"Throw Type: {throw_types_label} | "
+        f"Velocity Range (mph): {velocity_label}"
+    )
 
 
 
@@ -1987,6 +2049,7 @@ components.html(
 
 with tab_kinematic:
     st.subheader("Kinematic Sequence")
+    render_group_selection_summary()
     display_mode = st.radio(
         "Select Display Mode",
         ["Individual Throws", "Grouped"],
@@ -2112,12 +2175,6 @@ with tab_kinematic:
                 if tid in st.session_state["excluded_take_ids"]
             ],
             key="exclude_takes"
-        )
-
-        st.sidebar.button(
-            "Create Custom Groups",
-            key="create_custom_groups",
-            use_container_width=True
         )
 
         st.session_state["excluded_take_ids"] = [
@@ -3102,6 +3159,7 @@ with tab_kinematic:
 
 with tab_joint:
     st.subheader("Kinematics")
+    render_group_selection_summary()
     joint_view_mode = st.radio(
         "View Mode",
         ["Single", "Comparison"],
@@ -4264,6 +4322,7 @@ def compute_peak_segment_power(energy_data, br_frames, fp_event_frames):
 
 with tab_energy:
     st.subheader("Energy Flow")
+    render_group_selection_summary()
 
     energy_metrics = st.multiselect(
         "Select Energy Flow Metrics",
