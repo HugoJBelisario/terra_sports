@@ -1897,6 +1897,75 @@ def build_pitcher_filters_for_group(selected_group_pitchers, group_index, show_g
 
     return group_pitcher_filters
 
+def get_filtered_takes_for_pitcher(pitcher, cfg):
+    selected_dates_i = cfg.get("selected_dates", [])
+    throw_types_i = cfg.get("throw_types", [])
+    velocity_min_i = cfg.get("velocity_min")
+    velocity_max_i = cfg.get("velocity_max")
+
+    if velocity_min_i is None or velocity_max_i is None:
+        return []
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            if "All Dates" in selected_dates_i or not selected_dates_i:
+                cur.execute("""
+                    SELECT t.take_id, t.pitch_velo, t.take_date, a.athlete_name
+                    FROM takes t
+                    JOIN athletes a ON a.athlete_id = t.athlete_id
+                    WHERE a.athlete_name = %s
+                      AND t.throw_type = ANY(%s)
+                      AND t.pitch_velo BETWEEN %s AND %s
+                    ORDER BY a.athlete_name, t.take_date, t.take_id
+                """, (pitcher, throw_types_i, velocity_min_i, velocity_max_i))
+            else:
+                placeholders = ",".join(["%s"] * len(selected_dates_i))
+                cur.execute(f"""
+                    SELECT t.take_id, t.pitch_velo, t.take_date, a.athlete_name
+                    FROM takes t
+                    JOIN athletes a ON a.athlete_id = t.athlete_id
+                    WHERE a.athlete_name = %s
+                      AND t.throw_type = ANY(%s)
+                      AND t.take_date IN ({placeholders})
+                      AND t.pitch_velo BETWEEN %s AND %s
+                    ORDER BY a.athlete_name, t.take_date, t.take_id
+                """, (pitcher, throw_types_i, *selected_dates_i, velocity_min_i, velocity_max_i))
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+def build_take_options_for_group(group_pitcher_filters):
+    from collections import defaultdict
+
+    takes_by_id = {}
+    for pitcher, cfg in group_pitcher_filters.items():
+        for take_id, velo, date, pitcher_name in get_filtered_takes_for_pitcher(pitcher, cfg):
+            takes_by_id[take_id] = (take_id, velo, date, pitcher_name)
+
+    if not takes_by_id:
+        return [], {}
+
+    sorted_rows = sorted(
+        takes_by_id.values(),
+        key=lambda row: (row[3], row[2], row[0])
+    )
+
+    date_groups = defaultdict(list)
+    for tid, velo, date, pitcher_name in sorted_rows:
+        date_groups[(pitcher_name, date)].append((tid, velo))
+
+    options = []
+    label_to_take_id = {}
+    for (pitcher_name, date), items in date_groups.items():
+        for order, (tid, velo) in enumerate(items, start=1):
+            velo_text = f"{velo:.1f}" if velo is not None else "N/A"
+            label = f"{pitcher_name} | {date.strftime('%Y-%m-%d')} – Pitch {order} ({velo_text} mph)"
+            options.append(label)
+            label_to_take_id[label] = tid
+
+    return options, label_to_take_id
+
 if not pitcher_names:
     st.sidebar.warning("No pitchers found in the database.")
 else:
@@ -1917,10 +1986,23 @@ else:
                 group_idx,
                 show_group_prefix=True
             )
+            group_take_options, group_label_to_take_id = build_take_options_for_group(group_pitcher_filters)
+            selected_group_take_labels = st.sidebar.multiselect(
+                f"Group {group_idx} Selected Takes",
+                options=group_take_options,
+                default=group_take_options,
+                key=f"group{group_idx}_selected_takes"
+            )
+            selected_group_take_ids = [
+                group_label_to_take_id[label]
+                for label in selected_group_take_labels
+                if label in group_label_to_take_id
+            ]
             group_configs.append({
                 "group_index": group_idx,
                 "selected_pitchers": selected_group_pitchers,
                 "pitcher_filters": group_pitcher_filters,
+                "selected_take_ids": selected_group_take_ids,
             })
 
             if group_idx < group_count:
@@ -1977,7 +2059,13 @@ else:
             "group_index": 1,
             "selected_pitchers": selected_pitchers,
             "pitcher_filters": pitcher_filters,
+            "selected_take_ids": [],
         }]
+
+selected_take_ids_union = set()
+if group_mode_enabled:
+    for group_cfg in group_configs:
+        selected_take_ids_union.update(group_cfg.get("selected_take_ids", []))
 
 all_throw_types = sorted({
     t
@@ -2184,6 +2272,12 @@ with tab_kinematic:
     finally:
         conn.close()
 
+    if group_mode_enabled:
+        if selected_take_ids_union:
+            take_ids = [tid for tid in take_ids if tid in selected_take_ids_union]
+        else:
+            take_ids = []
+
     take_handedness = {
         tid: pitcher_handedness.get(take_pitcher_map.get(tid))
         for tid in take_ids
@@ -2242,20 +2336,7 @@ with tab_kinematic:
             for tid in take_ids
         }
 
-        if group_mode_enabled:
-            selected_take_labels = st.sidebar.multiselect(
-                "Selected Takes",
-                options=take_options,
-                default=take_options,
-                key="selected_takes_group_mode"
-            )
-            selected_take_ids = {
-                label_to_take_id[label]
-                for label in selected_take_labels
-                if label in label_to_take_id
-            }
-            take_ids = [tid for tid in take_ids if tid in selected_take_ids]
-        else:
+        if not group_mode_enabled:
             excluded_labels = st.sidebar.multiselect(
                 "Exclude Takes",
                 options=take_options,
