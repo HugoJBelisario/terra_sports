@@ -1984,6 +1984,7 @@ all_throw_types = sorted({
     for cfg in pitcher_filters.values()
     for t in cfg["throw_types"]
 })
+multi_pitcher_mode = len(selected_pitchers) > 1
 mound_only_sidebar = bool(pitcher_filters) and all(
     set(cfg["throw_types"]) == {"Mound"}
     for cfg in pitcher_filters.values()
@@ -2225,10 +2226,7 @@ with tab_kinematic:
                 take_date_map[tid] = date.strftime("%Y-%m-%d")
                 take_pitcher_map[tid] = pitcher
 
-        # -------------------------------
-        # Sidebar: Exclude Takes
-        # -------------------------------
-        exclude_options = [
+        take_options = [
             (
                 f"{take_pitcher_map[tid]} | {take_date_map[tid]} – "
                 f"Pitch {take_order[tid]} ({take_velocity[tid]:.1f} mph)"
@@ -2244,25 +2242,39 @@ with tab_kinematic:
             for tid in take_ids
         }
 
-        excluded_labels = st.sidebar.multiselect(
-            "Exclude Takes",
-            options=exclude_options,
-            default=[
-                label for label, tid in label_to_take_id.items()
-                if tid in st.session_state["excluded_take_ids"]
-            ],
-            key="exclude_takes"
-        )
+        if group_mode_enabled:
+            selected_take_labels = st.sidebar.multiselect(
+                "Selected Takes",
+                options=take_options,
+                default=take_options,
+                key="selected_takes_group_mode"
+            )
+            selected_take_ids = {
+                label_to_take_id[label]
+                for label in selected_take_labels
+                if label in label_to_take_id
+            }
+            take_ids = [tid for tid in take_ids if tid in selected_take_ids]
+        else:
+            excluded_labels = st.sidebar.multiselect(
+                "Exclude Takes",
+                options=take_options,
+                default=[
+                    label for label, tid in label_to_take_id.items()
+                    if tid in st.session_state["excluded_take_ids"]
+                ],
+                key="exclude_takes"
+            )
 
-        st.session_state["excluded_take_ids"] = [
-            label_to_take_id[label] for label in excluded_labels
-        ]
+            st.session_state["excluded_take_ids"] = [
+                label_to_take_id[label] for label in excluded_labels
+            ]
 
-        # Filter take_ids to exclude selected takes
-        take_ids = [
-            tid for tid in take_ids
-            if tid not in st.session_state["excluded_take_ids"]
-        ]
+            # Filter take_ids to exclude selected takes
+            take_ids = [
+                tid for tid in take_ids
+                if tid not in st.session_state["excluded_take_ids"]
+            ]
 
     if not take_ids:
         st.info("No takes found for this selection.")
