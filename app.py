@@ -2144,6 +2144,297 @@ def render_group_selection_summary():
             f"Velocity Range (mph): {velocity_label}"
         )
 
+def aggregate_curves(curves_dict, stat="Median"):
+    """
+    curves_dict: { take_id: { "frame": [...], "value": [...] } }
+    Returns aggregated_x, aggregated_y, iqr_low, iqr_high
+    """
+    all_frames = sorted(set(
+        f for d in curves_dict.values() for f in d["frame"]
+    ))
+
+    agg_y = []
+    iqr_low = []
+    iqr_high = []
+
+    for f in all_frames:
+        vals = [
+            d["value"][i]
+            for d in curves_dict.values()
+            for i, fr in enumerate(d["frame"])
+            if fr == f
+        ]
+
+        if not vals:
+            continue
+
+        if stat == "Mean":
+            agg_y.append(np.mean(vals))
+        else:
+            agg_y.append(np.median(vals))
+
+        iqr_low.append(np.percentile(vals, 25))
+        iqr_high.append(np.percentile(vals, 75))
+
+    return all_frames, agg_y, iqr_low, iqr_high
+
+def build_shared_dashboard_state():
+    pitcher_handedness = {
+        p: get_pitcher_handedness(p)
+        for p in selected_pitchers
+    }
+
+    shared_take_ids = []
+    shared_take_pitcher_map = {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            for pitcher, cfg in pitcher_filters.items():
+                selected_dates_i = cfg["selected_dates"]
+                throw_types_i = cfg["throw_types"]
+                velocity_min_i = cfg["velocity_min"]
+                velocity_max_i = cfg["velocity_max"]
+
+                if velocity_min_i is None or velocity_max_i is None:
+                    continue
+
+                if "All Dates" in selected_dates_i or not selected_dates_i:
+                    cur.execute("""
+                        SELECT t.take_id
+                        FROM takes t
+                        JOIN athletes a ON a.athlete_id = t.athlete_id
+                        WHERE a.athlete_name = %s
+                          AND t.throw_type = ANY(%s)
+                          AND t.pitch_velo BETWEEN %s AND %s
+                    """, (pitcher, throw_types_i, velocity_min_i, velocity_max_i))
+                else:
+                    placeholders = ",".join(["%s"] * len(selected_dates_i))
+                    cur.execute(f"""
+                        SELECT t.take_id
+                        FROM takes t
+                        JOIN athletes a ON a.athlete_id = t.athlete_id
+                        WHERE a.athlete_name = %s
+                          AND t.throw_type = ANY(%s)
+                          AND t.take_date IN ({placeholders})
+                          AND t.pitch_velo BETWEEN %s AND %s
+                    """, (pitcher, throw_types_i, *selected_dates_i, velocity_min_i, velocity_max_i))
+
+                for (take_id,) in cur.fetchall():
+                    if take_id not in shared_take_pitcher_map:
+                        shared_take_pitcher_map[take_id] = pitcher
+                        shared_take_ids.append(take_id)
+    finally:
+        conn.close()
+
+    if group_mode_enabled:
+        if selected_take_ids_union:
+            shared_take_ids = [tid for tid in shared_take_ids if tid in selected_take_ids_union]
+        else:
+            shared_take_ids = []
+
+    shared_take_handedness = {
+        tid: pitcher_handedness.get(shared_take_pitcher_map.get(tid))
+        for tid in shared_take_ids
+    }
+    shared_take_ids = [tid for tid in shared_take_ids if shared_take_handedness.get(tid) in ("R", "L")]
+
+    shared_take_order = {}
+    shared_take_velocity = {}
+    shared_take_date_map = {}
+    shared_take_pitcher_name_map = {}
+
+    if shared_take_ids:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                placeholders = ",".join(["%s"] * len(shared_take_ids))
+                cur.execute(f"""
+                    SELECT t.take_id, t.pitch_velo, t.take_date, a.athlete_name
+                    FROM takes t
+                    JOIN athletes a ON a.athlete_id = t.athlete_id
+                    WHERE t.take_id IN ({placeholders})
+                    ORDER BY a.athlete_name, t.take_date, t.take_id
+                """, tuple(shared_take_ids))
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        from collections import defaultdict
+
+        date_groups = defaultdict(list)
+        for tid, velo, date, pitcher in rows:
+            date_groups[(pitcher, date)].append((tid, velo))
+
+        for (pitcher, date), items in date_groups.items():
+            for i, (tid, velo) in enumerate(items, start=1):
+                shared_take_order[tid] = i
+                shared_take_velocity[tid] = velo
+                shared_take_date_map[tid] = date.strftime("%Y-%m-%d")
+                shared_take_pitcher_name_map[tid] = pitcher
+
+        if not group_mode_enabled:
+            take_options = [
+                (
+                    f"{shared_take_pitcher_name_map[tid]} | {shared_take_date_map[tid]} - "
+                    f"Pitch {shared_take_order[tid]} ({shared_take_velocity[tid]:.1f} mph)"
+                )
+                for tid in shared_take_ids
+            ]
+
+            label_to_take_id = {
+                (
+                    f"{shared_take_pitcher_name_map[tid]} | {shared_take_date_map[tid]} - "
+                    f"Pitch {shared_take_order[tid]} ({shared_take_velocity[tid]:.1f} mph)"
+                ): tid
+                for tid in shared_take_ids
+            }
+
+            excluded_labels = st.sidebar.multiselect(
+                "Exclude Takes",
+                options=take_options,
+                default=[
+                    label for label, tid in label_to_take_id.items()
+                    if tid in st.session_state["excluded_take_ids"]
+                ],
+                key="exclude_takes"
+            )
+
+            st.session_state["excluded_take_ids"] = [
+                label_to_take_id[label] for label in excluded_labels
+            ]
+            shared_take_ids = [
+                tid for tid in shared_take_ids
+                if tid not in st.session_state["excluded_take_ids"]
+            ]
+            shared_take_handedness = {
+                tid: shared_take_handedness[tid]
+                for tid in shared_take_ids
+                if tid in shared_take_handedness
+            }
+            shared_take_order = {
+                tid: shared_take_order[tid]
+                for tid in shared_take_ids
+                if tid in shared_take_order
+            }
+            shared_take_velocity = {
+                tid: shared_take_velocity[tid]
+                for tid in shared_take_ids
+                if tid in shared_take_velocity
+            }
+            shared_take_date_map = {
+                tid: shared_take_date_map[tid]
+                for tid in shared_take_ids
+                if tid in shared_take_date_map
+            }
+            shared_take_pitcher_name_map = {
+                tid: shared_take_pitcher_name_map[tid]
+                for tid in shared_take_ids
+                if tid in shared_take_pitcher_name_map
+            }
+
+    from collections import defaultdict
+
+    shared_take_ids_by_handedness = defaultdict(list)
+    for tid in shared_take_ids:
+        hand = shared_take_handedness.get(tid)
+        if hand in ("R", "L"):
+            shared_take_ids_by_handedness[hand].append(tid)
+
+    def load_by_handedness(loader_fn):
+        merged = {}
+        for hand, ids in shared_take_ids_by_handedness.items():
+            if ids:
+                merged.update(loader_fn(ids, hand))
+        return merged
+
+    shared_br_frames = {}
+    shared_shoulder_er_max_frames = {}
+    shared_knee_peak_frames = {}
+    shared_foot_plant_zero_cross_frames = {}
+    shared_knee_event_frames = []
+    shared_fp_event_frames = []
+    shared_mer_event_frames = []
+    shared_window_start = -100
+
+    if shared_take_ids:
+        cg_data = load_by_handedness(get_hand_cg_velocity)
+        shoulder_data = load_by_handedness(get_shoulder_er_angles)
+
+        for take_id in shared_take_ids:
+            if take_id in cg_data:
+                cg_frames = cg_data[take_id]["frame"]
+                cg_vals = cg_data[take_id]["x"]
+                valid = [(i, v) for i, v in enumerate(cg_vals) if v is not None]
+                if valid:
+                    idx, _ = max(valid, key=lambda x: x[1])
+                    shared_br_frames[take_id] = cg_frames[idx]
+
+        for take_id, d in shoulder_data.items():
+            frames = d["frame"]
+            values = d["z"]
+            valid = [(f, v) for f, v in zip(frames, values) if v is not None]
+            if not valid:
+                continue
+
+            hand = shared_take_handedness.get(take_id)
+            if hand == "R":
+                er_frame, _ = min(valid, key=lambda x: x[1])
+            else:
+                er_frame, _ = max(valid, key=lambda x: x[1])
+            shared_shoulder_er_max_frames[take_id] = er_frame
+
+        ankle_prox_x_peak_frames = {}
+        for hand, ids in shared_take_ids_by_handedness.items():
+            if not ids:
+                continue
+            shared_knee_peak_frames.update(
+                get_peak_glove_knee_pre_br(ids, hand, shared_br_frames)
+            )
+            ankle_prox_x_peak_frames.update(
+                get_peak_ankle_prox_x_velocity(ids, hand)
+            )
+            shared_foot_plant_zero_cross_frames.update(
+                get_foot_plant_frame_zero_cross(
+                    ids,
+                    hand,
+                    ankle_prox_x_peak_frames,
+                    shared_shoulder_er_max_frames
+                )
+            )
+
+        for take_id, knee_frame in shared_knee_peak_frames.items():
+            if take_id in shared_br_frames:
+                shared_knee_event_frames.append(knee_frame - shared_br_frames[take_id])
+
+        for take_id, fp_frame in shared_foot_plant_zero_cross_frames.items():
+            if take_id in shared_br_frames:
+                shared_fp_event_frames.append(fp_frame - shared_br_frames[take_id])
+
+        for take_id, er_frame in shared_shoulder_er_max_frames.items():
+            if take_id in shared_br_frames:
+                shared_mer_event_frames.append(er_frame - shared_br_frames[take_id])
+
+        if shared_fp_event_frames:
+            shared_window_start = int(np.median(shared_fp_event_frames)) - 50
+
+    return {
+        "take_ids": shared_take_ids,
+        "take_order": shared_take_order,
+        "take_velocity": shared_take_velocity,
+        "take_date_map": shared_take_date_map,
+        "take_pitcher_map": shared_take_pitcher_name_map,
+        "take_handedness": shared_take_handedness,
+        "take_ids_by_handedness": shared_take_ids_by_handedness,
+        "br_frames": shared_br_frames,
+        "shoulder_er_max_frames": shared_shoulder_er_max_frames,
+        "knee_peak_frames": shared_knee_peak_frames,
+        "fp_event_frames": shared_fp_event_frames,
+        "knee_event_frames": shared_knee_event_frames,
+        "mer_event_frames": shared_mer_event_frames,
+        "window_start": shared_window_start,
+    }
+
 
 
 
@@ -2165,6 +2456,12 @@ br_frames = {}
 take_pitcher_map = {}
 take_handedness = {}
 take_ids_by_handedness = {}
+shoulder_er_max_frames = {}
+knee_peak_frames = {}
+fp_event_frames = []
+knee_event_frames = []
+mer_event_frames = []
+window_start = -100
 
 # Workaround for Streamlit tab reset on rerun:
 # persist active tab in URL query param and re-select it after rerender.
@@ -2238,6 +2535,22 @@ components.html(
     height=0,
 )
 
+shared_state = build_shared_dashboard_state()
+take_ids = shared_state["take_ids"]
+take_order = shared_state["take_order"]
+take_velocity = shared_state["take_velocity"]
+take_date_map = shared_state["take_date_map"]
+br_frames = shared_state["br_frames"]
+take_pitcher_map = shared_state["take_pitcher_map"]
+take_handedness = shared_state["take_handedness"]
+take_ids_by_handedness = shared_state["take_ids_by_handedness"]
+shoulder_er_max_frames = shared_state["shoulder_er_max_frames"]
+knee_peak_frames = shared_state["knee_peak_frames"]
+fp_event_frames = shared_state["fp_event_frames"]
+knee_event_frames = shared_state["knee_event_frames"]
+mer_event_frames = shared_state["mer_event_frames"]
+window_start = shared_state["window_start"]
+
 
 with tab_kinematic:
     st.subheader("Kinematic Sequence")
@@ -2249,151 +2562,9 @@ with tab_kinematic:
         horizontal=True,
         key="ks_display_mode"
     )
-    pitcher_handedness = {
-        p: get_pitcher_handedness(p)
-        for p in selected_pitchers
-    }
-
-    take_ids = []
-    take_pitcher_map = {}
-
-    # Resolve take_ids based on per-pitcher filters
-    conn = get_connection()
-    try:
-        with conn.cursor() as cur:
-            for pitcher, cfg in pitcher_filters.items():
-                selected_dates_i = cfg["selected_dates"]
-                throw_types_i = cfg["throw_types"]
-                velocity_min_i = cfg["velocity_min"]
-                velocity_max_i = cfg["velocity_max"]
-
-                if velocity_min_i is None or velocity_max_i is None:
-                    continue
-
-                if "All Dates" in selected_dates_i or not selected_dates_i:
-                    cur.execute("""
-                        SELECT t.take_id
-                        FROM takes t
-                        JOIN athletes a ON a.athlete_id = t.athlete_id
-                        WHERE a.athlete_name = %s
-                          AND t.throw_type = ANY(%s)
-                          AND t.pitch_velo BETWEEN %s AND %s
-                    """, (pitcher, throw_types_i, velocity_min_i, velocity_max_i))
-                else:
-                    placeholders = ",".join(["%s"] * len(selected_dates_i))
-                    cur.execute(f"""
-                        SELECT t.take_id
-                        FROM takes t
-                        JOIN athletes a ON a.athlete_id = t.athlete_id
-                        WHERE a.athlete_name = %s
-                          AND t.throw_type = ANY(%s)
-                          AND t.take_date IN ({placeholders})
-                          AND t.pitch_velo BETWEEN %s AND %s
-                    """, (pitcher, throw_types_i, *selected_dates_i, velocity_min_i, velocity_max_i))
-
-                for (take_id,) in cur.fetchall():
-                    if take_id not in take_pitcher_map:
-                        take_pitcher_map[take_id] = pitcher
-                        take_ids.append(take_id)
-    finally:
-        conn.close()
-
-    if group_mode_enabled:
-        if selected_take_ids_union:
-            take_ids = [tid for tid in take_ids if tid in selected_take_ids_union]
-        else:
-            take_ids = []
-
-    take_handedness = {
-        tid: pitcher_handedness.get(take_pitcher_map.get(tid))
-        for tid in take_ids
-    }
-    take_ids = [tid for tid in take_ids if take_handedness.get(tid) in ("R", "L")]
-
-    # --- Pitch order + velocity lookup ---
-    if take_ids:
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                placeholders = ",".join(["%s"] * len(take_ids))
-                cur.execute(f"""
-                    SELECT t.take_id, t.pitch_velo, t.take_date, a.athlete_name
-                    FROM takes t
-                    JOIN athletes a ON a.athlete_id = t.athlete_id
-                    WHERE t.take_id IN ({placeholders})
-                    ORDER BY a.athlete_name, t.take_date, t.take_id
-                """, tuple(take_ids))
-                rows = cur.fetchall()
-        finally:
-            conn.close()
-
-        from collections import defaultdict
-
-        date_groups = defaultdict(list)
-
-        for tid, velo, date, pitcher in rows:
-            date_groups[(pitcher, date)].append((tid, velo))
-
-        take_order = {}
-        take_velocity = {}
-        take_date_map = {}
-        take_pitcher_map = {}
-
-        for (pitcher, date), items in date_groups.items():
-            for i, (tid, velo) in enumerate(items, start=1):
-                take_order[tid] = i
-                take_velocity[tid] = velo
-                take_date_map[tid] = date.strftime("%Y-%m-%d")
-                take_pitcher_map[tid] = pitcher
-
-        take_options = [
-            (
-                f"{take_pitcher_map[tid]} | {take_date_map[tid]} – "
-                f"Pitch {take_order[tid]} ({take_velocity[tid]:.1f} mph)"
-            )
-            for tid in take_ids
-        ]
-
-        label_to_take_id = {
-            (
-                f"{take_pitcher_map[tid]} | {take_date_map[tid]} – "
-                f"Pitch {take_order[tid]} ({take_velocity[tid]:.1f} mph)"
-            ): tid
-            for tid in take_ids
-        }
-
-        if not group_mode_enabled:
-            excluded_labels = st.sidebar.multiselect(
-                "Exclude Takes",
-                options=take_options,
-                default=[
-                    label for label, tid in label_to_take_id.items()
-                    if tid in st.session_state["excluded_take_ids"]
-                ],
-                key="exclude_takes"
-            )
-
-            st.session_state["excluded_take_ids"] = [
-                label_to_take_id[label] for label in excluded_labels
-            ]
-
-            # Filter take_ids to exclude selected takes
-            take_ids = [
-                tid for tid in take_ids
-                if tid not in st.session_state["excluded_take_ids"]
-            ]
-
     if not take_ids:
         st.info("No takes found for this selection.")
     else:
-        from collections import defaultdict
-
-        take_ids_by_handedness = defaultdict(list)
-        for tid in take_ids:
-            hand = take_handedness.get(tid)
-            if hand in ("R", "L"):
-                take_ids_by_handedness[hand].append(tid)
-
         def load_by_handedness(loader_fn):
             merged = {}
             for hand, ids in take_ids_by_handedness.items():
@@ -2406,124 +2577,9 @@ with tab_kinematic:
         torso_data = get_torso_angular_velocity(take_ids)
         elbow_data = load_by_handedness(get_elbow_angular_velocity)
         shoulder_ir_data = load_by_handedness(get_shoulder_ir_velocity)
-        # Cache Ball Release frames per take
-        br_frames = {}
-
-        for take_id in take_ids:
-            if take_id in cg_data:
-                cg_frames = cg_data[take_id]["frame"]
-                cg_vals = cg_data[take_id]["x"]
-
-                valid = [(i, v) for i, v in enumerate(cg_vals) if v is not None]
-                if valid:
-                    idx, _ = max(valid, key=lambda x: x[1])
-                    br_frames[take_id] = cg_frames[idx]
-        shoulder_data = load_by_handedness(get_shoulder_er_angles)
-        # Cache max shoulder ER frames per take
-        shoulder_er_max_frames = {}
-
-        for take_id, d in shoulder_data.items():
-            frames = d["frame"]
-            values = d["z"]
-
-            valid = [(f, v) for f, v in zip(frames, values) if v is not None]
-            if not valid:
-                continue
-
-            hand = take_handedness.get(take_id)
-            if hand == "R":
-                er_frame, _ = min(valid, key=lambda x: x[1])  # most negative
-            else:
-                er_frame, _ = max(valid, key=lambda x: x[1])  # most positive
-
-            shoulder_er_max_frames[take_id] = er_frame
-        knee_peak_frames = {}
-        foot_plant_frames = {}
-        ankle_prox_x_peak_frames = {}
-        foot_plant_zero_cross_frames = {}
-        for hand, ids in take_ids_by_handedness.items():
-            if not ids:
-                continue
-            knee_peak_frames.update(
-                get_peak_glove_knee_pre_br(ids, hand, br_frames)
-            )
-            foot_plant_frames.update(
-                get_foot_plant_frame(ids, hand, knee_peak_frames, br_frames)
-            )
-            ankle_prox_x_peak_frames.update(
-                get_peak_ankle_prox_x_velocity(ids, hand)
-            )
-            foot_plant_zero_cross_frames.update(
-                get_foot_plant_frame_zero_cross(
-                    ids,
-                    hand,
-                    ankle_prox_x_peak_frames,
-                    shoulder_er_max_frames
-                )
-            )
-
-        # Collect normalized peak knee height frames for aggregation
-        knee_event_frames = []
-
-        for take_id, knee_frame in knee_peak_frames.items():
-            if take_id in br_frames:
-                knee_event_frames.append(knee_frame - br_frames[take_id])
-
-        # Collect normalized refined Foot Plant (zero-cross) frames
-        fp_event_frames = []
-        for take_id, fp_frame in foot_plant_zero_cross_frames.items():
-            if take_id in br_frames:
-                fp_event_frames.append(fp_frame - br_frames[take_id])
-
-        # Collect normalized max Shoulder ER frames
-        mer_event_frames = []
-        for take_id, er_frame in shoulder_er_max_frames.items():
-            if take_id in br_frames:
-                mer_event_frames.append(er_frame - br_frames[take_id])
-
-        # Define plot window start from median Foot Plant (zero-cross)
-        if fp_event_frames:
-            window_start = int(np.median(fp_event_frames)) - 50
-        else:
-            # fallback: still ensure we have a reasonable window
-            window_start = -100
         window_end = 50
         window_start_ms = rel_frame_to_ms(window_start)
         window_end_ms = rel_frame_to_ms(window_end)
-
-        def aggregate_curves(curves_dict, stat="Median"):
-            """
-            curves_dict: { take_id: { "frame": [...], "value": [...] } }
-            Returns aggregated_x, aggregated_y, iqr_low, iqr_high
-            """
-            all_frames = sorted(set(
-                f for d in curves_dict.values() for f in d["frame"]
-            ))
-
-            agg_y = []
-            iqr_low = []
-            iqr_high = []
-
-            for f in all_frames:
-                vals = [
-                    d["value"][i]
-                    for d in curves_dict.values()
-                    for i, fr in enumerate(d["frame"])
-                    if fr == f
-                ]
-
-                if not vals:
-                    continue
-
-                if stat == "Mean":
-                    agg_y.append(np.mean(vals))
-                else:
-                    agg_y.append(np.median(vals))
-
-                iqr_low.append(np.percentile(vals, 25))
-                iqr_high.append(np.percentile(vals, 75))
-
-            return all_frames, agg_y, iqr_low, iqr_high
 
         fig = go.Figure()
         grouped_pelvis = {}
