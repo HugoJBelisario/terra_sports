@@ -2629,23 +2629,8 @@ with tab_kinematic:
             # MER defined as max shoulder external rotation prior to ball release
             # -----------------------------
             mer_rel_frame = None
-
-            if take_id in shoulder_data:
-                sh_frames = shoulder_data[take_id]["frame"]
-                sh_values = shoulder_data[take_id]["z"]
-
-                valid_sh = [
-                    (f, v) for f, v in zip(sh_frames, sh_values)
-                    if v is not None and f <= br_frame
-                ]
-
-                if valid_sh:
-                    if take_hand == "R":
-                        mer_frame, _ = min(valid_sh, key=lambda x: x[1])  # negative max
-                    else:
-                        mer_frame, _ = max(valid_sh, key=lambda x: x[1])  # positive max
-
-                    mer_rel_frame = mer_frame - br_frame
+            if take_id in shoulder_er_max_frames:
+                mer_rel_frame = shoulder_er_max_frames[take_id] - br_frame
 
             # -----------------------------
             # Normalize time to Ball Release
