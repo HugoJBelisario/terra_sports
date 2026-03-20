@@ -197,6 +197,7 @@ def get_control_group_take_pool(handedness_filter):
                     JOIN athletes a ON a.athlete_id = t.athlete_id
                     CROSS JOIN ids i
                     WHERE t.pitch_velo IS NOT NULL
+                      AND t.throw_type = 'Mound'
                       AND a.handedness IN ('R', 'L')
                       {handedness_clause}
                       AND EXISTS (
