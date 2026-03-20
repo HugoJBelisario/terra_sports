@@ -155,6 +155,34 @@ def get_velocity_bounds(athlete_name, selected_dates):
         conn.close()
 
 @st.cache_data(ttl=300)
+def get_control_group_take_pool(handedness_filter):
+    """
+    Returns control-group candidates from all takes in the database, optionally
+    filtered by pitcher handedness.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            params = []
+            handedness_clause = ""
+            if handedness_filter in ("R", "L"):
+                handedness_clause = "AND a.handedness = %s"
+                params.append(handedness_filter)
+
+            cur.execute(f"""
+                SELECT t.take_id, t.pitch_velo, a.handedness
+                FROM takes t
+                JOIN athletes a ON a.athlete_id = t.athlete_id
+                WHERE t.pitch_velo IS NOT NULL
+                  AND a.handedness IN ('R', 'L')
+                  {handedness_clause}
+                ORDER BY t.take_id
+            """, tuple(params))
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+@st.cache_data(ttl=300)
 def get_session_dates_for_pitcher(athlete_name):
     """
     Returns distinct session dates (take_date) for a given pitcher.
@@ -1830,6 +1858,8 @@ if "show_control_group_velocity" not in st.session_state:
     st.session_state["show_control_group_velocity"] = False
 if "control_group_take_ids" not in st.session_state:
     st.session_state["control_group_take_ids"] = []
+if "control_group_handedness" not in st.session_state:
+    st.session_state["control_group_handedness"] = "Both"
 
 if st.sidebar.button("Create Groups", key="create_groups_mode_btn", use_container_width=True):
     st.session_state["create_groups_mode"] = True
@@ -2344,12 +2374,20 @@ def build_shared_dashboard_state():
                 if tid in shared_take_pitcher_name_map
             }
             if st.session_state.get("show_control_group_velocity"):
-                control_group_velocities = [
-                    shared_take_velocity[tid]
-                    for tid in shared_take_ids
-                    if tid in shared_take_velocity
-                ]
-                if control_group_velocities:
+                selected_control_handedness = st.sidebar.selectbox(
+                    "Handedness",
+                    options=["Both", "Left", "Right"],
+                    key="control_group_handedness"
+                )
+                control_group_pool = get_control_group_take_pool(
+                    {"Both": None, "Left": "L", "Right": "R"}[selected_control_handedness]
+                )
+                if control_group_pool:
+                    control_group_take_velocity = {
+                        take_id: float(pitch_velo)
+                        for take_id, pitch_velo, _ in control_group_pool
+                    }
+                    control_group_velocities = list(control_group_take_velocity.values())
                     control_velocity_min = float(min(control_group_velocities))
                     control_velocity_max = float(max(control_group_velocities))
                     control_velocity_key = "control_group_velocity_range"
@@ -2377,13 +2415,13 @@ def build_shared_dashboard_state():
                         key=control_velocity_key
                     )
                     st.session_state["control_group_take_ids"] = [
-                        tid for tid in shared_take_ids
+                        tid for tid, velocity in control_group_take_velocity.items()
                         if selected_control_velocity_range[0]
-                        <= shared_take_velocity.get(tid, control_velocity_min)
+                        <= velocity
                         <= selected_control_velocity_range[1]
                     ]
                 else:
-                    st.sidebar.info("Velocity data not available for the control group.")
+                    st.sidebar.info("No control-group takes found for the selected handedness.")
                     st.session_state["control_group_take_ids"] = []
 
     from collections import defaultdict
