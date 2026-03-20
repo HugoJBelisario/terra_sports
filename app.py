@@ -2605,7 +2605,8 @@ def build_shared_dashboard_state():
                     selected_control_handedness = st.sidebar.radio(
                         "Handedness",
                         options=handedness_options,
-                        key="control_group_handedness"
+                        key="control_group_handedness",
+                        horizontal=True
                     )
                     if selected_control_handedness == "Left":
                         filtered_control_pool = [row for row in filtered_control_pool if row[3] == "L"]
