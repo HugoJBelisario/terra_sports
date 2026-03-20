@@ -184,6 +184,7 @@ def get_control_group_take_pool(handedness_filter):
                     SELECT
                         t.take_id,
                         t.pitch_velo,
+                        a.athlete_name,
                         a.handedness,
                         CASE WHEN a.handedness = 'L' THEN i.seg_hand_l ELSE i.seg_hand_r END AS seg_hand_dom,
                         CASE WHEN a.handedness = 'L' THEN i.seg_arm_l ELSE i.seg_arm_r END AS seg_arm_dom,
@@ -302,6 +303,7 @@ def get_control_group_take_pool(handedness_filter):
                 SELECT
                     t.take_id,
                     t.pitch_velo,
+                    t.athlete_name,
                     t.handedness,
                     a.arm_slot_deg
                 FROM candidate_takes t
@@ -2519,11 +2521,15 @@ def build_shared_dashboard_state():
                 if control_group_pool:
                     control_group_take_velocity = {
                         take_id: float(pitch_velo)
-                        for take_id, pitch_velo, _, _ in control_group_pool
+                        for take_id, pitch_velo, _, _, _ in control_group_pool
+                    }
+                    control_group_take_pitcher = {
+                        take_id: athlete_name
+                        for take_id, _, athlete_name, _, _ in control_group_pool
                     }
                     control_group_arm_slot = {
                         take_id: float(arm_slot_deg)
-                        for take_id, _, _, arm_slot_deg in control_group_pool
+                        for take_id, _, _, _, arm_slot_deg in control_group_pool
                         if arm_slot_deg is not None
                     }
                     control_group_velocities = list(control_group_take_velocity.values())
@@ -2601,6 +2607,21 @@ def build_shared_dashboard_state():
                     else:
                         st.sidebar.info("Arm slot data not available for the current control-group filters.")
                         st.session_state["control_group_arm_slot_ids"] = []
+
+                    selected_control_group_pitchers = sorted({
+                        control_group_take_pitcher[tid]
+                        for tid in st.session_state["control_group_take_ids"]
+                        if tid in control_group_take_pitcher
+                    })
+                    if selected_control_group_pitchers:
+                        st.sidebar.caption(
+                            f"Pitchers in Control Group ({len(selected_control_group_pitchers)})"
+                        )
+                        st.sidebar.markdown("\n".join(
+                            f"- {pitcher}" for pitcher in selected_control_group_pitchers
+                        ))
+                    else:
+                        st.sidebar.caption("Pitchers in Control Group (0)")
                 else:
                     st.sidebar.info("No control-group takes found for the selected handedness.")
                     st.session_state["control_group_take_ids"] = []
