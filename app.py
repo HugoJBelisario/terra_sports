@@ -2303,6 +2303,13 @@ def build_shared_dashboard_state():
             st.session_state["excluded_take_ids"] = [
                 label_to_take_id[label] for label in excluded_labels
             ]
+            if st.sidebar.button(
+                "Create Control Group",
+                key="create_control_group_btn",
+                use_container_width=True
+            ):
+                st.session_state["create_groups_mode"] = True
+                st.rerun()
             shared_take_ids = [
                 tid for tid in shared_take_ids
                 if tid not in st.session_state["excluded_take_ids"]
