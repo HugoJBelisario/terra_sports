@@ -1995,6 +1995,8 @@ if "control_group_handedness" not in st.session_state:
     st.session_state["control_group_handedness"] = "Both"
 if "control_group_arm_slot_ids" not in st.session_state:
     st.session_state["control_group_arm_slot_ids"] = []
+if "control_group_pitchers" not in st.session_state:
+    st.session_state["control_group_pitchers"] = []
 
 if st.sidebar.button("Create Groups", key="create_groups_mode_btn", use_container_width=True):
     st.session_state["create_groups_mode"] = True
@@ -2511,120 +2513,196 @@ def build_shared_dashboard_state():
             }
             if st.session_state.get("show_control_group_velocity"):
                 st.sidebar.markdown("**Control Group**")
-                selected_control_handedness = st.sidebar.selectbox(
-                    "Handedness",
-                    options=["Both", "Left", "Right"],
-                    key="control_group_handedness"
-                )
-                control_group_pool = get_control_group_take_pool(
-                    {"Both": None, "Left": "L", "Right": "R"}[selected_control_handedness]
-                )
-                if control_group_pool:
+                all_control_group_pool = get_control_group_take_pool(None)
+                if all_control_group_pool:
+                    control_group_take_velocity_all = {
+                        take_id: float(pitch_velo)
+                        for take_id, pitch_velo, _, _, _ in all_control_group_pool
+                    }
+                    control_group_take_pitcher_all = {
+                        take_id: athlete_name
+                        for take_id, _, athlete_name, _, _ in all_control_group_pool
+                    }
+                    control_group_take_handedness_all = {
+                        take_id: handedness
+                        for take_id, _, _, handedness, _ in all_control_group_pool
+                    }
+                    control_group_arm_slot_all = {
+                        take_id: float(arm_slot_deg)
+                        for take_id, _, _, _, arm_slot_deg in all_control_group_pool
+                        if arm_slot_deg is not None
+                    }
+
+                    current_velocity_range = st.session_state.get("control_group_velocity_range")
+                    current_arm_slot_range = st.session_state.get("control_group_arm_slot_range")
+                    current_handedness = st.session_state.get("control_group_handedness", "Both")
+
+                    pitcher_option_take_ids = list(control_group_take_pitcher_all.keys())
+                    if current_handedness == "Left":
+                        pitcher_option_take_ids = [
+                            tid for tid in pitcher_option_take_ids
+                            if control_group_take_handedness_all.get(tid) == "L"
+                        ]
+                    elif current_handedness == "Right":
+                        pitcher_option_take_ids = [
+                            tid for tid in pitcher_option_take_ids
+                            if control_group_take_handedness_all.get(tid) == "R"
+                        ]
+
+                    if current_velocity_range:
+                        pitcher_option_take_ids = [
+                            tid for tid in pitcher_option_take_ids
+                            if current_velocity_range[0]
+                            <= control_group_take_velocity_all.get(tid, current_velocity_range[0])
+                            <= current_velocity_range[1]
+                        ]
+
+                    if current_arm_slot_range:
+                        pitcher_option_take_ids = [
+                            tid for tid in pitcher_option_take_ids
+                            if tid in control_group_arm_slot_all
+                            and current_arm_slot_range[0]
+                            <= control_group_arm_slot_all[tid]
+                            <= current_arm_slot_range[1]
+                        ]
+
+                    control_group_pitcher_options = sorted({
+                        control_group_take_pitcher_all[tid]
+                        for tid in pitcher_option_take_ids
+                        if tid in control_group_take_pitcher_all
+                    })
+                    if any(
+                        pitcher not in control_group_pitcher_options
+                        for pitcher in st.session_state["control_group_pitchers"]
+                    ):
+                        st.session_state["control_group_pitchers"] = [
+                            pitcher for pitcher in st.session_state["control_group_pitchers"]
+                            if pitcher in control_group_pitcher_options
+                        ]
+
+                    selected_control_pitchers = st.sidebar.multiselect(
+                        "Pitchers",
+                        options=control_group_pitcher_options,
+                        default=st.session_state["control_group_pitchers"],
+                        key="control_group_pitchers"
+                    )
+                    selected_pitcher_set = set(selected_control_pitchers)
+
+                    filtered_control_pool = [
+                        row for row in all_control_group_pool
+                        if not selected_pitcher_set or row[2] in selected_pitcher_set
+                    ]
+                    available_handedness_values = sorted({row[3] for row in filtered_control_pool})
+                    handedness_options = ["Both"]
+                    if "L" in available_handedness_values:
+                        handedness_options.append("Left")
+                    if "R" in available_handedness_values:
+                        handedness_options.append("Right")
+                    if st.session_state["control_group_handedness"] not in handedness_options:
+                        st.session_state["control_group_handedness"] = "Both"
+
+                    selected_control_handedness = st.sidebar.selectbox(
+                        "Handedness",
+                        options=handedness_options,
+                        key="control_group_handedness"
+                    )
+                    if selected_control_handedness == "Left":
+                        filtered_control_pool = [row for row in filtered_control_pool if row[3] == "L"]
+                    elif selected_control_handedness == "Right":
+                        filtered_control_pool = [row for row in filtered_control_pool if row[3] == "R"]
+
                     control_group_take_velocity = {
                         take_id: float(pitch_velo)
-                        for take_id, pitch_velo, _, _, _ in control_group_pool
-                    }
-                    control_group_take_pitcher = {
-                        take_id: athlete_name
-                        for take_id, _, athlete_name, _, _ in control_group_pool
+                        for take_id, pitch_velo, _, _, _ in filtered_control_pool
                     }
                     control_group_arm_slot = {
                         take_id: float(arm_slot_deg)
-                        for take_id, _, _, _, arm_slot_deg in control_group_pool
+                        for take_id, _, _, _, arm_slot_deg in filtered_control_pool
                         if arm_slot_deg is not None
                     }
+
                     control_group_velocities = list(control_group_take_velocity.values())
-                    control_velocity_min = float(min(control_group_velocities))
-                    control_velocity_max = float(max(control_group_velocities))
-                    control_velocity_key = "control_group_velocity_range"
-                    existing_control_velocity_range = st.session_state.get(
-                        control_velocity_key,
-                        (control_velocity_min, control_velocity_max)
-                    )
-                    default_control_velocity_range = (
-                        max(control_velocity_min, float(existing_control_velocity_range[0])),
-                        min(control_velocity_max, float(existing_control_velocity_range[1]))
-                    )
-                    if default_control_velocity_range[0] > default_control_velocity_range[1]:
-                        default_control_velocity_range = (
-                            control_velocity_min,
-                            control_velocity_max
-                        )
-
-                    st.session_state[control_velocity_key] = default_control_velocity_range
-                    selected_control_velocity_range = st.sidebar.slider(
-                        "Velocity Range (mph)",
-                        min_value=control_velocity_min,
-                        max_value=control_velocity_max,
-                        value=default_control_velocity_range,
-                        step=0.5,
-                        key=control_velocity_key
-                    )
-                    st.session_state["control_group_take_ids"] = [
-                        tid for tid, velocity in control_group_take_velocity.items()
-                        if selected_control_velocity_range[0]
-                        <= velocity
-                        <= selected_control_velocity_range[1]
-                    ]
-                    eligible_arm_slot_values = [
-                        control_group_arm_slot[tid]
-                        for tid in st.session_state["control_group_take_ids"]
-                        if tid in control_group_arm_slot
-                    ]
-                    if eligible_arm_slot_values:
-                        arm_slot_min = float(min(eligible_arm_slot_values))
-                        arm_slot_max = float(max(eligible_arm_slot_values))
-                        arm_slot_key = "control_group_arm_slot_range"
-                        existing_arm_slot_range = st.session_state.get(
-                            arm_slot_key,
-                            (arm_slot_min, arm_slot_max)
-                        )
-                        default_arm_slot_range = (
-                            max(arm_slot_min, float(existing_arm_slot_range[0])),
-                            min(arm_slot_max, float(existing_arm_slot_range[1]))
-                        )
-                        if default_arm_slot_range[0] > default_arm_slot_range[1]:
-                            default_arm_slot_range = (arm_slot_min, arm_slot_max)
-
-                        st.session_state[arm_slot_key] = default_arm_slot_range
-                        selected_arm_slot_range = st.sidebar.slider(
-                            "Arm Slot",
-                            min_value=arm_slot_min,
-                            max_value=arm_slot_max,
-                            value=default_arm_slot_range,
-                            step=0.5,
-                            key=arm_slot_key
-                        )
-                        st.session_state["control_group_arm_slot_ids"] = [
-                            tid for tid in st.session_state["control_group_take_ids"]
-                            if tid in control_group_arm_slot
-                            and selected_arm_slot_range[0]
-                            <= control_group_arm_slot[tid]
-                            <= selected_arm_slot_range[1]
-                        ]
-                        st.session_state["control_group_take_ids"] = list(
-                            st.session_state["control_group_arm_slot_ids"]
-                        )
-                    else:
-                        st.sidebar.info("Arm slot data not available for the current control-group filters.")
+                    if not control_group_velocities:
+                        st.sidebar.info("No control-group takes found for the selected pitcher and handedness filters.")
+                        st.session_state["control_group_take_ids"] = []
                         st.session_state["control_group_arm_slot_ids"] = []
-
-                    selected_control_group_pitchers = sorted({
-                        control_group_take_pitcher[tid]
-                        for tid in st.session_state["control_group_take_ids"]
-                        if tid in control_group_take_pitcher
-                    })
-                    if selected_control_group_pitchers:
-                        st.sidebar.caption(
-                            f"Pitchers in Control Group ({len(selected_control_group_pitchers)})"
-                        )
-                        st.sidebar.markdown("\n".join(
-                            f"- {pitcher}" for pitcher in selected_control_group_pitchers
-                        ))
                     else:
-                        st.sidebar.caption("Pitchers in Control Group (0)")
+                        control_velocity_min = float(min(control_group_velocities))
+                        control_velocity_max = float(max(control_group_velocities))
+                        control_velocity_key = "control_group_velocity_range"
+                        existing_control_velocity_range = st.session_state.get(
+                            control_velocity_key,
+                            (control_velocity_min, control_velocity_max)
+                        )
+                        default_control_velocity_range = (
+                            max(control_velocity_min, float(existing_control_velocity_range[0])),
+                            min(control_velocity_max, float(existing_control_velocity_range[1]))
+                        )
+                        if default_control_velocity_range[0] > default_control_velocity_range[1]:
+                            default_control_velocity_range = (
+                                control_velocity_min,
+                                control_velocity_max
+                            )
+
+                        st.session_state[control_velocity_key] = default_control_velocity_range
+                        selected_control_velocity_range = st.sidebar.slider(
+                            "Velocity Range (mph)",
+                            min_value=control_velocity_min,
+                            max_value=control_velocity_max,
+                            value=default_control_velocity_range,
+                            step=0.5,
+                            key=control_velocity_key
+                        )
+                        st.session_state["control_group_take_ids"] = [
+                            tid for tid, velocity in control_group_take_velocity.items()
+                            if selected_control_velocity_range[0]
+                            <= velocity
+                            <= selected_control_velocity_range[1]
+                        ]
+                        eligible_arm_slot_values = [
+                            control_group_arm_slot[tid]
+                            for tid in st.session_state["control_group_take_ids"]
+                            if tid in control_group_arm_slot
+                        ]
+                        if eligible_arm_slot_values:
+                            arm_slot_min = float(min(eligible_arm_slot_values))
+                            arm_slot_max = float(max(eligible_arm_slot_values))
+                            arm_slot_key = "control_group_arm_slot_range"
+                            existing_arm_slot_range = st.session_state.get(
+                                arm_slot_key,
+                                (arm_slot_min, arm_slot_max)
+                            )
+                            default_arm_slot_range = (
+                                max(arm_slot_min, float(existing_arm_slot_range[0])),
+                                min(arm_slot_max, float(existing_arm_slot_range[1]))
+                            )
+                            if default_arm_slot_range[0] > default_arm_slot_range[1]:
+                                default_arm_slot_range = (arm_slot_min, arm_slot_max)
+
+                            st.session_state[arm_slot_key] = default_arm_slot_range
+                            selected_arm_slot_range = st.sidebar.slider(
+                                "Arm Slot",
+                                min_value=arm_slot_min,
+                                max_value=arm_slot_max,
+                                value=default_arm_slot_range,
+                                step=0.5,
+                                key=arm_slot_key
+                            )
+                            st.session_state["control_group_arm_slot_ids"] = [
+                                tid for tid in st.session_state["control_group_take_ids"]
+                                if tid in control_group_arm_slot
+                                and selected_arm_slot_range[0]
+                                <= control_group_arm_slot[tid]
+                                <= selected_arm_slot_range[1]
+                            ]
+                            st.session_state["control_group_take_ids"] = list(
+                                st.session_state["control_group_arm_slot_ids"]
+                            )
+                        else:
+                            st.sidebar.info("Arm slot data not available for the current control-group filters.")
+                            st.session_state["control_group_arm_slot_ids"] = []
                 else:
-                    st.sidebar.info("No control-group takes found for the selected handedness.")
+                    st.sidebar.info("No control-group takes found.")
                     st.session_state["control_group_take_ids"] = []
                     st.session_state["control_group_arm_slot_ids"] = []
 
