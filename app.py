@@ -1826,6 +1826,10 @@ if "excluded_take_ids" not in st.session_state:
     st.session_state["excluded_take_ids"] = []
 if "create_groups_mode" not in st.session_state:
     st.session_state["create_groups_mode"] = False
+if "show_control_group_velocity" not in st.session_state:
+    st.session_state["show_control_group_velocity"] = False
+if "control_group_take_ids" not in st.session_state:
+    st.session_state["control_group_take_ids"] = []
 
 if st.sidebar.button("Create Groups", key="create_groups_mode_btn", use_container_width=True):
     st.session_state["create_groups_mode"] = True
@@ -2308,7 +2312,7 @@ def build_shared_dashboard_state():
                 key="create_control_group_btn",
                 use_container_width=True
             ):
-                st.session_state["create_groups_mode"] = True
+                st.session_state["show_control_group_velocity"] = True
                 st.rerun()
             shared_take_ids = [
                 tid for tid in shared_take_ids
@@ -2339,6 +2343,48 @@ def build_shared_dashboard_state():
                 for tid in shared_take_ids
                 if tid in shared_take_pitcher_name_map
             }
+            if st.session_state.get("show_control_group_velocity"):
+                control_group_velocities = [
+                    shared_take_velocity[tid]
+                    for tid in shared_take_ids
+                    if tid in shared_take_velocity
+                ]
+                if control_group_velocities:
+                    control_velocity_min = float(min(control_group_velocities))
+                    control_velocity_max = float(max(control_group_velocities))
+                    control_velocity_key = "control_group_velocity_range"
+                    existing_control_velocity_range = st.session_state.get(
+                        control_velocity_key,
+                        (control_velocity_min, control_velocity_max)
+                    )
+                    default_control_velocity_range = (
+                        max(control_velocity_min, float(existing_control_velocity_range[0])),
+                        min(control_velocity_max, float(existing_control_velocity_range[1]))
+                    )
+                    if default_control_velocity_range[0] > default_control_velocity_range[1]:
+                        default_control_velocity_range = (
+                            control_velocity_min,
+                            control_velocity_max
+                        )
+
+                    st.session_state[control_velocity_key] = default_control_velocity_range
+                    selected_control_velocity_range = st.sidebar.slider(
+                        "Control Group Velocity Range (mph)",
+                        min_value=control_velocity_min,
+                        max_value=control_velocity_max,
+                        value=default_control_velocity_range,
+                        step=0.5,
+                        key=control_velocity_key
+                    )
+                    st.session_state["control_group_take_ids"] = [
+                        tid for tid in shared_take_ids
+                        if selected_control_velocity_range[0]
+                        <= shared_take_velocity.get(tid, control_velocity_min)
+                        <= selected_control_velocity_range[1]
+                    ]
+                else:
+                    st.sidebar.info("Velocity data not available for the control group.")
+                    st.session_state["control_group_take_ids"] = []
 
     from collections import defaultdict
 
