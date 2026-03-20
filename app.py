@@ -3498,6 +3498,7 @@ with tab_kinematic:
 
             # --- Condensed legend: track (Segment, Date) pairs ---
             legend_keys_added = set()
+            peak_marker_traces = []
 
             for label, curves in [
                 ("Pelvis", grouped_pelvis),
@@ -3626,7 +3627,7 @@ with tab_kinematic:
                             "Peak Time from FP (ms)": pelvis_time_ms_grouped if label == "Pelvis" else None
                         })
                         y_offset = arrow_offset * 0.6
-                        fig.add_trace(
+                        peak_marker_traces.append(
                             go.Scatter(
                                 x=[max_x],
                                 y=[max_y + y_offset],
@@ -3653,6 +3654,9 @@ with tab_kinematic:
                             legendgroup=legendgroup
                         )
                     )
+
+            for peak_marker_trace in peak_marker_traces:
+                fig.add_trace(peak_marker_trace)
 
         # Median Peak Glove-Side Knee Height event
         if knee_event_frames:
