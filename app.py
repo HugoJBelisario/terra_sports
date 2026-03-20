@@ -2262,6 +2262,9 @@ def get_group_display_label(group_cfg):
         return f"Group {group_idx}: {', '.join(pitchers)}"
     return f"Group {group_idx}"
 
+def is_control_group_label(label):
+    return label == "Control Group"
+
 group_color_map = {}
 take_group_map = {}
 if group_mode_enabled:
@@ -3062,6 +3065,8 @@ with tab_kinematic:
             values = d["z"]
             take_hand = take_handedness.get(take_id)
             take_group_label = take_group_map.get(take_id, "")
+            control_group_take = is_control_group_label(take_group_label)
+            hover_pitcher_name = "" if control_group_take else take_pitcher_map.get(take_id, "")
 
             # -----------------------------
             # Ball Release Detection (CGVel)
@@ -3150,6 +3155,8 @@ with tab_kinematic:
                     legendgroup = f"Torso_{take_date_map[take_id]}"
                     pitcher_name = take_pitcher_map.get(take_id, "")
                     trace_name = (
+                        f"Control Group | Torso – Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} MPH)"
+                    ) if control_group_take else (
                         f"{take_group_label} | Torso – {take_date_map[take_id]} | "
                         f"Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} MPH)"
                     ) if comparison_grouping_enabled else None
@@ -3163,7 +3170,7 @@ with tab_kinematic:
                                 color="orange",
                                 dash=date_dash_map[take_date_map[take_id]]
                             ),
-                            customdata=[[ "Torso", take_date_map[take_id], take_order[take_id], take_velocity[take_id], pitcher_name ]] * len(norm_torso_frames),
+                            customdata=[[ "Torso", take_date_map[take_id], take_order[take_id], take_velocity[take_id], hover_pitcher_name ]] * len(norm_torso_frames),
                             hovertemplate=(
                                 "%{customdata[0]} – %{customdata[1]} | "
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
@@ -3194,6 +3201,8 @@ with tab_kinematic:
                                     width=4
                                 ),
                                 name=(
+                                    f"Control Group | Torso AV"
+                                    if (comparison_grouping_enabled and control_group_take) else
                                     f"{take_group_label} | Torso AV | {take_date_map[take_id]} | {pitcher_name}"
                                     if (comparison_grouping_enabled and multi_pitcher_mode) else
                                     f"{take_group_label} | Torso AV | {take_date_map[take_id]}"
@@ -3247,7 +3256,7 @@ with tab_kinematic:
                                 color="green",
                                 dash=date_dash_map[take_date_map[take_id]]
                             ),
-                            customdata=[[ "Elbow", take_date_map[take_id], take_order[take_id], take_velocity[take_id], pitcher_name ]] * len(norm_elbow_frames),
+                            customdata=[[ "Elbow", take_date_map[take_id], take_order[take_id], take_velocity[take_id], hover_pitcher_name ]] * len(norm_elbow_frames),
                             hovertemplate=(
                                 "%{customdata[0]} – %{customdata[1]} | "
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
@@ -3255,6 +3264,8 @@ with tab_kinematic:
                                 + "<extra></extra>"
                             ),
                             name=(
+                                f"Control Group | Elbow – Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} MPH)"
+                            ) if control_group_take else (
                                 f"{take_group_label} | Elbow – {take_date_map[take_id]} | "
                                 f"Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} MPH)"
                             ) if comparison_grouping_enabled else None,
@@ -3281,6 +3292,8 @@ with tab_kinematic:
                                     width=4
                                 ),
                                 name=(
+                                    f"Control Group | Elbow AV"
+                                    if (comparison_grouping_enabled and control_group_take) else
                                     f"{take_group_label} | Elbow AV | {take_date_map[take_id]} | {pitcher_name}"
                                     if (comparison_grouping_enabled and multi_pitcher_mode) else
                                     f"{take_group_label} | Elbow AV | {take_date_map[take_id]}"
@@ -3337,7 +3350,7 @@ with tab_kinematic:
                                 color="red",
                                 dash=date_dash_map[take_date_map[take_id]]
                             ),
-                            customdata=[[ "Shoulder", take_date_map[take_id], take_order[take_id], take_velocity[take_id], pitcher_name ]] * len(norm_sh_frames),
+                            customdata=[[ "Shoulder", take_date_map[take_id], take_order[take_id], take_velocity[take_id], hover_pitcher_name ]] * len(norm_sh_frames),
                             hovertemplate=(
                                 "%{customdata[0]} – %{customdata[1]} | "
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
@@ -3345,6 +3358,8 @@ with tab_kinematic:
                                 + "<extra></extra>"
                             ),
                             name=(
+                                f"Control Group | Shoulder – Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} MPH)"
+                            ) if control_group_take else (
                                 f"{take_group_label} | Shoulder – {take_date_map[take_id]} | "
                                 f"Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} MPH)"
                             ) if comparison_grouping_enabled else None,
@@ -3371,6 +3386,8 @@ with tab_kinematic:
                                     width=4
                                 ),
                                 name=(
+                                    f"Control Group | Shoulder IR AV"
+                                    if (comparison_grouping_enabled and control_group_take) else
                                     f"{take_group_label} | Shoulder IR AV | {take_date_map[take_id]} | {pitcher_name}"
                                     if (comparison_grouping_enabled and multi_pitcher_mode) else
                                     f"{take_group_label} | Shoulder IR AV | {take_date_map[take_id]}"
@@ -3401,7 +3418,7 @@ with tab_kinematic:
                             color="blue",
                             dash=date_dash_map[take_date_map[take_id]]
                         ),
-                        customdata=[[ "Pelvis", take_date_map[take_id], take_order[take_id], take_velocity[take_id], pitcher_name ]] * len(norm_frames),
+                        customdata=[[ "Pelvis", take_date_map[take_id], take_order[take_id], take_velocity[take_id], hover_pitcher_name ]] * len(norm_frames),
                         hovertemplate=(
                             "%{customdata[0]} – %{customdata[1]} | "
                             "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
@@ -3409,6 +3426,8 @@ with tab_kinematic:
                             + "<extra></extra>"
                         ),
                         name=(
+                            f"Control Group | Pelvis – Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} MPH)"
+                        ) if control_group_take else (
                             f"{take_group_label} | Pelvis – {take_date_map[take_id]} | "
                             f"Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} MPH)"
                         ) if comparison_grouping_enabled else None,
@@ -3435,6 +3454,8 @@ with tab_kinematic:
                                 width=4
                             ),
                         name=(
+                            f"Control Group | Pelvis AV"
+                            if (comparison_grouping_enabled and control_group_take) else
                             f"{take_group_label} | Pelvis AV | {take_date_map[take_id]} | {pitcher_name}"
                             if (comparison_grouping_enabled and multi_pitcher_mode) else
                             f"{take_group_label} | Pelvis AV | {take_date_map[take_id]}"
@@ -3494,13 +3515,19 @@ with tab_kinematic:
                     date = take_date_map[take_id]
                     pitcher_name = take_pitcher_map.get(take_id, "")
                     group_label = take_group_map.get(take_id, "")
-                    if comparison_grouping_enabled:
+                    if comparison_grouping_enabled and is_control_group_label(group_label):
+                        date_key = group_label
+                    elif comparison_grouping_enabled:
                         date_key = (group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date)
                     else:
                         date_key = (pitcher_name, date) if multi_pitcher_mode else date
                     curves_by_date[date_key][take_id] = d
                 for date_key, curves_date in curves_by_date.items():
-                    if comparison_grouping_enabled and multi_pitcher_mode:
+                    if comparison_grouping_enabled and date_key == "Control Group":
+                        group_label = "Control Group"
+                        pitcher_name = ""
+                        date = "All Included Takes"
+                    elif comparison_grouping_enabled and multi_pitcher_mode:
                         group_label, pitcher_name, date = date_key
                     elif comparison_grouping_enabled:
                         group_label, date = date_key
@@ -3517,7 +3544,7 @@ with tab_kinematic:
                     # Smoothing
                     if len(y_date) >= 11:
                         y_date = savgol_filter(y_date, window_length=7, polyorder=3)
-                    dash = date_dash_map[date]
+                    dash = date_dash_map.get(date, "solid")
                     legendgroup = f"{label}_{date}_{pitcher_name}" if multi_pitcher_mode else f"{label}_{date}"
                     # --- Grouped curve (no legend, but legendgroup set) ---
                     fig.add_trace(
@@ -4376,7 +4403,11 @@ with tab_joint:
             date = take_date_map[take_id]
             group_label = take_group_map.get(take_id, "Ungrouped")
             pitcher_name = take_pitcher_map.get(take_id, "")
-            if comparison_grouping_enabled:
+            control_group_take = is_control_group_label(group_label)
+            hover_pitcher_name = "" if control_group_take else pitcher_name
+            if comparison_grouping_enabled and control_group_take:
+                date_key = group_label
+            elif comparison_grouping_enabled:
                 date_key = (group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date)
             else:
                 date_key = (pitcher_name, date) if multi_pitcher_mode else date
@@ -4397,18 +4428,22 @@ with tab_joint:
                         x=norm_f,
                         y=norm_v,
                         mode="lines",
-                        customdata=[[kinematic_definitions.get(kinematic, {}).get("definition", "")]] * len(norm_f),
+                        customdata=[[kinematic_definitions.get(kinematic, {}).get("definition", ""), hover_pitcher_name]] * len(norm_f),
                         hovertemplate=(
                             "<b>%{fullData.name}</b><br>"
                             "Time: %{x:.1f} ms<br>"
                             "Value: %{y:.2f}<br>"
-                            "Definition: %{customdata[0]}<extra></extra>"
+                            "Definition: %{customdata[0]}"
+                            + ("<br>Pitcher: %{customdata[1]}" if multi_pitcher_mode else "")
+                            + "<extra></extra>"
                         ),
                         line=dict(
                             color=trace_color,
                             dash=date_dash_map[take_date_map[take_id]]
                         ),
                         name=(
+                            f"Control Group | {kinematic} – Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
+                            if (comparison_grouping_enabled and control_group_take) else
                             (
                                 f"{group_label} | {kinematic} – {take_date_map[take_id]} | "
                                 f"Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph) | {pitcher_name}"
@@ -4441,6 +4476,8 @@ with tab_joint:
                                 width=4
                             ),
                             name=(
+                                f"Control Group | {kinematic}"
+                                if (comparison_grouping_enabled and control_group_take) else
                                 f"{group_label} | {kinematic} | {date} | {pitcher_name}"
                                 if (multi_pitcher_mode and comparison_grouping_enabled) else
                                 f"{group_label} | {kinematic} | {date}"
@@ -4503,7 +4540,11 @@ with tab_joint:
     # --- Grouped plot (mean + IQR per date) ---
     if display_mode == "Grouped":
         for date_key, kin_dict in grouped_by_date.items():
-            if comparison_grouping_enabled and multi_pitcher_mode:
+            if comparison_grouping_enabled and date_key == "Control Group":
+                group_label = "Control Group"
+                pitcher_name = ""
+                date = "All Included Takes"
+            elif comparison_grouping_enabled and multi_pitcher_mode:
                 group_label, pitcher_name, date = date_key
             elif comparison_grouping_enabled:
                 group_label, date = date_key
@@ -4530,7 +4571,7 @@ with tab_joint:
                     if use_group_colors_joint else
                     joint_color_map.get(kinematic, "#444")
                 )
-                dash = date_dash_map[date]
+                dash = date_dash_map.get(date, "solid")
 
                 fig.add_trace(
                     go.Scatter(
@@ -5271,7 +5312,10 @@ with tab_energy:
             date = take_date_map[take_id]
             group_label = take_group_map.get(take_id, "Ungrouped")
             pitcher_name = take_pitcher_map.get(take_id, "")
-            if comparison_grouping_enabled:
+            control_group_take = is_control_group_label(group_label)
+            if comparison_grouping_enabled and control_group_take:
+                date_key = group_label
+            elif comparison_grouping_enabled:
                 date_key = (group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date)
             else:
                 date_key = (pitcher_name, date) if multi_pitcher_mode else date
@@ -5295,7 +5339,7 @@ with tab_energy:
                             color=trace_color,
                             dash=date_dash_map[date]
                         ),
-                        customdata=[[metric, date, take_order[take_id], take_velocity[take_id], pitcher_name]] * len(norm_f),
+                        customdata=[[metric, date, take_order[take_id], take_velocity[take_id], hover_pitcher_name]] * len(norm_f),
                         hovertemplate=(
                             "%{customdata[0]} – %{customdata[1]} | "
                             "Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
@@ -5303,6 +5347,8 @@ with tab_energy:
                             + "<extra></extra>"
                         ),
                         name=(
+                            f"Control Group | {metric} – Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
+                            if (comparison_grouping_enabled and control_group_take) else
                             f"{group_label} | {metric} – {date} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph) | {pitcher_name}"
                             if (comparison_grouping_enabled and multi_pitcher_mode) else
                             f"{group_label} | {metric} – {date} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
@@ -5324,6 +5370,8 @@ with tab_energy:
                                 width=4
                             ),
                             name=(
+                                f"Control Group | {metric}"
+                                if (comparison_grouping_enabled and control_group_take) else
                                 f"{group_label} | {metric} | {date} | {pitcher_name}"
                                 if (multi_pitcher_mode and comparison_grouping_enabled) else
                                 f"{group_label} | {metric} | {date}"
@@ -5342,7 +5390,11 @@ with tab_energy:
         # -------------------------------
         if display_mode == "Grouped":
             for date_key, curves in grouped_by_date.items():
-                if comparison_grouping_enabled and multi_pitcher_mode:
+                if comparison_grouping_enabled and date_key == "Control Group":
+                    group_label = "Control Group"
+                    pitcher_name = ""
+                    date = "All Included Takes"
+                elif comparison_grouping_enabled and multi_pitcher_mode:
                     group_label, pitcher_name, date = date_key
                 elif comparison_grouping_enabled:
                     group_label, date = date_key
@@ -5371,7 +5423,7 @@ with tab_energy:
                                 if use_group_colors_energy else
                                 metric_color
                             ),
-                            dash=date_dash_map[date]
+                            dash=date_dash_map.get(date, "solid")
                         ),
                         customdata=[[metric, date, pitcher_name]] * len(x),
                         hovertemplate=(
@@ -5411,7 +5463,7 @@ with tab_energy:
                                 if use_group_colors_energy else
                                 metric_color
                             ),
-                            dash=date_dash_map[date],
+                            dash=date_dash_map.get(date, "solid"),
                             width=4
                         ),
                         name=(
