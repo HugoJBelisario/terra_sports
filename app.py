@@ -2579,11 +2579,12 @@ def build_shared_dashboard_state():
                             pitcher for pitcher in st.session_state["control_group_pitchers"]
                             if pitcher in control_group_pitcher_options
                         ]
+                    if set(st.session_state["control_group_pitchers"]) != set(control_group_pitcher_options):
+                        st.session_state["control_group_pitchers"] = list(control_group_pitcher_options)
 
                     selected_control_pitchers = st.sidebar.multiselect(
                         "Pitchers",
                         options=control_group_pitcher_options,
-                        default=st.session_state["control_group_pitchers"],
                         key="control_group_pitchers"
                     )
                     selected_pitcher_set = set(selected_control_pitchers)
