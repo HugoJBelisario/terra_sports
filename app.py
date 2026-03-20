@@ -2602,7 +2602,7 @@ def build_shared_dashboard_state():
                     if st.session_state["control_group_handedness"] not in handedness_options:
                         st.session_state["control_group_handedness"] = "Both"
 
-                    selected_control_handedness = st.sidebar.selectbox(
+                    selected_control_handedness = st.sidebar.radio(
                         "Handedness",
                         options=handedness_options,
                         key="control_group_handedness"
