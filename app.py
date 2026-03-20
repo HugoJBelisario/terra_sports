@@ -2337,13 +2337,14 @@ def build_shared_dashboard_state():
             st.session_state["excluded_take_ids"] = [
                 label_to_take_id[label] for label in excluded_labels
             ]
-            if st.sidebar.button(
-                "Create Control Group",
-                key="create_control_group_btn",
-                use_container_width=True
-            ):
-                st.session_state["show_control_group_velocity"] = True
-                st.rerun()
+            if not st.session_state.get("show_control_group_velocity"):
+                if st.sidebar.button(
+                    "Create Control Group",
+                    key="create_control_group_btn",
+                    use_container_width=True
+                ):
+                    st.session_state["show_control_group_velocity"] = True
+                    st.rerun()
             shared_take_ids = [
                 tid for tid in shared_take_ids
                 if tid not in st.session_state["excluded_take_ids"]
@@ -2374,6 +2375,7 @@ def build_shared_dashboard_state():
                 if tid in shared_take_pitcher_name_map
             }
             if st.session_state.get("show_control_group_velocity"):
+                st.sidebar.markdown("**Control Group**")
                 selected_control_handedness = st.sidebar.selectbox(
                     "Handedness",
                     options=["Both", "Left", "Right"],
@@ -2407,7 +2409,7 @@ def build_shared_dashboard_state():
 
                     st.session_state[control_velocity_key] = default_control_velocity_range
                     selected_control_velocity_range = st.sidebar.slider(
-                        "Control Group Velocity Range (mph)",
+                        "Velocity Range (mph)",
                         min_value=control_velocity_min,
                         max_value=control_velocity_max,
                         value=default_control_velocity_range,
