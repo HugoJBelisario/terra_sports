@@ -170,12 +170,142 @@ def get_control_group_take_pool(handedness_filter):
                 params.append(handedness_filter)
 
             cur.execute(f"""
-                SELECT t.take_id, t.pitch_velo, a.handedness
-                FROM takes t
-                JOIN athletes a ON a.athlete_id = t.athlete_id
-                WHERE t.pitch_velo IS NOT NULL
-                  AND a.handedness IN ('R', 'L')
-                  {handedness_clause}
+                WITH ids AS (
+                    SELECT
+                        (SELECT category_id FROM categories WHERE category_name = 'KINETIC_KINEMATIC_CGVel') AS cat_kk_cgvel,
+                        (SELECT category_id FROM categories WHERE category_name = 'KINETIC_KINEMATIC_ProxEndPos') AS cat_kk_prox_pos,
+                        (SELECT category_id FROM categories WHERE category_name = 'KINETIC_KINEMATIC_DistEndPos') AS cat_kk_dist_endpos,
+                        (SELECT segment_id FROM segments WHERE segment_name = 'LHA') AS seg_hand_l,
+                        (SELECT segment_id FROM segments WHERE segment_name = 'RHA') AS seg_hand_r,
+                        (SELECT segment_id FROM segments WHERE segment_name = 'LAR') AS seg_arm_l,
+                        (SELECT segment_id FROM segments WHERE segment_name = 'RAR') AS seg_arm_r
+                ),
+                candidate_takes AS (
+                    SELECT
+                        t.take_id,
+                        t.pitch_velo,
+                        a.handedness,
+                        CASE WHEN a.handedness = 'L' THEN i.seg_hand_l ELSE i.seg_hand_r END AS seg_hand_dom,
+                        CASE WHEN a.handedness = 'L' THEN i.seg_arm_l ELSE i.seg_arm_r END AS seg_arm_dom,
+                        i.seg_hand_l,
+                        i.seg_hand_r,
+                        i.cat_kk_cgvel,
+                        i.cat_kk_prox_pos,
+                        i.cat_kk_dist_endpos
+                    FROM takes t
+                    JOIN athletes a ON a.athlete_id = t.athlete_id
+                    CROSS JOIN ids i
+                    WHERE t.pitch_velo IS NOT NULL
+                      AND a.handedness IN ('R', 'L')
+                      {handedness_clause}
+                      AND EXISTS (
+                          SELECT 1
+                          FROM time_series_data d
+                          WHERE d.take_id = t.take_id
+                      )
+                ),
+                hand_vel AS (
+                    SELECT
+                        t.take_id,
+                        t.pitch_velo,
+                        t.handedness,
+                        d.frame,
+                        d.x_data,
+                        LAG(d.x_data) OVER (
+                            PARTITION BY t.take_id
+                            ORDER BY d.frame
+                        ) AS prev_x
+                    FROM time_series_data d
+                    JOIN candidate_takes t ON t.take_id = d.take_id
+                    WHERE d.category_id = t.cat_kk_cgvel
+                      AND d.segment_id IN (t.seg_hand_l, t.seg_hand_r)
+                      AND d.x_data IS NOT NULL
+                ),
+                cross_15 AS (
+                    SELECT DISTINCT ON (take_id)
+                        take_id,
+                        frame AS cross_frame
+                    FROM hand_vel
+                    WHERE x_data >= 15
+                      AND (prev_x < 15 OR prev_x IS NULL)
+                    ORDER BY take_id, frame
+                ),
+                positive_phase AS (
+                    SELECT
+                        h.take_id,
+                        h.frame,
+                        h.x_data,
+                        LAG(h.x_data, 5) OVER (
+                            PARTITION BY h.take_id
+                            ORDER BY h.frame
+                        ) AS prev_5_x,
+                        LEAD(h.x_data) OVER (
+                            PARTITION BY h.take_id
+                            ORDER BY h.frame
+                        ) AS next_x
+                    FROM hand_vel h
+                    JOIN cross_15 c ON c.take_id = h.take_id
+                    WHERE h.frame >= c.cross_frame
+                      AND h.x_data > 0
+                ),
+                per_take_br AS (
+                    SELECT DISTINCT ON (p.take_id)
+                        p.take_id,
+                        p.frame AS br_frame
+                    FROM positive_phase p
+                    WHERE p.next_x IS NOT NULL
+                      AND p.prev_5_x IS NOT NULL
+                      AND p.x_data > p.next_x
+                      AND p.x_data > p.prev_5_x
+                    ORDER BY p.take_id, p.frame ASC
+                ),
+                per_take_arm_points AS (
+                    SELECT
+                        br.take_id,
+                        MAX(CASE WHEN d_arm.segment_id = t.seg_arm_dom THEN d_arm.x_data END) AS x_arm,
+                        MAX(CASE WHEN d_arm.segment_id = t.seg_arm_dom THEN d_arm.y_data END) AS y_arm,
+                        MAX(CASE WHEN d_arm.segment_id = t.seg_arm_dom THEN d_arm.z_data END) AS z_arm,
+                        MAX(CASE WHEN d_hand.segment_id = t.seg_hand_dom THEN d_hand.x_data END) AS x_hand,
+                        MAX(CASE WHEN d_hand.segment_id = t.seg_hand_dom THEN d_hand.y_data END) AS y_hand,
+                        MAX(CASE WHEN d_hand.segment_id = t.seg_hand_dom THEN d_hand.z_data END) AS z_hand
+                    FROM per_take_br br
+                    JOIN candidate_takes t ON t.take_id = br.take_id
+                    LEFT JOIN time_series_data d_arm
+                        ON d_arm.take_id = br.take_id
+                       AND d_arm.frame = br.br_frame
+                       AND d_arm.category_id = t.cat_kk_prox_pos
+                       AND d_arm.segment_id = t.seg_arm_dom
+                    LEFT JOIN time_series_data d_hand
+                        ON d_hand.take_id = br.take_id
+                       AND d_hand.frame = br.br_frame
+                       AND d_hand.category_id = t.cat_kk_dist_endpos
+                       AND d_hand.segment_id = t.seg_hand_dom
+                    GROUP BY br.take_id
+                ),
+                per_take_arm_angle AS (
+                    SELECT
+                        p.take_id,
+                        CASE
+                            WHEN p.x_arm IS NULL OR p.x_hand IS NULL THEN NULL
+                            ELSE DEGREES(
+                                ATAN2(
+                                    (p.z_hand - p.z_arm),
+                                    NULLIF(SQRT(
+                                        POWER(p.x_hand - p.x_arm, 2) +
+                                        POWER(p.y_hand - p.y_arm, 2)
+                                    ), 0)
+                                )
+                            )
+                        END AS arm_slot_deg
+                    FROM per_take_arm_points p
+                )
+                SELECT
+                    t.take_id,
+                    t.pitch_velo,
+                    t.handedness,
+                    a.arm_slot_deg
+                FROM candidate_takes t
+                LEFT JOIN per_take_arm_angle a ON a.take_id = t.take_id
                 ORDER BY t.take_id
             """, tuple(params))
             return cur.fetchall()
@@ -1860,6 +1990,8 @@ if "control_group_take_ids" not in st.session_state:
     st.session_state["control_group_take_ids"] = []
 if "control_group_handedness" not in st.session_state:
     st.session_state["control_group_handedness"] = "Both"
+if "control_group_arm_slot_ids" not in st.session_state:
+    st.session_state["control_group_arm_slot_ids"] = []
 
 if st.sidebar.button("Create Groups", key="create_groups_mode_btn", use_container_width=True):
     st.session_state["create_groups_mode"] = True
@@ -2387,7 +2519,12 @@ def build_shared_dashboard_state():
                 if control_group_pool:
                     control_group_take_velocity = {
                         take_id: float(pitch_velo)
-                        for take_id, pitch_velo, _ in control_group_pool
+                        for take_id, pitch_velo, _, _ in control_group_pool
+                    }
+                    control_group_arm_slot = {
+                        take_id: float(arm_slot_deg)
+                        for take_id, _, _, arm_slot_deg in control_group_pool
+                        if arm_slot_deg is not None
                     }
                     control_group_velocities = list(control_group_take_velocity.values())
                     control_velocity_min = float(min(control_group_velocities))
@@ -2422,9 +2559,52 @@ def build_shared_dashboard_state():
                         <= velocity
                         <= selected_control_velocity_range[1]
                     ]
+                    eligible_arm_slot_values = [
+                        control_group_arm_slot[tid]
+                        for tid in st.session_state["control_group_take_ids"]
+                        if tid in control_group_arm_slot
+                    ]
+                    if eligible_arm_slot_values:
+                        arm_slot_min = float(min(eligible_arm_slot_values))
+                        arm_slot_max = float(max(eligible_arm_slot_values))
+                        arm_slot_key = "control_group_arm_slot_range"
+                        existing_arm_slot_range = st.session_state.get(
+                            arm_slot_key,
+                            (arm_slot_min, arm_slot_max)
+                        )
+                        default_arm_slot_range = (
+                            max(arm_slot_min, float(existing_arm_slot_range[0])),
+                            min(arm_slot_max, float(existing_arm_slot_range[1]))
+                        )
+                        if default_arm_slot_range[0] > default_arm_slot_range[1]:
+                            default_arm_slot_range = (arm_slot_min, arm_slot_max)
+
+                        st.session_state[arm_slot_key] = default_arm_slot_range
+                        selected_arm_slot_range = st.sidebar.slider(
+                            "Arm Slot",
+                            min_value=arm_slot_min,
+                            max_value=arm_slot_max,
+                            value=default_arm_slot_range,
+                            step=0.5,
+                            key=arm_slot_key
+                        )
+                        st.session_state["control_group_arm_slot_ids"] = [
+                            tid for tid in st.session_state["control_group_take_ids"]
+                            if tid in control_group_arm_slot
+                            and selected_arm_slot_range[0]
+                            <= control_group_arm_slot[tid]
+                            <= selected_arm_slot_range[1]
+                        ]
+                        st.session_state["control_group_take_ids"] = list(
+                            st.session_state["control_group_arm_slot_ids"]
+                        )
+                    else:
+                        st.sidebar.info("Arm slot data not available for the current control-group filters.")
+                        st.session_state["control_group_arm_slot_ids"] = []
                 else:
                     st.sidebar.info("No control-group takes found for the selected handedness.")
                     st.session_state["control_group_take_ids"] = []
+                    st.session_state["control_group_arm_slot_ids"] = []
 
     from collections import defaultdict
 
