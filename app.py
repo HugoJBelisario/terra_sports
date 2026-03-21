@@ -3440,8 +3440,6 @@ with tab_kinematic:
         .ks-controls-label {
             font-size: 0.8rem;
             font-weight: 700;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
             color: #6b7280;
             margin-bottom: 0.35rem;
         }
