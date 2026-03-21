@@ -5743,6 +5743,20 @@ with tab_energy:
     # Event Lines (with text labels above)
     # -------------------------------
     if fp_event_frames:
+        fp_q1_frame = int(np.percentile(fp_event_frames, 25))
+        fp_q3_frame = int(np.percentile(fp_event_frames, 75))
+        fp_start_ms = rel_frame_to_ms(fp_q1_frame)
+        fp_end_ms = rel_frame_to_ms(fp_q3_frame)
+        if fp_start_ms != fp_end_ms:
+            fig.add_vrect(
+                x0=fp_start_ms,
+                x1=fp_end_ms,
+                fillcolor="green",
+                opacity=0.10,
+                layer="below",
+                line_width=0
+            )
+
         median_fp = rel_frame_to_ms(int(np.median(fp_event_frames)))
         fig.add_vline(x=median_fp, line_width=3, line_dash="dash", line_color="green")
         fig.add_annotation(
