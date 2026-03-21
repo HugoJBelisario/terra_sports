@@ -4042,10 +4042,13 @@ with tab_kinematic:
                                 color=color,
                                 dash=dash,
                             ),
-                            customdata=[[label, date, pitcher_name]] * len(x_date),
+                            customdata=[[label, date, group_label, pitcher_name]] * len(x_date),
                             hovertemplate=(
-                                "%{customdata[0]} | %{customdata[1]}"
-                                + (" | %{customdata[2]}" if multi_pitcher_mode else "")
+                                ("%{customdata[2]} | " if comparison_grouping_enabled else "")
+                                + "%{customdata[0]} | %{customdata[1]}"
+                                + (" | %{customdata[3]}" if multi_pitcher_mode else "")
+                                + "<br>Angular Velocity: %{y:.1f}°/s"
+                                + "<br>Time: %{x:.0f} ms rel BR"
                                 + "<extra></extra>"
                             ),
                             showlegend=False,
@@ -4122,7 +4125,23 @@ with tab_kinematic:
                                     color=color
                                 ),
                                 showlegend=False,
-                                hoverinfo="skip"
+                                customdata=[[
+                                    label,
+                                    date,
+                                    group_label,
+                                    pitcher_name,
+                                    max_y,
+                                    max_x,
+                                ]],
+                                hovertemplate=(
+                                    ("%{customdata[2]} | " if comparison_grouping_enabled else "")
+                                    + "%{customdata[0]} | %{customdata[1]}"
+                                    + (" | %{customdata[3]}" if multi_pitcher_mode else "")
+                                    + "<br>Peak Angular Velocity: %{customdata[4]:.1f}°/s"
+                                    + "<br>Peak Time: %{customdata[5]:.0f} ms rel BR"
+                                    + "<br>Peak"
+                                    + "<extra></extra>"
+                                ),
                             )
                         )
                     # --- IQR band (with legendgroup for toggleitem) ---
