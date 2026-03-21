@@ -3437,14 +3437,6 @@ with tab_kinematic:
     st.markdown(
         """
         <style>
-        .ks-controls-shell {
-            background: #f8fafc;
-            border: 1px solid #e5e7eb;
-            border-radius: 0.85rem;
-            padding: 0.65rem 0.9rem 0.35rem 0.9rem;
-            margin: 0.35rem 0 0.85rem 0;
-        }
-
         .ks-controls-label {
             font-size: 0.8rem;
             font-weight: 700;
@@ -3460,15 +3452,10 @@ with tab_kinematic:
             font-size: 1rem !important;
             font-weight: 400 !important;
         }
-
-        .ks-controls-shell div[data-testid="stVerticalBlock"] {
-            gap: 0.2rem;
-        }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    st.markdown('<div class="ks-controls-shell">', unsafe_allow_html=True)
     controls_col, toggle_col, spacer_col = st.columns([1.5, 1, 2.5])
     with controls_col:
         st.markdown('<div class="ks-controls-label">Display Mode</div>', unsafe_allow_html=True)
@@ -3489,7 +3476,6 @@ with tab_kinematic:
         )
     with spacer_col:
         st.markdown("")
-    st.markdown("</div>", unsafe_allow_html=True)
     if not take_ids:
         st.info("No takes found for this selection.")
     else:
