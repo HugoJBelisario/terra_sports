@@ -1,3 +1,8 @@
+import base64
+import hashlib
+import hmac
+import json
+import time
 from pathlib import Path
 
 import streamlit as st
@@ -5,6 +10,8 @@ import streamlit.components.v1 as components
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PATH = ASSETS_DIR / "terra_sports.svg"
+AUTH_COOKIE_NAME = "terra_sports_auth"
+AUTH_COOKIE_TTL_DAYS = 14
 
 
 def get_page_icon():
@@ -26,6 +33,101 @@ def get_page_icon():
             return str(icon_path)
 
     return None
+
+
+def _urlsafe_b64encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
+
+
+def _urlsafe_b64decode(data: str) -> bytes:
+    padding = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(data + padding)
+
+
+def get_auth_cookie_secret(users: dict[str, str]) -> bytes:
+    auth_config = st.secrets.get("auth", {})
+    cookie_secret = auth_config.get("cookie_secret")
+    if cookie_secret:
+        return str(cookie_secret).encode("utf-8")
+
+    # Fallback keeps current deployments working, but an explicit cookie_secret
+    # in st.secrets is better because password changes will otherwise rotate sessions.
+    users_json = json.dumps(users, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(f"terra-sports:{users_json}".encode("utf-8")).digest()
+
+
+def build_auth_cookie_value(username: str, users: dict[str, str]) -> str:
+    expires_at = int(time.time()) + (AUTH_COOKIE_TTL_DAYS * 24 * 60 * 60)
+    payload = {"username": username, "exp": expires_at}
+    encoded_payload = _urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    )
+    signature = hmac.new(
+        get_auth_cookie_secret(users),
+        encoded_payload.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    encoded_signature = _urlsafe_b64encode(signature)
+    return f"{encoded_payload}.{encoded_signature}"
+
+
+def get_cookie_authenticated_user(users: dict[str, str]) -> str | None:
+    cookie_value = st.context.cookies.get(AUTH_COOKIE_NAME)
+    if not cookie_value or "." not in cookie_value:
+        return None
+
+    encoded_payload, encoded_signature = cookie_value.split(".", 1)
+    expected_signature = _urlsafe_b64encode(
+        hmac.new(
+            get_auth_cookie_secret(users),
+            encoded_payload.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    )
+
+    if not hmac.compare_digest(encoded_signature, expected_signature):
+        return None
+
+    try:
+        payload = json.loads(_urlsafe_b64decode(encoded_payload))
+    except (ValueError, json.JSONDecodeError):
+        return None
+
+    username = payload.get("username")
+    expires_at = payload.get("exp")
+    if (
+        not isinstance(username, str)
+        or username not in users
+        or not isinstance(expires_at, int)
+        or expires_at <= int(time.time())
+    ):
+        return None
+
+    return username
+
+
+def queue_auth_cookie_write(cookie_value: str) -> None:
+    st.session_state.auth_cookie_action = {
+        "action": "set",
+        "value": cookie_value,
+        "max_age": AUTH_COOKIE_TTL_DAYS * 24 * 60 * 60,
+    }
+
+
+def render_auth_cookie_script() -> None:
+    cookie_action = st.session_state.pop("auth_cookie_action", None)
+    if not cookie_action:
+        return
+
+    cookie_value = json.dumps(cookie_action["value"])
+    max_age = int(cookie_action["max_age"])
+    script = f"""
+    <script>
+    document.cookie = "{AUTH_COOKIE_NAME}=" + encodeURIComponent({cookie_value})
+        + "; path=/; max-age={max_age}; SameSite=Lax";
+    </script>
+    """
+    components.html(script, height=0, width=0)
 
 # --------------------------------------------------
 # Page config
@@ -53,6 +155,13 @@ def login():
 
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
+
+    if not st.session_state.authenticated:
+        cookie_user = get_cookie_authenticated_user(users)
+        if cookie_user:
+            st.session_state.authenticated = True
+            st.session_state.user = cookie_user
+            return True
 
     if st.session_state.authenticated:
         return True
@@ -106,6 +215,7 @@ def login():
         if username in users and users[username] == password:
             st.session_state.authenticated = True
             st.session_state.user = username
+            queue_auth_cookie_write(build_auth_cookie_value(username, users))
             st.rerun()
         else:
             st.error("Invalid username or password")
@@ -115,6 +225,8 @@ def login():
 
 if not login():
     st.stop()
+
+render_auth_cookie_script()
 
 # --- Safe color resolver for named/hex colors ---
 def to_rgba(color, alpha=0.35):
