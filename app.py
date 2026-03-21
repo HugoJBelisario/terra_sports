@@ -4099,17 +4099,16 @@ with tab_kinematic:
                             "Peak Time (ms rel BR)": max_x,
                             "Peak Time from FP (ms)": pelvis_time_ms_grouped if label == "Pelvis" else None
                         })
-                        curve_range = max(y_date) - min(y_date) if len(y_date) > 1 else 0
-                        y_offset = max(curve_range * 0.04, 12)
                         peak_marker_traces.append(
                             go.Scatter(
                                 x=[max_x],
-                                y=[max_y + y_offset],
-                                mode="markers",
-                                marker=dict(
-                                    symbol="triangle-down",
-                                    size=16,
-                                    color=color
+                                y=[max_y],
+                                mode="text",
+                                text=["▼"],
+                                textposition="top center",
+                                textfont=dict(
+                                    color=color,
+                                    size=28,
                                 ),
                                 showlegend=False,
                                 legendgroup=legendgroup,
