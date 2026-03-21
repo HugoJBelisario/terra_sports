@@ -1869,17 +1869,76 @@ def get_peak_ankle_prox_x_velocity(
         conn.close()
 
 @st.cache_data(ttl=300)
-def get_foot_plant_frame_zero_cross(
+def get_ankle_min_frame(
     take_ids,
     handedness,
     ankle_prox_x_peak_frames,
     shoulder_er_max_frames
 ):
     """
+    Deepest lead ankle distal Z-velocity dip between ankle prox-X peak and max shoulder ER.
+
+    Category: KINETIC_KINEMATIC_DistEndVel
+    Segments:
+      RHP → LFT
+      LHP → RFT
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "LFT" if handedness == "R" else "RFT"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s   ON ts.segment_id  = s.segment_id
+                WHERE c.category_name = 'KINETIC_KINEMATIC_DistEndVel'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.z_data IS NOT NULL
+                ORDER BY ts.take_id, ts.z_data ASC, ts.frame ASC
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+
+            out = {}
+            for take_id, frame, _z in rows:
+                px_frame = ankle_prox_x_peak_frames.get(take_id)
+                er_frame = shoulder_er_max_frames.get(take_id)
+
+                if px_frame is None or er_frame is None:
+                    continue
+
+                if frame < px_frame or frame > er_frame:
+                    continue
+
+                if take_id not in out:
+                    out[take_id] = int(frame)
+
+            return out
+    finally:
+        conn.close()
+
+@st.cache_data(ttl=300)
+def get_foot_plant_frame_zero_cross(
+    take_ids,
+    handedness,
+    ankle_min_frames,
+    shoulder_er_max_frames
+):
+    """
     Refined Foot Plant using zero-cross logic.
 
     Search window:
-      peak lead ankle proximal X velocity → max shoulder ER
+      lead ankle distal Z minimum → max shoulder ER
 
     Rule:
       first frame where ankle Z velocity >= -0.05
@@ -1918,19 +1977,100 @@ def get_foot_plant_frame_zero_cross(
 
             out = {}
             for take_id, frame, z in rows:
-                px_frame = ankle_prox_x_peak_frames.get(take_id)
+                ankle_min_frame = ankle_min_frames.get(take_id)
                 er_frame = shoulder_er_max_frames.get(take_id)
 
-                if px_frame is None or er_frame is None:
+                if ankle_min_frame is None or er_frame is None:
                     continue
 
                 # refined biomechanical bounds
-                if frame < px_frame or frame > er_frame:
+                if frame < ankle_min_frame or frame > er_frame:
                     continue
 
                 # zero-cross detection
                 if z >= -0.05 and take_id not in out:
                     out[take_id] = int(frame - 1)
+
+            return out
+    finally:
+        conn.close()
+
+@st.cache_data(ttl=300)
+def get_lead_heel_contact_frame(
+    take_ids,
+    handedness,
+    start_frames,
+    end_frames,
+    contact_ratio=0.40
+):
+    """
+    Estimate lead-foot contact timing from heel height using a take-specific threshold.
+
+    Category: LANDMARK_ORIGINAL
+    Segments:
+      RHP → L_HEEL
+      LHP → R_HEEL
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    heel_segment = "L_HEEL" if handedness == "R" else "R_HEEL"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s   ON ts.segment_id  = s.segment_id
+                WHERE c.category_name = 'LANDMARK_ORIGINAL'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.z_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame ASC
+            """, (heel_segment, *take_ids))
+
+            rows = cur.fetchall()
+
+            rows_by_take = {}
+            for take_id, frame, z in rows:
+                rows_by_take.setdefault(take_id, []).append((int(frame), float(z)))
+
+            out = {}
+            for take_id, take_rows in rows_by_take.items():
+                start_frame = start_frames.get(take_id)
+                end_frame = end_frames.get(take_id)
+
+                if start_frame is None or end_frame is None or start_frame > end_frame:
+                    continue
+
+                window_rows = [
+                    (frame, z)
+                    for frame, z in take_rows
+                    if start_frame <= frame <= end_frame
+                ]
+                if not window_rows:
+                    continue
+
+                heel_values = [z for _, z in window_rows]
+                heel_floor = min(heel_values)
+                heel_ceil = max(heel_values)
+                heel_range = heel_ceil - heel_floor
+                heel_threshold = (
+                    heel_floor
+                    if heel_range <= 1e-9 else
+                    heel_floor + contact_ratio * heel_range
+                )
+
+                for frame, z in window_rows:
+                    if z <= heel_threshold:
+                        out[take_id] = int(frame)
+                        break
 
             return out
     finally:
@@ -2823,31 +2963,67 @@ def build_shared_dashboard_state():
             shared_shoulder_er_max_frames[take_id] = er_frame
 
         ankle_prox_x_peak_frames = {}
+        ankle_min_frames = {}
+        heel_contact_frames = {}
         for hand, ids in shared_take_ids_by_handedness.items():
             if not ids:
                 continue
             shared_knee_peak_frames.update(
                 get_peak_glove_knee_pre_br(ids, hand, shared_br_frames)
             )
-            ankle_prox_x_peak_frames.update(
-                get_peak_ankle_prox_x_velocity(ids, hand)
+            hand_ankle_prox_x_peak_frames = get_peak_ankle_prox_x_velocity(ids, hand)
+            ankle_prox_x_peak_frames.update(hand_ankle_prox_x_peak_frames)
+            hand_ankle_min_frames = get_ankle_min_frame(
+                ids,
+                hand,
+                hand_ankle_prox_x_peak_frames,
+                shared_shoulder_er_max_frames
             )
-            shared_foot_plant_zero_cross_frames.update(
-                get_foot_plant_frame_zero_cross(
+            ankle_min_frames.update(hand_ankle_min_frames)
+            ankle_zero_cross_frames = get_foot_plant_frame_zero_cross(
+                ids,
+                hand,
+                hand_ankle_min_frames,
+                shared_shoulder_er_max_frames
+            )
+            heel_contact_frames.update(
+                get_lead_heel_contact_frame(
                     ids,
                     hand,
-                    ankle_prox_x_peak_frames,
+                    hand_ankle_prox_x_peak_frames,
                     shared_shoulder_er_max_frames
                 )
             )
 
-        for take_id, knee_frame in shared_knee_peak_frames.items():
-            if take_id in shared_br_frames:
-                shared_knee_event_frames.append(knee_frame - shared_br_frames[take_id])
+            for take_id in ids:
+                ankle_fp_frame = ankle_zero_cross_frames.get(take_id)
+                heel_fp_frame = heel_contact_frames.get(take_id)
+                ankle_min_frame = hand_ankle_min_frames.get(take_id)
+                prox_peak_frame = hand_ankle_prox_x_peak_frames.get(take_id)
+
+                if ankle_fp_frame is not None and heel_fp_frame is not None:
+                    shared_foot_plant_zero_cross_frames[take_id] = int(max(ankle_fp_frame, heel_fp_frame))
+                elif ankle_fp_frame is not None:
+                    shared_foot_plant_zero_cross_frames[take_id] = int(ankle_fp_frame)
+                elif heel_fp_frame is not None:
+                    shared_foot_plant_zero_cross_frames[take_id] = int(heel_fp_frame)
+                elif ankle_min_frame is not None:
+                    shared_foot_plant_zero_cross_frames[take_id] = int(ankle_min_frame)
+                elif prox_peak_frame is not None:
+                    shared_foot_plant_zero_cross_frames[take_id] = int(prox_peak_frame)
+
+        for take_id, fp_frame in shared_foot_plant_zero_cross_frames.items():
+            if take_id in shared_shoulder_er_max_frames:
+                er_frame = shared_shoulder_er_max_frames[take_id]
+                if fp_frame > er_frame:
+                    shared_foot_plant_zero_cross_frames[take_id] = er_frame
 
         for take_id, fp_frame in shared_foot_plant_zero_cross_frames.items():
             if take_id in shared_br_frames:
                 shared_fp_event_frames.append(fp_frame - shared_br_frames[take_id])
+        for take_id, knee_frame in shared_knee_peak_frames.items():
+            if take_id in shared_br_frames:
+                shared_knee_event_frames.append(knee_frame - shared_br_frames[take_id])
 
         for take_id, er_frame in shared_shoulder_er_max_frames.items():
             if take_id in shared_br_frames:
