@@ -272,6 +272,10 @@ def rel_frame_to_ms(rel_frame):
     return int(round(rel_frame * MS_PER_FRAME))
 
 
+def ms_to_rel_frame(milliseconds):
+    return int(round(milliseconds / MS_PER_FRAME))
+
+
 def add_event_iqr_band(fig, event_frames, color, show_band, opacity=0.10):
     if not show_band or not event_frames:
         return
@@ -3457,10 +3461,13 @@ with tab_kinematic:
         torso_data = get_torso_angular_velocity(take_ids)
         elbow_data = load_by_handedness(get_elbow_angular_velocity)
         shoulder_ir_data = load_by_handedness(get_shoulder_ir_velocity)
+        pre_fp_frames = ms_to_rel_frame(150)
+        post_br_frames = ms_to_rel_frame(150)
         kinematic_window_start = (
-            int(np.median(fp_event_frames)) - 150 if fp_event_frames else -150
+            int(np.median(fp_event_frames)) - pre_fp_frames
+            if fp_event_frames else -pre_fp_frames
         )
-        kinematic_window_end = 150
+        kinematic_window_end = post_br_frames
         window_start_ms = rel_frame_to_ms(kinematic_window_start)
         window_end_ms = rel_frame_to_ms(kinematic_window_end)
 
