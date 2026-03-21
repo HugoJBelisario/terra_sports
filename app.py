@@ -70,20 +70,20 @@ def login():
         }
 
         div[data-testid="stButton"] button[kind="secondary"] {
-            background-color: #A80519;
-            border: 1px solid #A80519;
+            background-color: #BD0318;
+            border: 1px solid #BD0318;
             color: #FFFFFF;
         }
 
         div[data-testid="stButton"] button[kind="secondary"]:hover {
-            background-color: #8F0415;
-            border-color: #8F0415;
+            background-color: #A10214;
+            border-color: #A10214;
             color: #FFFFFF;
         }
 
         div[data-testid="stButton"] button[kind="secondary"]:focus:not(:active) {
             color: #FFFFFF;
-            border-color: #A80519;
+            border-color: #BD0318;
         }
         </style>
         """,
