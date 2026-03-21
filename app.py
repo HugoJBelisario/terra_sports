@@ -3959,20 +3959,6 @@ with tab_kinematic:
         kinematic_peak_rows = []
 
         if display_mode == "Grouped":
-            # --- Shared arrow offset based on global y-range (consistent across segments) ---
-            all_grouped_vals = [
-                v
-                for curves in [grouped_pelvis, grouped_torso, grouped_elbow, grouped_shoulder_ir]
-                for d in curves.values()
-                for v in d["value"]
-                if v is not None
-            ]
-
-            arrow_offset = (
-                0.06 * (max(all_grouped_vals) - min(all_grouped_vals))
-                if all_grouped_vals else 0
-            )
-
             color_map = {
                 "Pelvis": "blue",
                 "Torso": "orange",
@@ -4113,16 +4099,16 @@ with tab_kinematic:
                             "Peak Time (ms rel BR)": max_x,
                             "Peak Time from FP (ms)": pelvis_time_ms_grouped if label == "Pelvis" else None
                         })
-                        y_offset = arrow_offset * 0.6
                         peak_marker_traces.append(
                             go.Scatter(
                                 x=[max_x],
-                                y=[max_y + y_offset],
-                                mode="markers",
-                                marker=dict(
-                                    symbol="triangle-down",
-                                    size=14,
-                                    color=color
+                                y=[max_y],
+                                mode="text",
+                                text=["▼"],
+                                textposition="top center",
+                                textfont=dict(
+                                    color=color,
+                                    size=22,
                                 ),
                                 showlegend=False,
                                 legendgroup=legendgroup,
