@@ -3437,11 +3437,19 @@ with tab_kinematic:
     st.markdown(
         """
         <style>
+        .ks-controls-shell {
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.85rem;
+            padding: 0.65rem 0.9rem 0.35rem 0.9rem;
+            margin: 0.35rem 0 0.85rem 0;
+        }
+
         .ks-controls-label {
             font-size: 0.8rem;
             font-weight: 700;
             color: #6b7280;
-            margin-bottom: 0.35rem;
+            margin-bottom: 0.2rem;
         }
 
         div[data-testid="stSegmentedControl"] label,
@@ -3452,11 +3460,16 @@ with tab_kinematic:
             font-size: 1rem !important;
             font-weight: 400 !important;
         }
+
+        .ks-controls-shell div[data-testid="stVerticalBlock"] {
+            gap: 0.2rem;
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    controls_col, toggle_col, spacer_col = st.columns([1.6, 1.1, 2.3])
+    st.markdown('<div class="ks-controls-shell">', unsafe_allow_html=True)
+    controls_col, toggle_col, spacer_col = st.columns([1.5, 1, 2.5])
     with controls_col:
         st.markdown('<div class="ks-controls-label">Display Mode</div>', unsafe_allow_html=True)
         display_mode = st.segmented_control(
@@ -3467,7 +3480,7 @@ with tab_kinematic:
             label_visibility="collapsed",
         )
     with toggle_col:
-        st.markdown('<div class="ks-controls-label">View Options</div>', unsafe_allow_html=True)
+        st.markdown('<div class="ks-controls-label">Options</div>', unsafe_allow_html=True)
         show_ks_fp_iqr_band = st.toggle(
             "Event Range Bands",
             value=False,
@@ -3476,6 +3489,7 @@ with tab_kinematic:
         )
     with spacer_col:
         st.markdown("")
+    st.markdown("</div>", unsafe_allow_html=True)
     if not take_ids:
         st.info("No takes found for this selection.")
     else:
