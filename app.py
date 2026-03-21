@@ -169,6 +169,19 @@ def ms_to_rel_frame(milliseconds):
     return int(round(milliseconds / MS_PER_FRAME))
 
 
+SEGMENT_DISPLAY_NAMES = {
+    "Pelvis": "Pelvis Rotation",
+    "Torso": "Torso Rotation",
+    "Elbow": "Elbow Extension",
+    "Shoulder": "Shoulder Internal Rotation",
+    "Shoulder IR": "Shoulder Internal Rotation",
+}
+
+
+def segment_display_name(label):
+    return SEGMENT_DISPLAY_NAMES.get(label, label)
+
+
 def add_event_iqr_band(fig, event_frames, color, show_band, opacity=0.10):
     if not show_band or not event_frames:
         return
@@ -3541,7 +3554,7 @@ with tab_kinematic:
                                 color="orange",
                                 dash=date_dash_map[take_date_map[take_id]]
                             ),
-                            customdata=[[ "Torso", take_date_map[take_id], take_order[take_id], take_velocity[take_id], hover_pitcher_name ]] * len(norm_torso_frames),
+                            customdata=[[ segment_display_name("Torso"), take_date_map[take_id], take_order[take_id], take_velocity[take_id], hover_pitcher_name ]] * len(norm_torso_frames),
                             hovertemplate=(
                                 "%{customdata[0]} – %{customdata[1]} | "
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
@@ -3572,15 +3585,15 @@ with tab_kinematic:
                                     width=4
                                 ),
                                 name=(
-                                    f"Control Group | Torso AV"
+                                    f"Control Group | {segment_display_name('Torso')} AV"
                                     if (comparison_grouping_enabled and control_group_take) else
-                                    f"{take_group_label} | Torso AV | {take_date_map[take_id]} | {pitcher_name}"
+                                    f"{take_group_label} | {segment_display_name('Torso')} AV | {take_date_map[take_id]} | {pitcher_name}"
                                     if (comparison_grouping_enabled and multi_pitcher_mode) else
-                                    f"{take_group_label} | Torso AV | {take_date_map[take_id]}"
+                                    f"{take_group_label} | {segment_display_name('Torso')} AV | {take_date_map[take_id]}"
                                     if comparison_grouping_enabled else
-                                    f"Torso AV | {take_date_map[take_id]} | {pitcher_name}"
+                                    f"{segment_display_name('Torso')} AV | {take_date_map[take_id]} | {pitcher_name}"
                                     if multi_pitcher_mode else
-                                    f"Torso AV | {take_date_map[take_id]}"
+                                    f"{segment_display_name('Torso')} AV | {take_date_map[take_id]}"
                                 ),
                                 showlegend=True,
                                 legendgroup=legendgroup,
@@ -3630,7 +3643,7 @@ with tab_kinematic:
                                 color="green",
                                 dash=date_dash_map[take_date_map[take_id]]
                             ),
-                            customdata=[[ "Elbow", take_date_map[take_id], take_order[take_id], take_velocity[take_id], hover_pitcher_name ]] * len(norm_elbow_frames),
+                            customdata=[[ segment_display_name("Elbow"), take_date_map[take_id], take_order[take_id], take_velocity[take_id], hover_pitcher_name ]] * len(norm_elbow_frames),
                             hovertemplate=(
                                 "%{customdata[0]} – %{customdata[1]} | "
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
@@ -3666,15 +3679,15 @@ with tab_kinematic:
                                     width=4
                                 ),
                                 name=(
-                                    f"Control Group | Elbow AV"
+                                    f"Control Group | {segment_display_name('Elbow')} AV"
                                     if (comparison_grouping_enabled and control_group_take) else
-                                    f"{take_group_label} | Elbow AV | {take_date_map[take_id]} | {pitcher_name}"
+                                    f"{take_group_label} | {segment_display_name('Elbow')} AV | {take_date_map[take_id]} | {pitcher_name}"
                                     if (comparison_grouping_enabled and multi_pitcher_mode) else
-                                    f"{take_group_label} | Elbow AV | {take_date_map[take_id]}"
+                                    f"{take_group_label} | {segment_display_name('Elbow')} AV | {take_date_map[take_id]}"
                                     if comparison_grouping_enabled else
-                                    f"Elbow AV | {take_date_map[take_id]} | {pitcher_name}"
+                                    f"{segment_display_name('Elbow')} AV | {take_date_map[take_id]} | {pitcher_name}"
                                     if multi_pitcher_mode else
-                                    f"Elbow AV | {take_date_map[take_id]}"
+                                    f"{segment_display_name('Elbow')} AV | {take_date_map[take_id]}"
                                 ),
                                 showlegend=True,
                                 legendgroup=legendgroup,
@@ -3727,7 +3740,7 @@ with tab_kinematic:
                                 color="red",
                                 dash=date_dash_map[take_date_map[take_id]]
                             ),
-                            customdata=[[ "Shoulder", take_date_map[take_id], take_order[take_id], take_velocity[take_id], hover_pitcher_name ]] * len(norm_sh_frames),
+                            customdata=[[ segment_display_name("Shoulder"), take_date_map[take_id], take_order[take_id], take_velocity[take_id], hover_pitcher_name ]] * len(norm_sh_frames),
                             hovertemplate=(
                                 "%{customdata[0]} – %{customdata[1]} | "
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
@@ -3763,15 +3776,15 @@ with tab_kinematic:
                                     width=4
                                 ),
                                 name=(
-                                    f"Control Group | Shoulder IR AV"
+                                    f"Control Group | {segment_display_name('Shoulder')} AV"
                                     if (comparison_grouping_enabled and control_group_take) else
-                                    f"{take_group_label} | Shoulder IR AV | {take_date_map[take_id]} | {pitcher_name}"
+                                    f"{take_group_label} | {segment_display_name('Shoulder')} AV | {take_date_map[take_id]} | {pitcher_name}"
                                     if (comparison_grouping_enabled and multi_pitcher_mode) else
-                                    f"{take_group_label} | Shoulder IR AV | {take_date_map[take_id]}"
+                                    f"{take_group_label} | {segment_display_name('Shoulder')} AV | {take_date_map[take_id]}"
                                     if comparison_grouping_enabled else
-                                    f"Shoulder IR AV | {take_date_map[take_id]} | {pitcher_name}"
+                                    f"{segment_display_name('Shoulder')} AV | {take_date_map[take_id]} | {pitcher_name}"
                                     if multi_pitcher_mode else
-                                    f"Shoulder IR AV | {take_date_map[take_id]}"
+                                    f"{segment_display_name('Shoulder')} AV | {take_date_map[take_id]}"
                                 ),
                                 showlegend=True,
                                 legendgroup=legendgroup,
@@ -3795,7 +3808,7 @@ with tab_kinematic:
                             color="blue",
                             dash=date_dash_map[take_date_map[take_id]]
                         ),
-                        customdata=[[ "Pelvis", take_date_map[take_id], take_order[take_id], take_velocity[take_id], hover_pitcher_name ]] * len(norm_frames),
+                        customdata=[[ segment_display_name("Pelvis"), take_date_map[take_id], take_order[take_id], take_velocity[take_id], hover_pitcher_name ]] * len(norm_frames),
                         hovertemplate=(
                             "%{customdata[0]} – %{customdata[1]} | "
                             "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
@@ -3831,15 +3844,15 @@ with tab_kinematic:
                                 width=4
                             ),
                         name=(
-                            f"Control Group | Pelvis AV"
+                            f"Control Group | {segment_display_name('Pelvis')} AV"
                             if (comparison_grouping_enabled and control_group_take) else
-                            f"{take_group_label} | Pelvis AV | {take_date_map[take_id]} | {pitcher_name}"
+                            f"{take_group_label} | {segment_display_name('Pelvis')} AV | {take_date_map[take_id]} | {pitcher_name}"
                             if (comparison_grouping_enabled and multi_pitcher_mode) else
-                            f"{take_group_label} | Pelvis AV | {take_date_map[take_id]}"
+                            f"{take_group_label} | {segment_display_name('Pelvis')} AV | {take_date_map[take_id]}"
                             if comparison_grouping_enabled else
-                            f"Pelvis AV | {take_date_map[take_id]} | {pitcher_name}"
+                            f"{segment_display_name('Pelvis')} AV | {take_date_map[take_id]} | {pitcher_name}"
                             if multi_pitcher_mode else
-                            f"Pelvis AV | {take_date_map[take_id]}"
+                            f"{segment_display_name('Pelvis')} AV | {take_date_map[take_id]}"
                         ),
                             showlegend=True,
                             legendgroup=legendgroup,
@@ -3921,7 +3934,7 @@ with tab_kinematic:
                                 color=color,
                                 dash=dash,
                             ),
-                            customdata=[[label, date, group_label, pitcher_name]] * len(x_date),
+                            customdata=[[segment_display_name(label), date, group_label, pitcher_name]] * len(x_date),
                             hovertemplate=(
                                 ("%{customdata[2]} | " if comparison_grouping_enabled else "")
                                 + "%{customdata[0]} | %{customdata[1]}"
@@ -3948,13 +3961,13 @@ with tab_kinematic:
                                     width=4
                                 ),
                             name=(
-                                    f"{group_label} | {label} AV | {date} | {pitcher_name}"
+                                    f"{group_label} | {segment_display_name(label)} AV | {date} | {pitcher_name}"
                                     if (comparison_grouping_enabled and multi_pitcher_mode) else
-                                    f"{group_label} | {label} AV | {date}"
+                                    f"{group_label} | {segment_display_name(label)} AV | {date}"
                                     if comparison_grouping_enabled else
-                                    f"{label} AV | {date} | {pitcher_name}"
+                                    f"{segment_display_name(label)} AV | {date} | {pitcher_name}"
                                     if multi_pitcher_mode else
-                                    f"{label} AV | {date}"
+                                    f"{segment_display_name(label)} AV | {date}"
                                 ),
                                 showlegend=True,
                                 legendgroup=legendgroup
@@ -3987,7 +4000,7 @@ with tab_kinematic:
                             **({"Group": group_label} if comparison_grouping_enabled else {}),
                             **({"Pitcher": pitcher_name} if multi_pitcher_mode else {}),
                             "Session Date": date,
-                            "Segment": label,
+                            "Segment": segment_display_name(label),
                             "Peak Value (°/s)": max_y,
                             "Peak Time (ms rel BR)": max_x,
                             "Peak Time from FP (ms)": pelvis_time_ms_grouped if label == "Pelvis" else None
@@ -4006,7 +4019,7 @@ with tab_kinematic:
                                 showlegend=False,
                                 legendgroup=legendgroup,
                                 customdata=[[
-                                    label,
+                                    segment_display_name(label),
                                     date,
                                     group_label,
                                     pitcher_name,
@@ -4207,14 +4220,14 @@ with tab_kinematic:
                     "Session Date": take_date_map[take_id],
                     "Pitch": take_order[take_id],
                     "Velocity (mph)": take_velocity[take_id],
-                    "Pelvis Peak (°/s)": pelvis_peak,
-                    "Pelvis Time from FP (ms)": pelvis_time_ms,
-                    "Torso Peak (°/s)": torso_peak,
-                    "Torso Time (ms rel BR)": torso_frame,
-                    "Elbow Peak (°/s)": elbow_peak,
-                    "Elbow Time (ms rel BR)": elbow_frame,
-                    "Shoulder IR Peak (°/s)": shoulder_peak,
-                    "Shoulder IR Time (ms rel BR)": shoulder_frame
+                    "Pelvis Rotation Peak (°/s)": pelvis_peak,
+                    "Pelvis Rotation Time from FP (ms)": pelvis_time_ms,
+                    "Torso Rotation Peak (°/s)": torso_peak,
+                    "Torso Rotation Time (ms rel BR)": torso_frame,
+                    "Elbow Extension Peak (°/s)": elbow_peak,
+                    "Elbow Extension Time (ms rel BR)": elbow_frame,
+                    "Shoulder Internal Rotation Peak (°/s)": shoulder_peak,
+                    "Shoulder Internal Rotation Time (ms rel BR)": shoulder_frame
                 })
 
             if individual_rows:
@@ -4242,14 +4255,14 @@ with tab_kinematic:
                     .style
                     .format({
                         "Velocity (mph)": lambda x: fmt(x, 1),
-                        "Pelvis Peak (°/s)": lambda x: fmt(x, 1),
-                        "Torso Peak (°/s)": lambda x: fmt(x, 1),
-                        "Elbow Peak (°/s)": lambda x: fmt(x, 1),
-                        "Shoulder IR Peak (°/s)": lambda x: fmt(x, 1),
-                        "Pelvis Time from FP (ms)": lambda x: "" if x is None else f"{x:.0f}",
-                        "Torso Time (ms rel BR)": lambda x: fmt(x, 0),
-                        "Elbow Time (ms rel BR)": lambda x: fmt(x, 0),
-                        "Shoulder IR Time (ms rel BR)": lambda x: fmt(x, 0),
+                        "Pelvis Rotation Peak (°/s)": lambda x: fmt(x, 1),
+                        "Torso Rotation Peak (°/s)": lambda x: fmt(x, 1),
+                        "Elbow Extension Peak (°/s)": lambda x: fmt(x, 1),
+                        "Shoulder Internal Rotation Peak (°/s)": lambda x: fmt(x, 1),
+                        "Pelvis Rotation Time from FP (ms)": lambda x: "" if x is None else f"{x:.0f}",
+                        "Torso Rotation Time (ms rel BR)": lambda x: fmt(x, 0),
+                        "Elbow Extension Time (ms rel BR)": lambda x: fmt(x, 0),
+                        "Shoulder Internal Rotation Time (ms rel BR)": lambda x: fmt(x, 0),
                     })
                     .set_table_styles([
                         {"selector": "th", "props": [("text-align", "center")]}
@@ -4289,7 +4302,12 @@ with tab_kinematic:
             df_pivot.columns = pd.MultiIndex.from_tuples(
                 [(seg, metric_map.get(metric, metric)) for seg, metric in df_pivot.columns]
             )
-            segment_order = ["Pelvis", "Torso", "Elbow", "Shoulder"]
+            segment_order = [
+                "Pelvis Rotation",
+                "Torso Rotation",
+                "Elbow Extension",
+                "Shoulder Internal Rotation",
+            ]
             metric_order = ["Peak (°/s)", "Peak Time (ms)", "Peak Time from FP (ms)"]
             ordered_cols = [
                 (seg, met)
@@ -4301,10 +4319,10 @@ with tab_kinematic:
                 df_pivot = df_pivot[ordered_cols]
 
             segment_colors = {
-                "Pelvis":   "rgba(0, 128, 0, 0.12)",
-                "Torso":    "rgba(255, 215, 0, 0.12)",
-                "Elbow":    "rgba(128, 0, 128, 0.12)",
-                "Shoulder": "rgba(255, 0, 0, 0.12)"
+                "Pelvis Rotation": "rgba(0, 128, 0, 0.12)",
+                "Torso Rotation": "rgba(255, 215, 0, 0.12)",
+                "Elbow Extension": "rgba(128, 0, 128, 0.12)",
+                "Shoulder Internal Rotation": "rgba(255, 0, 0, 0.12)"
             }
 
             def style_segments(col):
