@@ -4100,7 +4100,7 @@ with tab_kinematic:
                             "Peak Time from FP (ms)": pelvis_time_ms_grouped if label == "Pelvis" else None
                         })
                         curve_range = max(y_date) - min(y_date) if len(y_date) > 1 else 0
-                        y_offset = max(curve_range * 0.025, 8)
+                        y_offset = max(curve_range * 0.04, 12)
                         peak_marker_traces.append(
                             go.Scatter(
                                 x=[max_x],
