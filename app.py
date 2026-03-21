@@ -3443,6 +3443,15 @@ with tab_kinematic:
             color: #6b7280;
             margin-bottom: 0.35rem;
         }
+
+        div[data-testid="stSegmentedControl"] label,
+        div[data-testid="stSegmentedControl"] div[role="radiogroup"] label,
+        div[data-testid="stSegmentedControl"] div[role="radiogroup"] p,
+        div[data-testid="stToggle"] label,
+        div[data-testid="stToggle"] p {
+            font-size: 1rem !important;
+            font-weight: 400 !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
