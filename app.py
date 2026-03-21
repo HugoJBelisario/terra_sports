@@ -163,7 +163,8 @@ from dotenv import load_dotenv
 from db.connection import get_connection
 
 def login():
-    users = st.secrets["auth"]["users"]
+    raw_users = st.secrets["auth"]["users"]
+    users = {str(username).strip(): str(password) for username, password in raw_users.items()}
 
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
@@ -224,10 +225,12 @@ def login():
         st.markdown("</div>", unsafe_allow_html=True)
 
     if login_clicked:
-        if username in users and users[username] == password:
+        submitted_username = username.strip()
+        submitted_password = password
+        if submitted_username in users and users[submitted_username] == submitted_password:
             st.session_state.authenticated = True
-            st.session_state.user = username
-            queue_auth_cookie_write(build_auth_cookie_value(username, users))
+            st.session_state.user = submitted_username
+            queue_auth_cookie_write(build_auth_cookie_value(submitted_username, users))
             st.rerun()
         else:
             st.error("Invalid username or password")
