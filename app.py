@@ -3,13 +3,15 @@ from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
 
+ASSETS_DIR = Path(__file__).parent / "assets"
+LOGO_PATH = ASSETS_DIR / "terra_sports.svg"
+
 
 def get_page_icon():
     """
     Use the first favicon-like asset we find so branding can be updated
     by replacing a file in /assets without touching code again.
     """
-    assets_dir = Path(__file__).parent / "assets"
     candidate_names = (
         "favicon.png",
         "favicon.ico",
@@ -19,7 +21,7 @@ def get_page_icon():
     )
 
     for name in candidate_names:
-        icon_path = assets_dir / name
+        icon_path = ASSETS_DIR / name
         if icon_path.exists():
             return str(icon_path)
 
@@ -55,12 +57,41 @@ def login():
     if st.session_state.authenticated:
         return True
 
-    st.title("Login") # Note
+    st.markdown(
+        """
+        <style>
+        .login-shell {
+            padding-top: 2rem;
+        }
 
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
+        .login-title {
+            text-align: center;
+            margin-bottom: 1rem;
+        }
 
-    if st.button("Login"):
+        div[data-testid="stVerticalBlock"] div[data-testid="stTextInput"] input,
+        div[data-testid="stVerticalBlock"] div[data-testid="stButton"] button {
+            width: 100%;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    left_col, center_col, right_col = st.columns([1.2, 1, 1.2])
+    with center_col:
+        st.markdown('<div class="login-shell">', unsafe_allow_html=True)
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), use_container_width=True)
+        st.markdown('<h1 class="login-title">Login</h1>', unsafe_allow_html=True)
+
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+
+        login_clicked = st.button("Login", use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    if login_clicked:
         if username in users and users[username] == password:
             st.session_state.authenticated = True
             st.session_state.user = username
