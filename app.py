@@ -4907,8 +4907,10 @@ with tab_joint:
         )
 
     if fp_event_frames:
-        fp_start_ms = rel_frame_to_ms(int(min(fp_event_frames)))
-        fp_end_ms = rel_frame_to_ms(int(max(fp_event_frames)))
+        fp_q1_frame = int(np.percentile(fp_event_frames, 25))
+        fp_q3_frame = int(np.percentile(fp_event_frames, 75))
+        fp_start_ms = rel_frame_to_ms(fp_q1_frame)
+        fp_end_ms = rel_frame_to_ms(fp_q3_frame)
         if fp_start_ms != fp_end_ms:
             fig.add_vrect(
                 x0=fp_start_ms,
