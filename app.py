@@ -3461,8 +3461,8 @@ with tab_kinematic:
         torso_data = get_torso_angular_velocity(take_ids)
         elbow_data = load_by_handedness(get_elbow_angular_velocity)
         shoulder_ir_data = load_by_handedness(get_shoulder_ir_velocity)
-        pre_fp_frames = ms_to_rel_frame(150)
-        post_br_frames = ms_to_rel_frame(150)
+        pre_fp_frames = ms_to_rel_frame(50)
+        post_br_frames = ms_to_rel_frame(100)
         kinematic_window_start = (
             int(np.median(fp_event_frames)) - pre_fp_frames
             if fp_event_frames else -pre_fp_frames
