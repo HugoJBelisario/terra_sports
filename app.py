@@ -3238,6 +3238,11 @@ with tab_kinematic:
         horizontal=True,
         key="ks_display_mode"
     )
+    show_ks_fp_iqr_band = st.checkbox(
+        "Show Foot Plant IQR Band",
+        value=False,
+        key="ks_show_fp_iqr_band"
+    )
     if not take_ids:
         st.info("No takes found for this selection.")
     else:
@@ -3900,7 +3905,7 @@ with tab_kinematic:
             fp_q3_frame = int(np.percentile(fp_event_frames, 75))
             fp_start_ms = rel_frame_to_ms(fp_q1_frame)
             fp_end_ms = rel_frame_to_ms(fp_q3_frame)
-            if fp_start_ms != fp_end_ms:
+            if show_ks_fp_iqr_band and fp_start_ms != fp_end_ms:
                 fig.add_vrect(
                     x0=fp_start_ms,
                     x1=fp_end_ms,
@@ -4330,6 +4335,11 @@ with tab_joint:
                 horizontal=True,
                 key="joint_display_mode_compare"
             )
+            show_joint_fp_iqr_band = st.checkbox(
+                "Show Foot Plant IQR Band",
+                value=False,
+                key="joint_show_fp_iqr_band_compare"
+            )
             joint_window_mode = st.radio(
                 "Kinematics View",
                 ["Peak Knee Height View", "Foot Plant to Ball Release View"],
@@ -4355,6 +4365,11 @@ with tab_joint:
                 horizontal=True,
                 key="joint_energy_display_mode_compare"
             )
+            show_compare_energy_fp_iqr_band = st.checkbox(
+                "Show Foot Plant IQR Band",
+                value=False,
+                key="joint_energy_show_fp_iqr_band_compare"
+            )
             compare_energy_metrics = st.multiselect(
                 "Select Energy Flow Metrics",
                 [
@@ -4378,6 +4393,11 @@ with tab_joint:
             index=1,
             horizontal=True,
             key="joint_display_mode"
+        )
+        show_joint_fp_iqr_band = st.checkbox(
+            "Show Foot Plant IQR Band",
+            value=False,
+            key="joint_show_fp_iqr_band"
         )
         joint_window_mode = st.radio(
             "Kinematics View",
@@ -4945,7 +4965,7 @@ with tab_joint:
         fp_q3_frame = int(np.percentile(fp_event_frames, 75))
         fp_start_ms = rel_frame_to_ms(fp_q1_frame)
         fp_end_ms = rel_frame_to_ms(fp_q3_frame)
-        if fp_start_ms != fp_end_ms:
+        if show_joint_fp_iqr_band and fp_start_ms != fp_end_ms:
             fig.add_vrect(
                 x0=fp_start_ms,
                 x1=fp_end_ms,
@@ -5249,7 +5269,7 @@ with tab_joint:
                         fp_q3_frame = int(np.percentile(fp_event_frames, 75))
                         fp_start_ms = rel_frame_to_ms(fp_q1_frame)
                         fp_end_ms = rel_frame_to_ms(fp_q3_frame)
-                        if fp_start_ms != fp_end_ms:
+                        if show_compare_energy_fp_iqr_band and fp_start_ms != fp_end_ms:
                             energy_fig.add_vrect(
                                 x0=fp_start_ms,
                                 x1=fp_end_ms,
@@ -5469,6 +5489,11 @@ with tab_energy:
         index=1,
         horizontal=True,
         key="energy_display_mode"
+    )
+    show_energy_fp_iqr_band = st.checkbox(
+        "Show Foot Plant IQR Band",
+        value=False,
+        key="energy_show_fp_iqr_band"
     )
 
     if not take_ids:
@@ -5767,7 +5792,7 @@ with tab_energy:
         fp_q3_frame = int(np.percentile(fp_event_frames, 75))
         fp_start_ms = rel_frame_to_ms(fp_q1_frame)
         fp_end_ms = rel_frame_to_ms(fp_q3_frame)
-        if fp_start_ms != fp_end_ms:
+        if show_energy_fp_iqr_band and fp_start_ms != fp_end_ms:
             fig.add_vrect(
                 x0=fp_start_ms,
                 x1=fp_end_ms,
