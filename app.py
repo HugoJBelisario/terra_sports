@@ -3434,18 +3434,38 @@ multi_pitcher_mode = len(set(take_pitcher_map.values())) > 1
 with tab_kinematic:
     st.subheader("Kinematic Sequence")
     render_group_selection_summary()
-    display_mode = st.radio(
-        "Select Display Mode",
-        ["Individual Throws", "Grouped"],
-        index=1,
-        horizontal=True,
-        key="ks_display_mode"
+    st.markdown(
+        """
+        <style>
+        .ks-controls-label {
+            font-size: 0.8rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #6b7280;
+            margin-bottom: 0.35rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
-    show_ks_fp_iqr_band = st.checkbox(
-        "Show Event IQR Bands",
-        value=False,
-        key="ks_show_fp_iqr_band"
-    )
+    controls_col, toggle_col = st.columns([2.4, 1])
+    with controls_col:
+        st.markdown('<div class="ks-controls-label">Display Mode</div>', unsafe_allow_html=True)
+        display_mode = st.segmented_control(
+            "Display Mode",
+            ["Individual Throws", "Grouped"],
+            default="Grouped",
+            key="ks_display_mode",
+            label_visibility="collapsed",
+        )
+    with toggle_col:
+        st.markdown('<div class="ks-controls-label">View Options</div>', unsafe_allow_html=True)
+        show_ks_fp_iqr_band = st.toggle(
+            "Event IQR Bands",
+            value=False,
+            key="ks_show_fp_iqr_band",
+        )
     if not take_ids:
         st.info("No takes found for this selection.")
     else:
