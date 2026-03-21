@@ -4330,6 +4330,13 @@ with tab_joint:
                 horizontal=True,
                 key="joint_display_mode_compare"
             )
+            joint_window_mode = st.radio(
+                "Kinematics View",
+                ["Peak Knee Height View", "Foot Plant to Ball Release View"],
+                index=0,
+                horizontal=True,
+                key="joint_window_mode_compare"
+            )
             selected_kinematics = st.multiselect(
                 "Select Kinematics",
                 options=kinematic_options,
@@ -4371,6 +4378,13 @@ with tab_joint:
             index=1,
             horizontal=True,
             key="joint_display_mode"
+        )
+        joint_window_mode = st.radio(
+            "Kinematics View",
+            ["Peak Knee Height View", "Foot Plant to Ball Release View"],
+            index=0,
+            horizontal=True,
+            key="joint_window_mode"
         )
         selected_kinematics = st.multiselect(
             "Select Kinematics",
@@ -4544,16 +4558,22 @@ with tab_joint:
     grouped_by_date = {}
     mound_only_selected = mound_only_sidebar
     median_pkh_frame = None
-    joint_window_start = window_start
-    joint_window_end = 50
-    joint_window_start_ms = rel_frame_to_ms(joint_window_start)
-    joint_window_end_ms = rel_frame_to_ms(joint_window_end)
-
-    # For mound throws, ensure the window includes PKH and 20 frames before it.
     if mound_only_selected and knee_event_frames:
         median_pkh_frame = int(np.median(knee_event_frames))
-        joint_window_start = min(window_start, median_pkh_frame - 20)
-        joint_window_start_ms = rel_frame_to_ms(joint_window_start)
+
+    if joint_window_mode == "Foot Plant to Ball Release View":
+        median_fp_frame = int(np.median(fp_event_frames)) if fp_event_frames else None
+        joint_window_start = (median_fp_frame - 25) if median_fp_frame is not None else window_start
+        joint_window_end = 25
+    else:
+        joint_window_start = window_start
+        joint_window_end = 50
+        # For mound throws, ensure the window includes PKH and 20 frames before it.
+        if median_pkh_frame is not None:
+            joint_window_start = min(window_start, median_pkh_frame - 20)
+
+    joint_window_start_ms = rel_frame_to_ms(joint_window_start)
+    joint_window_end_ms = rel_frame_to_ms(joint_window_end)
 
     # For condensed legend: track which (kinematic, date) pairs have legend entries
     legend_keys_added = set()
