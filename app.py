@@ -94,6 +94,28 @@ def to_rgba(color, alpha=0.35):
 def rel_frame_to_ms(rel_frame):
     return int(round(rel_frame * MS_PER_FRAME))
 
+
+def add_event_iqr_band(fig, event_frames, color, show_band, opacity=0.10):
+    if not show_band or not event_frames:
+        return
+
+    event_q1_frame = int(np.percentile(event_frames, 25))
+    event_q3_frame = int(np.percentile(event_frames, 75))
+    event_start_ms = rel_frame_to_ms(event_q1_frame)
+    event_end_ms = rel_frame_to_ms(event_q3_frame)
+
+    if event_start_ms == event_end_ms:
+        return
+
+    fig.add_vrect(
+        x0=event_start_ms,
+        x1=event_end_ms,
+        fillcolor=color,
+        opacity=opacity,
+        layer="below",
+        line_width=0
+    )
+
 load_dotenv()
 
 @st.cache_data(ttl=300)
@@ -3239,7 +3261,7 @@ with tab_kinematic:
         key="ks_display_mode"
     )
     show_ks_fp_iqr_band = st.checkbox(
-        "Show Foot Plant IQR Band",
+        "Show Event IQR Bands",
         value=False,
         key="ks_show_fp_iqr_band"
     )
@@ -3879,6 +3901,7 @@ with tab_kinematic:
 
         # Median Peak Glove-Side Knee Height event
         if knee_event_frames:
+            add_event_iqr_band(fig, knee_event_frames, "blue", show_ks_fp_iqr_band)
             median_knee_frame = rel_frame_to_ms(int(np.median(knee_event_frames)))
 
             fig.add_vline(
@@ -3901,20 +3924,7 @@ with tab_kinematic:
 
         # Median Refined Foot Plant (zero-cross) event
         if fp_event_frames:
-            fp_q1_frame = int(np.percentile(fp_event_frames, 25))
-            fp_q3_frame = int(np.percentile(fp_event_frames, 75))
-            fp_start_ms = rel_frame_to_ms(fp_q1_frame)
-            fp_end_ms = rel_frame_to_ms(fp_q3_frame)
-            if show_ks_fp_iqr_band and fp_start_ms != fp_end_ms:
-                fig.add_vrect(
-                    x0=fp_start_ms,
-                    x1=fp_end_ms,
-                    fillcolor="green",
-                    opacity=0.10,
-                    layer="below",
-                    line_width=0
-                )
-
+            add_event_iqr_band(fig, fp_event_frames, "green", show_ks_fp_iqr_band)
             median_fp_frame = rel_frame_to_ms(int(np.median(fp_event_frames)))
 
             fig.add_vline(
@@ -3937,6 +3947,7 @@ with tab_kinematic:
 
         # Median Max Shoulder ER event
         if mer_event_frames:
+            add_event_iqr_band(fig, mer_event_frames, "red", show_ks_fp_iqr_band)
             median_mer_frame = rel_frame_to_ms(int(np.median(mer_event_frames)))
 
             fig.add_vline(
@@ -3958,6 +3969,7 @@ with tab_kinematic:
             )
 
         # Normalized Ball Release reference line
+        add_event_iqr_band(fig, [0] * max(len(take_ids), 1), "blue", show_ks_fp_iqr_band)
         fig.add_vline(
             x=0,
             line_width=3,
@@ -4336,7 +4348,7 @@ with tab_joint:
                 key="joint_display_mode_compare"
             )
             show_joint_fp_iqr_band = st.checkbox(
-                "Show Foot Plant IQR Band",
+                "Show Event IQR Bands",
                 value=False,
                 key="joint_show_fp_iqr_band_compare"
             )
@@ -4366,7 +4378,7 @@ with tab_joint:
                 key="joint_energy_display_mode_compare"
             )
             show_compare_energy_fp_iqr_band = st.checkbox(
-                "Show Foot Plant IQR Band",
+                "Show Event IQR Bands",
                 value=False,
                 key="joint_energy_show_fp_iqr_band_compare"
             )
@@ -4395,7 +4407,7 @@ with tab_joint:
             key="joint_display_mode"
         )
         show_joint_fp_iqr_band = st.checkbox(
-            "Show Foot Plant IQR Band",
+            "Show Event IQR Bands",
             value=False,
             key="joint_show_fp_iqr_band"
         )
@@ -4921,6 +4933,7 @@ with tab_joint:
 
     # --- Event lines and annotations (match Kinematic Sequence styling) ---
     if median_pkh_frame is not None:
+        add_event_iqr_band(fig, knee_event_frames, "gold", show_joint_fp_iqr_band)
         median_pkh_time_ms = rel_frame_to_ms(median_pkh_frame)
         fig.add_vline(
             x=median_pkh_time_ms,
@@ -4941,6 +4954,7 @@ with tab_joint:
         )
     elif knee_event_frames:
         # Non-mound fallback: keep a single knee marker when PKH is not enabled.
+        add_event_iqr_band(fig, knee_event_frames, "gold", show_joint_fp_iqr_band)
         median_knee_frame = rel_frame_to_ms(int(np.median(knee_event_frames)))
         fig.add_vline(
             x=median_knee_frame,
@@ -4961,20 +4975,7 @@ with tab_joint:
         )
 
     if fp_event_frames:
-        fp_q1_frame = int(np.percentile(fp_event_frames, 25))
-        fp_q3_frame = int(np.percentile(fp_event_frames, 75))
-        fp_start_ms = rel_frame_to_ms(fp_q1_frame)
-        fp_end_ms = rel_frame_to_ms(fp_q3_frame)
-        if show_joint_fp_iqr_band and fp_start_ms != fp_end_ms:
-            fig.add_vrect(
-                x0=fp_start_ms,
-                x1=fp_end_ms,
-                fillcolor="green",
-                opacity=0.10,
-                layer="below",
-                line_width=0
-            )
-
+        add_event_iqr_band(fig, fp_event_frames, "green", show_joint_fp_iqr_band)
         median_fp_frame = rel_frame_to_ms(int(np.median(fp_event_frames)))
         fig.add_vline(
             x=median_fp_frame,
@@ -4995,6 +4996,7 @@ with tab_joint:
         )
 
     if mer_event_frames:
+        add_event_iqr_band(fig, mer_event_frames, "red", show_joint_fp_iqr_band)
         median_mer_frame = rel_frame_to_ms(int(np.median(mer_event_frames)))
         fig.add_vline(
             x=median_mer_frame,
@@ -5015,6 +5017,7 @@ with tab_joint:
         )
 
     # Ball Release reference
+    add_event_iqr_band(fig, [0] * max(len(take_ids), 1), "blue", show_joint_fp_iqr_band)
     fig.add_vline(
         x=0,
         line_width=3,
@@ -5265,20 +5268,7 @@ with tab_joint:
                     )
 
                     if fp_event_frames:
-                        fp_q1_frame = int(np.percentile(fp_event_frames, 25))
-                        fp_q3_frame = int(np.percentile(fp_event_frames, 75))
-                        fp_start_ms = rel_frame_to_ms(fp_q1_frame)
-                        fp_end_ms = rel_frame_to_ms(fp_q3_frame)
-                        if show_compare_energy_fp_iqr_band and fp_start_ms != fp_end_ms:
-                            energy_fig.add_vrect(
-                                x0=fp_start_ms,
-                                x1=fp_end_ms,
-                                fillcolor="green",
-                                opacity=0.10,
-                                layer="below",
-                                line_width=0
-                            )
-
+                        add_event_iqr_band(energy_fig, fp_event_frames, "green", show_compare_energy_fp_iqr_band)
                         median_fp = rel_frame_to_ms(int(np.median(fp_event_frames)))
                         energy_fig.add_vline(x=median_fp, line_width=3, line_dash="dash", line_color="green")
                         energy_fig.add_annotation(
@@ -5292,6 +5282,7 @@ with tab_joint:
                             align="center"
                         )
                     if mer_event_frames:
+                        add_event_iqr_band(energy_fig, mer_event_frames, "red", show_compare_energy_fp_iqr_band)
                         median_mer = rel_frame_to_ms(int(np.median(mer_event_frames)))
                         energy_fig.add_vline(x=median_mer, line_width=3, line_dash="dash", line_color="red")
                         energy_fig.add_annotation(
@@ -5304,6 +5295,7 @@ with tab_joint:
                             font=dict(color="red", size=13, family="Arial"),
                             align="center"
                         )
+                    add_event_iqr_band(energy_fig, [0] * max(len(take_ids), 1), "blue", show_compare_energy_fp_iqr_band)
                     energy_fig.add_vline(x=0, line_width=3, line_dash="dash", line_color="blue")
                     energy_fig.add_annotation(
                         x=0,
@@ -5491,7 +5483,7 @@ with tab_energy:
         key="energy_display_mode"
     )
     show_energy_fp_iqr_band = st.checkbox(
-        "Show Foot Plant IQR Band",
+        "Show Event IQR Bands",
         value=False,
         key="energy_show_fp_iqr_band"
     )
@@ -5788,20 +5780,7 @@ with tab_energy:
     # Event Lines (with text labels above)
     # -------------------------------
     if fp_event_frames:
-        fp_q1_frame = int(np.percentile(fp_event_frames, 25))
-        fp_q3_frame = int(np.percentile(fp_event_frames, 75))
-        fp_start_ms = rel_frame_to_ms(fp_q1_frame)
-        fp_end_ms = rel_frame_to_ms(fp_q3_frame)
-        if show_energy_fp_iqr_band and fp_start_ms != fp_end_ms:
-            fig.add_vrect(
-                x0=fp_start_ms,
-                x1=fp_end_ms,
-                fillcolor="green",
-                opacity=0.10,
-                layer="below",
-                line_width=0
-            )
-
+        add_event_iqr_band(fig, fp_event_frames, "green", show_energy_fp_iqr_band)
         median_fp = rel_frame_to_ms(int(np.median(fp_event_frames)))
         fig.add_vline(x=median_fp, line_width=3, line_dash="dash", line_color="green")
         fig.add_annotation(
@@ -5816,6 +5795,7 @@ with tab_energy:
         )
 
     if mer_event_frames:
+        add_event_iqr_band(fig, mer_event_frames, "red", show_energy_fp_iqr_band)
         median_mer = rel_frame_to_ms(int(np.median(mer_event_frames)))
         fig.add_vline(x=median_mer, line_width=3, line_dash="dash", line_color="red")
         fig.add_annotation(
@@ -5829,6 +5809,7 @@ with tab_energy:
             align="center"
         )
 
+    add_event_iqr_band(fig, [0] * max(len(take_ids), 1), "blue", show_energy_fp_iqr_band)
     fig.add_vline(x=0, line_width=3, line_dash="dash", line_color="blue")
     fig.add_annotation(
         x=0,
