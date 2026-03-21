@@ -2001,10 +2001,16 @@ def get_lead_heel_contact_frame(
     handedness,
     start_frames,
     end_frames,
-    contact_ratio=0.40
+    anchor_frames,
+    contact_ratio=0.15,
+    absolute_floor_buffer=0.03,
+    min_consecutive_frames=3,
+    pre_anchor_frames=4,
+    post_anchor_frames=6,
+    flattening_tolerance=0.01
 ):
     """
-    Estimate lead-foot contact timing from heel height using a take-specific threshold.
+    Estimate lead-foot contact timing from heel height using a take-specific near-floor threshold.
 
     Category: LANDMARK_ORIGINAL
     Segments:
@@ -2045,32 +2051,59 @@ def get_lead_heel_contact_frame(
             for take_id, take_rows in rows_by_take.items():
                 start_frame = start_frames.get(take_id)
                 end_frame = end_frames.get(take_id)
+                anchor_frame = anchor_frames.get(take_id)
 
                 if start_frame is None or end_frame is None or start_frame > end_frame:
                     continue
+                if anchor_frame is None:
+                    continue
 
-                window_rows = [
+                full_window_rows = [
                     (frame, z)
                     for frame, z in take_rows
                     if start_frame <= frame <= end_frame
                 ]
-                if not window_rows:
+                if not full_window_rows:
                     continue
 
-                heel_values = [z for _, z in window_rows]
+                heel_values = [z for _, z in full_window_rows]
                 heel_floor = min(heel_values)
                 heel_ceil = max(heel_values)
                 heel_range = heel_ceil - heel_floor
-                heel_threshold = (
+                relative_threshold = (
                     heel_floor
                     if heel_range <= 1e-9 else
                     heel_floor + contact_ratio * heel_range
                 )
+                absolute_threshold = heel_floor + absolute_floor_buffer
+                heel_threshold = min(relative_threshold, absolute_threshold)
 
-                for frame, z in window_rows:
-                    if z <= heel_threshold:
-                        out[take_id] = int(frame)
-                        break
+                search_start = max(start_frame, int(anchor_frame) - pre_anchor_frames)
+                search_end = min(end_frame, int(anchor_frame) + post_anchor_frames)
+                search_rows = [
+                    (frame, z)
+                    for frame, z in full_window_rows
+                    if search_start <= frame <= search_end
+                ]
+                if len(search_rows) < min_consecutive_frames:
+                    continue
+
+                for i in range(0, len(search_rows) - min_consecutive_frames + 1):
+                    block = search_rows[i:i + min_consecutive_frames]
+                    block_values = [z for _, z in block]
+                    if not all(z <= heel_threshold for z in block_values):
+                        continue
+
+                    # Contact should look settled, not like a single-frame downward spike.
+                    block_diffs = [
+                        block_values[j + 1] - block_values[j]
+                        for j in range(len(block_values) - 1)
+                    ]
+                    if any(diff < -flattening_tolerance for diff in block_diffs):
+                        continue
+
+                    out[take_id] = int(block[0][0])
+                    break
 
             return out
     finally:
@@ -2986,12 +3019,17 @@ def build_shared_dashboard_state():
                 hand_ankle_min_frames,
                 shared_shoulder_er_max_frames
             )
+            heel_anchor_frames = {
+                take_id: ankle_zero_cross_frames.get(take_id, hand_ankle_min_frames.get(take_id))
+                for take_id in ids
+            }
             heel_contact_frames.update(
                 get_lead_heel_contact_frame(
                     ids,
                     hand,
                     hand_ankle_prox_x_peak_frames,
-                    shared_shoulder_er_max_frames
+                    shared_shoulder_er_max_frames,
+                    heel_anchor_frames
                 )
             )
 
