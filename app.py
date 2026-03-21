@@ -3449,7 +3449,7 @@ with tab_kinematic:
         """,
         unsafe_allow_html=True,
     )
-    controls_col, toggle_col = st.columns([2.4, 1])
+    controls_col, toggle_col, spacer_col = st.columns([1.6, 1.1, 2.3])
     with controls_col:
         st.markdown('<div class="ks-controls-label">Display Mode</div>', unsafe_allow_html=True)
         display_mode = st.segmented_control(
@@ -3466,6 +3466,8 @@ with tab_kinematic:
             value=False,
             key="ks_show_fp_iqr_band",
         )
+    with spacer_col:
+        st.markdown("")
     if not take_ids:
         st.info("No takes found for this selection.")
     else:
