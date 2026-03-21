@@ -4125,6 +4125,7 @@ with tab_kinematic:
                                     color=color
                                 ),
                                 showlegend=False,
+                                legendgroup=legendgroup,
                                 customdata=[[
                                     label,
                                     date,
@@ -4261,7 +4262,7 @@ with tab_kinematic:
                 y=-0.30,
                 xanchor="center",
                 x=0.5,
-                groupclick="toggleitem"
+                groupclick="togglegroup"
             ),
             hoverlabel=dict(
                 namelength=-1,
