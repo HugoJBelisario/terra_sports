@@ -4869,6 +4869,18 @@ with tab_joint:
         )
 
     if fp_event_frames:
+        fp_start_ms = rel_frame_to_ms(int(min(fp_event_frames)))
+        fp_end_ms = rel_frame_to_ms(int(max(fp_event_frames)))
+        if fp_start_ms != fp_end_ms:
+            fig.add_vrect(
+                x0=fp_start_ms,
+                x1=fp_end_ms,
+                fillcolor="green",
+                opacity=0.10,
+                layer="below",
+                line_width=0
+            )
+
         median_fp_frame = rel_frame_to_ms(int(np.median(fp_event_frames)))
         fig.add_vline(
             x=median_fp_frame,
