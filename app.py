@@ -45,8 +45,20 @@ def _urlsafe_b64decode(data: str) -> bytes:
 
 
 def get_auth_cookie_secret(users: dict[str, str]) -> bytes:
-    auth_config = st.secrets.get("auth", {})
-    cookie_secret = auth_config.get("cookie_secret")
+    try:
+        auth_config = st.secrets["auth"]
+    except KeyError:
+        auth_config = {}
+
+    cookie_secret = None
+    if isinstance(auth_config, dict):
+        cookie_secret = auth_config.get("cookie_secret")
+    else:
+        try:
+            cookie_secret = auth_config["cookie_secret"]
+        except Exception:
+            cookie_secret = None
+
     if cookie_secret:
         return str(cookie_secret).encode("utf-8")
 
