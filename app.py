@@ -64,14 +64,26 @@ def login():
             padding-top: 2rem;
         }
 
-        .login-title {
-            text-align: center;
-            margin-bottom: 1rem;
-        }
-
         div[data-testid="stVerticalBlock"] div[data-testid="stTextInput"] input,
         div[data-testid="stVerticalBlock"] div[data-testid="stButton"] button {
             width: 100%;
+        }
+
+        div[data-testid="stButton"] button[kind="secondary"] {
+            background-color: #A80519;
+            border: 1px solid #A80519;
+            color: #FFFFFF;
+        }
+
+        div[data-testid="stButton"] button[kind="secondary"]:hover {
+            background-color: #8F0415;
+            border-color: #8F0415;
+            color: #FFFFFF;
+        }
+
+        div[data-testid="stButton"] button[kind="secondary"]:focus:not(:active) {
+            color: #FFFFFF;
+            border-color: #A80519;
         }
         </style>
         """,
@@ -83,7 +95,6 @@ def login():
         st.markdown('<div class="login-shell">', unsafe_allow_html=True)
         if LOGO_PATH.exists():
             st.image(str(LOGO_PATH), use_container_width=True)
-        st.markdown('<h1 class="login-title">Login</h1>', unsafe_allow_html=True)
 
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
