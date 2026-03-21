@@ -1,8 +1,3 @@
-import base64
-import hashlib
-import hmac
-import json
-import time
 from pathlib import Path
 
 import streamlit as st
@@ -10,8 +5,6 @@ import streamlit.components.v1 as components
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PATH = ASSETS_DIR / "terra_sports.svg"
-AUTH_COOKIE_NAME = "terra_sports_auth"
-AUTH_COOKIE_TTL_SECONDS = 14 * 24 * 60 * 60
 
 
 def get_page_icon():
@@ -33,96 +26,6 @@ def get_page_icon():
             return str(icon_path)
 
     return None
-
-
-def _urlsafe_b64encode(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
-
-
-def _urlsafe_b64decode(data: str) -> bytes:
-    padding = "=" * (-len(data) % 4)
-    return base64.urlsafe_b64decode(data + padding)
-
-
-def get_auth_cookie_secret(users: dict[str, str]) -> bytes:
-    try:
-        cookie_secret = st.secrets["auth"]["cookie_secret"]
-    except Exception:
-        cookie_secret = None
-
-    if cookie_secret:
-        return str(cookie_secret).encode("utf-8")
-
-    users_json = json.dumps(users, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(f"terra-sports:{users_json}".encode("utf-8")).digest()
-
-
-def build_auth_cookie_value(username: str, users: dict[str, str]) -> str:
-    payload = {
-        "username": username,
-        "exp": int(time.time()) + AUTH_COOKIE_TTL_SECONDS,
-    }
-    encoded_payload = _urlsafe_b64encode(
-        json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    )
-    signature = hmac.new(
-        get_auth_cookie_secret(users),
-        encoded_payload.encode("utf-8"),
-        hashlib.sha256,
-    ).digest()
-    return f"{encoded_payload}.{_urlsafe_b64encode(signature)}"
-
-
-def get_cookie_authenticated_user(users: dict[str, str]) -> str | None:
-    cookie_value = st.context.cookies.get(AUTH_COOKIE_NAME)
-    if not cookie_value or "." not in cookie_value:
-        return None
-
-    encoded_payload, encoded_signature = cookie_value.split(".", 1)
-    expected_signature = _urlsafe_b64encode(
-        hmac.new(
-            get_auth_cookie_secret(users),
-            encoded_payload.encode("utf-8"),
-            hashlib.sha256,
-        ).digest()
-    )
-    if not hmac.compare_digest(encoded_signature, expected_signature):
-        return None
-
-    try:
-        payload = json.loads(_urlsafe_b64decode(encoded_payload))
-    except (ValueError, json.JSONDecodeError):
-        return None
-
-    username = payload.get("username")
-    expires_at = payload.get("exp")
-    if (
-        not isinstance(username, str)
-        or username not in users
-        or not isinstance(expires_at, int)
-        or expires_at <= int(time.time())
-    ):
-        return None
-
-    return username
-
-
-def write_auth_cookie_and_reload(cookie_value: str) -> None:
-    cookie_value_json = json.dumps(cookie_value)
-    components.html(
-        f"""
-        <script>
-        const cookieValue = encodeURIComponent({cookie_value_json});
-        const secure = parent.window.location.protocol === "https:" ? "; Secure" : "";
-        document.cookie =
-          "{AUTH_COOKIE_NAME}=" + cookieValue +
-          "; path=/; max-age={AUTH_COOKIE_TTL_SECONDS}; SameSite=Lax" + secure;
-        parent.window.location.reload();
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
 
 # --------------------------------------------------
 # Page config
@@ -151,13 +54,6 @@ def login():
 
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        cookie_user = get_cookie_authenticated_user(users)
-        if cookie_user:
-            st.session_state.authenticated = True
-            st.session_state.user = cookie_user
-            return True
 
     if st.session_state.authenticated:
         return True
@@ -213,10 +109,7 @@ def login():
         if submitted_username in users and users[submitted_username] == submitted_password:
             st.session_state.authenticated = True
             st.session_state.user = submitted_username
-            write_auth_cookie_and_reload(
-                build_auth_cookie_value(submitted_username, users)
-            )
-            return True
+            st.rerun()
         else:
             st.error("Invalid username or password")
 
