@@ -4108,7 +4108,7 @@ with tab_kinematic:
                                 textposition="top center",
                                 textfont=dict(
                                     color=color,
-                                    size=22,
+                                    size=28,
                                 ),
                                 showlegend=False,
                                 legendgroup=legendgroup,
