@@ -3469,9 +3469,10 @@ with tab_kinematic:
     with toggle_col:
         st.markdown('<div class="ks-controls-label">View Options</div>', unsafe_allow_html=True)
         show_ks_fp_iqr_band = st.toggle(
-            "Event IQR Bands",
+            "Event Range Bands",
             value=False,
             key="ks_show_fp_iqr_band",
+            help="Shows the middle 50% range for event timing across selected throws.",
         )
     with spacer_col:
         st.markdown("")
