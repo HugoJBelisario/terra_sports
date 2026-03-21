@@ -4275,7 +4275,7 @@ with tab_kinematic:
             key="kinematic_sequence_plot",
             config={
                 "toImageButtonOptions": {
-                    "filename": "terra_sports_kinematic_sequence"
+                    "filename": "kinematic_sequence"
                 }
             },
         )
