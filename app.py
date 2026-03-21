@@ -99,7 +99,7 @@ def login():
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
 
-        login_clicked = st.button("Login", use_container_width=True)
+        login_clicked = st.button("Log in", use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     if login_clicked:
