@@ -4269,7 +4269,16 @@ with tab_kinematic:
             )
         )
 
-        st.plotly_chart(fig, use_container_width=True, key="kinematic_sequence_plot")
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            key="kinematic_sequence_plot",
+            config={
+                "toImageButtonOptions": {
+                    "filename": "terra_sports_kinematic_sequence"
+                }
+            },
+        )
 
         # --- Kinematic Sequence Peak Summary Table (Individual Throws) ---
         if display_mode == "Individual Throws":
