@@ -4139,7 +4139,6 @@ with tab_kinematic:
                                     + (" | %{customdata[3]}" if multi_pitcher_mode else "")
                                     + "<br>Peak Angular Velocity: %{customdata[4]:.1f}°/s"
                                     + "<br>Peak Time: %{customdata[5]:.0f} ms rel BR"
-                                    + "<br>Peak"
                                     + "<extra></extra>"
                                 ),
                             )
