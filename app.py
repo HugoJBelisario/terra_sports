@@ -3441,7 +3441,7 @@ with tab_kinematic:
             font-size: 0.8rem;
             font-weight: 700;
             color: #6b7280;
-            margin-bottom: 0.2rem;
+            margin-bottom: 0.1rem;
         }
 
         div[data-testid="stSegmentedControl"] label,
@@ -3452,11 +3452,15 @@ with tab_kinematic:
             font-size: 1rem !important;
             font-weight: 400 !important;
         }
+
+        .ks-toggle-label {
+            margin-top: -0.1rem;
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    controls_col, toggle_col, spacer_col = st.columns([1.5, 1, 2.5])
+    controls_col, toggle_col, spacer_col = st.columns([1.55, 0.85, 2.6])
     with controls_col:
         st.markdown('<div class="ks-controls-label">Display Mode</div>', unsafe_allow_html=True)
         display_mode = st.segmented_control(
@@ -3467,15 +3471,25 @@ with tab_kinematic:
             label_visibility="collapsed",
         )
     with toggle_col:
-        st.markdown('<div class="ks-controls-label">Options</div>', unsafe_allow_html=True)
+        st.markdown('<div class="ks-controls-label ks-toggle-label">Options</div>', unsafe_allow_html=True)
         show_ks_fp_iqr_band = st.toggle(
-            "Event Range Bands",
+            "Range Bands",
             value=False,
             key="ks_show_fp_iqr_band",
             help="Shows the middle 50% range for event timing across selected throws.",
         )
     with spacer_col:
         st.markdown("")
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stHorizontalBlock"] + div[data-testid="stVerticalBlock"] {
+            margin-top: -0.2rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     if not take_ids:
         st.info("No takes found for this selection.")
     else:
