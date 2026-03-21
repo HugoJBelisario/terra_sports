@@ -1,11 +1,36 @@
+from pathlib import Path
+
 import streamlit as st
 import streamlit.components.v1 as components
+
+
+def get_page_icon():
+    """
+    Use the first favicon-like asset we find so branding can be updated
+    by replacing a file in /assets without touching code again.
+    """
+    assets_dir = Path(__file__).parent / "assets"
+    candidate_names = (
+        "favicon.png",
+        "favicon.ico",
+        "favicon.jpg",
+        "favicon.jpeg",
+        "favicon.svg",
+    )
+
+    for name in candidate_names:
+        icon_path = assets_dir / name
+        if icon_path.exists():
+            return str(icon_path)
+
+    return None
 
 # --------------------------------------------------
 # Page config
 # --------------------------------------------------
 st.set_page_config(
     page_title="Terra Sports Dashboard",
+    page_icon=get_page_icon(),
     layout="wide",
 )
 
