@@ -3871,6 +3871,7 @@ with tab_kinematic:
                 "Elbow": "green",
                 "Shoulder": "red"
             }
+            grouped_peak_time_reference = {}
 
             # --- Condensed legend: track (Segment, Date) pairs ---
             legend_keys_added = set()
@@ -3991,10 +3992,24 @@ with tab_kinematic:
                             max_idx = int(np.argmax(y_date))
                         max_x = x_date[max_idx]
                         max_y = y_date[max_idx]
-                        pelvis_time_ms_grouped = None
+                        reference_time_ms_grouped = None
                         if label == "Pelvis" and fp_event_frames:
                             fp_rel = rel_frame_to_ms(int(np.median(fp_event_frames)))
-                            pelvis_time_ms_grouped = max_x - fp_rel
+                            reference_time_ms_grouped = max_x - fp_rel
+                        elif label == "Torso":
+                            pelvis_peak_time = grouped_peak_time_reference.get((date_key, "Pelvis"))
+                            if pelvis_peak_time is not None:
+                                reference_time_ms_grouped = max_x - pelvis_peak_time
+                        elif label == "Elbow":
+                            torso_peak_time = grouped_peak_time_reference.get((date_key, "Torso"))
+                            if torso_peak_time is not None:
+                                reference_time_ms_grouped = max_x - torso_peak_time
+                        elif label == "Shoulder":
+                            elbow_peak_time = grouped_peak_time_reference.get((date_key, "Elbow"))
+                            if elbow_peak_time is not None:
+                                reference_time_ms_grouped = max_x - elbow_peak_time
+
+                        grouped_peak_time_reference[(date_key, label)] = max_x
 
                         kinematic_peak_rows.append({
                             **({"Group": group_label} if comparison_grouping_enabled else {}),
@@ -4003,7 +4018,7 @@ with tab_kinematic:
                             "Segment": segment_display_name(label),
                             "Peak Value (°/s)": max_y,
                             "Peak Time (ms rel BR)": max_x,
-                            "Peak Time from FP (ms)": pelvis_time_ms_grouped if label == "Pelvis" else None
+                            "Peak Time from Reference (ms)": reference_time_ms_grouped
                         })
                         peak_marker_traces.append(
                             go.Scatter(
@@ -4213,6 +4228,18 @@ with tab_kinematic:
                 torso_peak, torso_frame = peak_and_frame(grouped_torso)
                 elbow_peak, elbow_frame = peak_and_frame(grouped_elbow)
                 shoulder_peak, shoulder_frame = peak_and_frame(grouped_shoulder_ir)
+                torso_time_from_pelvis_ms = (
+                    torso_frame - pelvis_frame
+                    if torso_frame is not None and pelvis_frame is not None else None
+                )
+                elbow_time_from_torso_ms = (
+                    elbow_frame - torso_frame
+                    if elbow_frame is not None and torso_frame is not None else None
+                )
+                shoulder_time_from_elbow_ms = (
+                    shoulder_frame - elbow_frame
+                    if shoulder_frame is not None and elbow_frame is not None else None
+                )
 
                 individual_rows.append({
                     **({"Group": take_group_map.get(take_id, "")} if comparison_grouping_enabled else {}),
@@ -4223,11 +4250,11 @@ with tab_kinematic:
                     "Pelvis Rotation Peak (°/s)": pelvis_peak,
                     "Pelvis Rotation Time from FP (ms)": pelvis_time_ms,
                     "Torso Rotation Peak (°/s)": torso_peak,
-                    "Torso Rotation Time (ms rel BR)": torso_frame,
+                    "Torso Rotation Time from Peak Pelvis (ms)": torso_time_from_pelvis_ms,
                     "Elbow Extension Peak (°/s)": elbow_peak,
-                    "Elbow Extension Time (ms rel BR)": elbow_frame,
+                    "Elbow Extension Time from Peak Torso (ms)": elbow_time_from_torso_ms,
                     "Shoulder Internal Rotation Peak (°/s)": shoulder_peak,
-                    "Shoulder Internal Rotation Time (ms rel BR)": shoulder_frame
+                    "Shoulder Internal Rotation Time from Peak Elbow (ms)": shoulder_time_from_elbow_ms
                 })
 
             if individual_rows:
@@ -4260,9 +4287,9 @@ with tab_kinematic:
                         "Elbow Extension Peak (°/s)": lambda x: fmt(x, 1),
                         "Shoulder Internal Rotation Peak (°/s)": lambda x: fmt(x, 1),
                         "Pelvis Rotation Time from FP (ms)": lambda x: "" if x is None else f"{x:.0f}",
-                        "Torso Rotation Time (ms rel BR)": lambda x: fmt(x, 0),
-                        "Elbow Extension Time (ms rel BR)": lambda x: fmt(x, 0),
-                        "Shoulder Internal Rotation Time (ms rel BR)": lambda x: fmt(x, 0),
+                        "Torso Rotation Time from Peak Pelvis (ms)": lambda x: fmt(x, 0),
+                        "Elbow Extension Time from Peak Torso (ms)": lambda x: fmt(x, 0),
+                        "Shoulder Internal Rotation Time from Peak Elbow (ms)": lambda x: fmt(x, 0),
                     })
                     .set_table_styles([
                         {"selector": "th", "props": [("text-align", "center")]}
@@ -4288,7 +4315,7 @@ with tab_kinematic:
             df_pivot = df.pivot_table(
                 index=index_cols,
                 columns="Segment",
-                values=["Peak Value (°/s)", "Peak Time (ms rel BR)", "Peak Time from FP (ms)"],
+                values=["Peak Value (°/s)", "Peak Time (ms rel BR)", "Peak Time from Reference (ms)"],
                 aggfunc="first"
             )
 
@@ -4297,7 +4324,7 @@ with tab_kinematic:
             metric_map = {
                 "Peak Value (°/s)": "Peak (°/s)",
                 "Peak Time (ms rel BR)": "Peak Time (ms)",
-                "Peak Time from FP (ms)": "Peak Time from FP (ms)",
+                "Peak Time from Reference (ms)": "Peak Time from Reference (ms)",
             }
             df_pivot.columns = pd.MultiIndex.from_tuples(
                 [(seg, metric_map.get(metric, metric)) for seg, metric in df_pivot.columns]
@@ -4308,7 +4335,7 @@ with tab_kinematic:
                 "Elbow Extension",
                 "Shoulder Internal Rotation",
             ]
-            metric_order = ["Peak (°/s)", "Peak Time (ms)", "Peak Time from FP (ms)"]
+            metric_order = ["Peak (°/s)", "Peak Time (ms)", "Peak Time from Reference (ms)"]
             ordered_cols = [
                 (seg, met)
                 for seg in segment_order
