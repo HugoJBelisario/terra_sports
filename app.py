@@ -4017,7 +4017,6 @@ with tab_kinematic:
                             "Session Date": date,
                             "Segment": segment_display_name(label),
                             "Peak Value (°/s)": max_y,
-                            "Peak Time (ms rel BR)": max_x,
                             "Peak Time from Reference (ms)": reference_time_ms_grouped
                         })
                         peak_marker_traces.append(
@@ -4315,7 +4314,7 @@ with tab_kinematic:
             df_pivot = df.pivot_table(
                 index=index_cols,
                 columns="Segment",
-                values=["Peak Value (°/s)", "Peak Time (ms rel BR)", "Peak Time from Reference (ms)"],
+                values=["Peak Value (°/s)", "Peak Time from Reference (ms)"],
                 aggfunc="first"
             )
 
@@ -4323,7 +4322,6 @@ with tab_kinematic:
             df_pivot = df_pivot.swaplevel(0, 1, axis=1)
             metric_map = {
                 "Peak Value (°/s)": "Peak (°/s)",
-                "Peak Time (ms rel BR)": "Peak Time (ms)",
                 "Peak Time from Reference (ms)": "Peak Time from Reference (ms)",
             }
             df_pivot.columns = pd.MultiIndex.from_tuples(
@@ -4335,7 +4333,7 @@ with tab_kinematic:
                 "Elbow Extension",
                 "Shoulder Internal Rotation",
             ]
-            metric_order = ["Peak (°/s)", "Peak Time (ms)", "Peak Time from Reference (ms)"]
+            metric_order = ["Peak (°/s)", "Peak Time from Reference (ms)"]
             ordered_cols = [
                 (seg, met)
                 for seg in segment_order
