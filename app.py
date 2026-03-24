@@ -4843,7 +4843,7 @@ with tab_joint:
             unsafe_allow_html=True,
         )
 
-        window_col, mode_col, second_row_spacer = st.columns([1.8, 1.1, 3.1])
+        window_col, mode_col, second_row_spacer = st.columns([2.35, 1.15, 2.75])
         with window_col:
             st.markdown('<div class="joint-controls-label">View Window</div>', unsafe_allow_html=True)
             joint_window_mode = st.segmented_control(
