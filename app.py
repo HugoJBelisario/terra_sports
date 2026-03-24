@@ -4050,16 +4050,17 @@ with tab_kinematic:
                             "Peak Value (°/s)": max_y,
                             "Peak Time from Reference (ms)": reference_time_ms_grouped
                         })
+                        curve_range = max(y_date) - min(y_date) if len(y_date) > 1 else 0
+                        y_offset = max(curve_range * 0.04, 12)
                         peak_marker_traces.append(
                             go.Scatter(
                                 x=[max_x],
-                                y=[max_y],
-                                mode="text",
-                                text=["▼"],
-                                textposition="top center",
-                                textfont=dict(
+                                y=[max_y + y_offset],
+                                mode="markers",
+                                marker=dict(
+                                    symbol="triangle-down",
+                                    size=16,
                                     color=color,
-                                    size=28,
                                 ),
                                 showlegend=False,
                                 legendgroup=legendgroup,
