@@ -3562,6 +3562,8 @@ with tab_kinematic:
                                 "%{customdata[0]} – %{customdata[1]} | "
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
                                 + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                                + "<br>Angular Velocity: %{y:.1f}°/s"
+                                + "<br>Time: %{x:.0f} ms rel BR"
                                 + "<extra></extra>"
                             ),
                             name=trace_name,
@@ -3651,6 +3653,8 @@ with tab_kinematic:
                                 "%{customdata[0]} – %{customdata[1]} | "
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
                                 + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                                + "<br>Angular Velocity: %{y:.1f}°/s"
+                                + "<br>Time: %{x:.0f} ms rel BR"
                                 + "<extra></extra>"
                             ),
                             name=(
@@ -3748,6 +3752,8 @@ with tab_kinematic:
                                 "%{customdata[0]} – %{customdata[1]} | "
                                 "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
                                 + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                                + "<br>Angular Velocity: %{y:.1f}°/s"
+                                + "<br>Time: %{x:.0f} ms rel BR"
                                 + "<extra></extra>"
                             ),
                             name=(
@@ -3816,6 +3822,8 @@ with tab_kinematic:
                             "%{customdata[0]} – %{customdata[1]} | "
                             "Pitch %{customdata[2]} (%{customdata[3]:.1f} MPH)"
                             + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                            + "<br>Angular Velocity: %{y:.1f}°/s"
+                            + "<br>Time: %{x:.0f} ms rel BR"
                             + "<extra></extra>"
                         ),
                         name=(
