@@ -4754,29 +4754,22 @@ with tab_joint:
                 key="joint_display_mode_compare",
                 label_visibility="collapsed",
             )
-            left_options_col, left_window_col = st.columns([0.9, 1.6])
-            with left_options_col:
-                st.markdown('<div class="joint-controls-label joint-toggle-label">Options</div>', unsafe_allow_html=True)
+            joint_window_mode = "Foot Plant to Ball Release View"
+            st.markdown('<div class="joint-controls-label joint-toggle-label">Options</div>', unsafe_allow_html=True)
+            left_event_col, left_signal_col = st.columns(2)
+            with left_event_col:
                 show_joint_fp_iqr_band = st.toggle(
                     "Event Bands",
                     value=False,
                     key="joint_show_fp_iqr_band_compare",
                     help="Shows the middle 50% range for event timing across selected throws.",
                 )
+            with left_signal_col:
                 show_joint_signal_iqr_band = st.toggle(
                     "Signal Bands",
                     value=True,
                     key="joint_show_signal_iqr_band_compare",
                     help="Shows the middle 50% range around each grouped mean line.",
-                )
-            with left_window_col:
-                st.markdown('<div class="joint-controls-label">View Window</div>', unsafe_allow_html=True)
-                joint_window_mode = st.segmented_control(
-                    "Kinematics View",
-                    ["Peak Knee Height View", "Foot Plant to Ball Release View"],
-                    default="Peak Knee Height View",
-                    key="joint_window_mode_compare",
-                    label_visibility="collapsed",
                 )
             selected_kinematics = st.multiselect(
                 "Select Kinematics",
@@ -4799,12 +4792,21 @@ with tab_joint:
                 label_visibility="collapsed",
             )
             st.markdown('<div class="joint-controls-label joint-toggle-label">Options</div>', unsafe_allow_html=True)
-            show_compare_energy_fp_iqr_band = st.toggle(
-                "Event Bands",
-                value=False,
-                key="joint_energy_show_fp_iqr_band_compare",
-                help="Shows the middle 50% range for event timing across selected throws.",
-            )
+            right_event_col, right_signal_col = st.columns(2)
+            with right_event_col:
+                show_compare_energy_fp_iqr_band = st.toggle(
+                    "Event Bands",
+                    value=False,
+                    key="joint_energy_show_fp_iqr_band_compare",
+                    help="Shows the middle 50% range for event timing across selected throws.",
+                )
+            with right_signal_col:
+                show_compare_energy_signal_iqr_band = st.toggle(
+                    "Signal Bands",
+                    value=True,
+                    key="joint_energy_show_signal_iqr_band_compare",
+                    help="Shows the middle 50% range around each grouped mean line.",
+                )
             compare_energy_metrics = st.multiselect(
                 "Select Energy Flow Metrics",
                 [
@@ -5708,17 +5710,18 @@ with tab_joint:
                                         showlegend=False
                                     )
                                 )
-                                energy_fig.add_trace(
-                                    go.Scatter(
-                                        x=x + x[::-1],
-                                        y=q3 + q1[::-1],
-                                        fill="toself",
-                                        fillcolor=to_rgba(metric_color, alpha=0.35),
-                                        line=dict(width=0),
-                                        showlegend=False,
-                                        hoverinfo="skip"
+                                if show_compare_energy_signal_iqr_band:
+                                    energy_fig.add_trace(
+                                        go.Scatter(
+                                            x=x + x[::-1],
+                                            y=q3 + q1[::-1],
+                                            fill="toself",
+                                            fillcolor=to_rgba(metric_color, alpha=0.35),
+                                            line=dict(width=0),
+                                            showlegend=False,
+                                            hoverinfo="skip"
+                                        )
                                     )
-                                )
                                 energy_fig.add_trace(
                                     go.Scatter(
                                         x=[None],
