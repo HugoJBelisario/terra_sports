@@ -4794,7 +4794,7 @@ with tab_joint:
                 key="joint_energy_metrics_compare"
             )
     else:
-        display_col, options_col, spacer_col = st.columns([1.35, 1.5, 3.15])
+        display_col, options_col, spacer_col = st.columns([1.45, 1.75, 2.2])
         with display_col:
             st.markdown('<div class="joint-controls-label">Display Mode</div>', unsafe_allow_html=True)
             display_mode = st.segmented_control(
