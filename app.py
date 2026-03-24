@@ -4051,7 +4051,7 @@ with tab_kinematic:
                             "Peak Time from Reference (ms)": reference_time_ms_grouped
                         })
                         curve_range = max(y_date) - min(y_date) if len(y_date) > 1 else 0
-                        y_offset = max(curve_range * 0.04, 12)
+                        y_offset = max(curve_range * 0.06, 18)
                         peak_marker_traces.append(
                             go.Scatter(
                                 x=[max_x],
