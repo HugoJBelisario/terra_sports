@@ -3840,7 +3840,7 @@ with tab_kinematic:
                     if comparison_grouping_enabled and is_control_group_label(group_label):
                         date_key = group_label
                     elif comparison_grouping_enabled:
-                        date_key = (group_label, date) if group_mode_aggregate_across_pitchers else ((group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date))
+                        date_key = group_label if group_mode_aggregate_across_pitchers else ((group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date))
                     else:
                         date_key = (pitcher_name, date) if multi_pitcher_mode else date
                     curves_by_date[date_key][take_id] = d
@@ -3852,7 +3852,8 @@ with tab_kinematic:
                     elif comparison_grouping_enabled and show_group_pitcher_breakout:
                         group_label, pitcher_name, date = date_key
                     elif comparison_grouping_enabled:
-                        group_label, date = date_key
+                        group_label = date_key
+                        date = "All Included Takes"
                         pitcher_name = ""
                     elif multi_pitcher_mode and not comparison_grouping_enabled:
                         pitcher_name, date = date_key
@@ -5055,7 +5056,7 @@ with tab_joint:
             if comparison_grouping_enabled and control_group_take:
                 date_key = group_label
             elif comparison_grouping_enabled:
-                date_key = (group_label, date) if group_mode_aggregate_across_pitchers else ((group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date))
+                date_key = group_label if group_mode_aggregate_across_pitchers else ((group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date))
             else:
                 date_key = (pitcher_name, date) if multi_pitcher_mode else date
             grouped_by_date.setdefault(date_key, {}).setdefault(kinematic, {})[take_id] = {
@@ -5193,7 +5194,8 @@ with tab_joint:
             elif comparison_grouping_enabled and show_group_pitcher_breakout:
                 group_label, pitcher_name, date = date_key
             elif comparison_grouping_enabled:
-                group_label, date = date_key
+                group_label = date_key
+                date = "All Included Takes"
                 pitcher_name = ""
             elif multi_pitcher_mode and not comparison_grouping_enabled:
                 pitcher_name, date = date_key
@@ -6064,7 +6066,7 @@ with tab_energy:
             if comparison_grouping_enabled and control_group_take:
                 date_key = group_label
             elif comparison_grouping_enabled:
-                date_key = (group_label, date) if group_mode_aggregate_across_pitchers else ((group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date))
+                date_key = group_label if group_mode_aggregate_across_pitchers else ((group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date))
             else:
                 date_key = (pitcher_name, date) if multi_pitcher_mode else date
             grouped_by_date.setdefault(date_key, {})[take_id] = {
@@ -6147,7 +6149,8 @@ with tab_energy:
                 elif comparison_grouping_enabled and show_group_pitcher_breakout:
                     group_label, pitcher_name, date = date_key
                 elif comparison_grouping_enabled:
-                    group_label, date = date_key
+                    group_label = date_key
+                    date = "All Included Takes"
                     pitcher_name = ""
                 elif multi_pitcher_mode and not comparison_grouping_enabled:
                     pitcher_name, date = date_key
