@@ -4357,10 +4357,10 @@ with tab_kinematic:
                 df_pivot = df_pivot[ordered_cols]
 
             segment_colors = {
-                "Pelvis Rotation": "rgba(0, 128, 0, 0.12)",
-                "Torso Rotation": "rgba(255, 215, 0, 0.12)",
-                "Elbow Extension": "rgba(128, 0, 128, 0.12)",
-                "Shoulder Internal Rotation": "rgba(255, 0, 0, 0.12)"
+                "Pelvis Rotation": "rgba(0, 0, 255, 0.10)",
+                "Torso Rotation": "rgba(255, 165, 0, 0.10)",
+                "Elbow Extension": "rgba(0, 128, 0, 0.10)",
+                "Shoulder Internal Rotation": "rgba(255, 0, 0, 0.10)"
             }
 
             def style_segments(col):
