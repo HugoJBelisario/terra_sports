@@ -4552,13 +4552,35 @@ with tab_kinematic:
 with tab_joint:
     st.subheader("Kinematics")
     render_group_selection_summary()
-    joint_view_mode = st.radio(
-        "View Mode",
-        ["Single", "Comparison"],
-        index=0,
-        horizontal=True,
-        key="joint_view_mode"
+    st.markdown(
+        """
+        <style>
+        .joint-controls-label {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: #6b7280;
+            margin-bottom: 0.1rem;
+        }
+
+        .joint-toggle-label {
+            margin-top: -0.1rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
+    joint_top_col, joint_top_spacer = st.columns([1.2, 4.8])
+    with joint_top_col:
+        st.markdown('<div class="joint-controls-label">View Mode</div>', unsafe_allow_html=True)
+        joint_view_mode = st.segmented_control(
+            "View Mode",
+            ["Single", "Comparison"],
+            default="Single",
+            key="joint_view_mode",
+            label_visibility="collapsed",
+        )
+    with joint_top_spacer:
+        st.markdown("")
 
     kinematic_options = [
         "Elbow Flexion",
@@ -4705,25 +4727,32 @@ with tab_joint:
     if joint_view_mode == "Comparison":
         control_left_col, control_right_col = st.columns(2)
         with control_left_col:
-            display_mode = st.radio(
+            st.markdown('<div class="joint-controls-label">Display Mode</div>', unsafe_allow_html=True)
+            display_mode = st.segmented_control(
                 "Kinematics Display Mode",
                 ["Individual Throws", "Grouped"],
-                index=1,
-                horizontal=True,
-                key="joint_display_mode_compare"
+                default="Grouped",
+                key="joint_display_mode_compare",
+                label_visibility="collapsed",
             )
-            show_joint_fp_iqr_band = st.checkbox(
-                "Show Event IQR Bands",
-                value=False,
-                key="joint_show_fp_iqr_band_compare"
-            )
-            joint_window_mode = st.radio(
-                "Kinematics View",
-                ["Peak Knee Height View", "Foot Plant to Ball Release View"],
-                index=0,
-                horizontal=True,
-                key="joint_window_mode_compare"
-            )
+            left_options_col, left_window_col = st.columns([0.9, 1.6])
+            with left_options_col:
+                st.markdown('<div class="joint-controls-label joint-toggle-label">Options</div>', unsafe_allow_html=True)
+                show_joint_fp_iqr_band = st.toggle(
+                    "Event Bands",
+                    value=False,
+                    key="joint_show_fp_iqr_band_compare",
+                    help="Shows the middle 50% range for event timing across selected throws.",
+                )
+            with left_window_col:
+                st.markdown('<div class="joint-controls-label">View Window</div>', unsafe_allow_html=True)
+                joint_window_mode = st.segmented_control(
+                    "Kinematics View",
+                    ["Peak Knee Height View", "Foot Plant to Ball Release View"],
+                    default="Peak Knee Height View",
+                    key="joint_window_mode_compare",
+                    label_visibility="collapsed",
+                )
             selected_kinematics = st.multiselect(
                 "Select Kinematics",
                 options=kinematic_options,
@@ -4764,25 +4793,35 @@ with tab_joint:
                 key="joint_energy_metrics_compare"
             )
     else:
-        display_mode = st.radio(
-            "Select Display Mode",
-            ["Individual Throws", "Grouped"],
-            index=1,
-            horizontal=True,
-            key="joint_display_mode"
-        )
-        show_joint_fp_iqr_band = st.checkbox(
-            "Show Event IQR Bands",
-            value=False,
-            key="joint_show_fp_iqr_band"
-        )
-        joint_window_mode = st.radio(
-            "Kinematics View",
-            ["Peak Knee Height View", "Foot Plant to Ball Release View"],
-            index=0,
-            horizontal=True,
-            key="joint_window_mode"
-        )
+        display_col, options_col, window_col, spacer_col = st.columns([1.35, 0.85, 1.75, 1.8])
+        with display_col:
+            st.markdown('<div class="joint-controls-label">Display Mode</div>', unsafe_allow_html=True)
+            display_mode = st.segmented_control(
+                "Select Display Mode",
+                ["Individual Throws", "Grouped"],
+                default="Grouped",
+                key="joint_display_mode",
+                label_visibility="collapsed",
+            )
+        with options_col:
+            st.markdown('<div class="joint-controls-label joint-toggle-label">Options</div>', unsafe_allow_html=True)
+            show_joint_fp_iqr_band = st.toggle(
+                "Event Bands",
+                value=False,
+                key="joint_show_fp_iqr_band",
+                help="Shows the middle 50% range for event timing across selected throws.",
+            )
+        with window_col:
+            st.markdown('<div class="joint-controls-label">View Window</div>', unsafe_allow_html=True)
+            joint_window_mode = st.segmented_control(
+                "Kinematics View",
+                ["Peak Knee Height View", "Foot Plant to Ball Release View"],
+                default="Peak Knee Height View",
+                key="joint_window_mode",
+                label_visibility="collapsed",
+            )
+        with spacer_col:
+            st.markdown("")
         selected_kinematics = st.multiselect(
             "Select Kinematics",
             options=kinematic_options,
