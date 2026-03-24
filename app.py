@@ -3127,15 +3127,6 @@ def build_shared_dashboard_state():
 
 st.title("Terra Sports Biomechanics Dashboard")
 
-if group_mode_enabled:
-    banner_col, action_col = st.columns([4.5, 1.2])
-    with banner_col:
-        st.info("Create Groups Mode Active. Return to the default view when you're finished comparing custom groups.")
-    with action_col:
-        st.markdown("")
-        if st.button("Return to Default View", key="return_to_default_view_btn", use_container_width=True):
-            exit_group_mode()
-
 # --------------------------------------------------
 # Tabs
 # --------------------------------------------------
