@@ -4274,29 +4274,91 @@ with tab_kinematic:
                     sort_cols = ["Pitcher"] + sort_cols
                 df_individual = df_individual.sort_values(sort_cols)
 
+                index_cols = ["Session Date", "Velocity (mph)"]
+                if comparison_grouping_enabled and "Group" in df_individual.columns:
+                    index_cols = ["Group"] + index_cols
+                if multi_pitcher_mode and "Pitcher" in df_individual.columns:
+                    index_cols = (
+                        (["Group"] if comparison_grouping_enabled and "Group" in df_individual.columns else [])
+                        + ["Pitcher", "Session Date", "Velocity (mph)"]
+                    )
+
+                segment_metric_map = {
+                    "Pelvis Rotation Peak (°/s)": ("Pelvis Rotation", "Peak (°/s)"),
+                    "Pelvis Rotation Time from FP (ms)": ("Pelvis Rotation", "Peak Time from Foot Plant (ms)"),
+                    "Torso Rotation Peak (°/s)": ("Torso Rotation", "Peak (°/s)"),
+                    "Torso Rotation Time from Peak Pelvis (ms)": ("Torso Rotation", "Peak Time from Peak Pelvis (ms)"),
+                    "Elbow Extension Peak (°/s)": ("Elbow Extension", "Peak (°/s)"),
+                    "Elbow Extension Time from Peak Torso (ms)": ("Elbow Extension", "Peak Time from Peak Torso (ms)"),
+                    "Shoulder Internal Rotation Peak (°/s)": ("Shoulder Internal Rotation", "Peak (°/s)"),
+                    "Shoulder Internal Rotation Time from Peak Elbow (ms)": ("Shoulder Internal Rotation", "Peak Time from Peak Elbow (ms)"),
+                }
+                value_cols = list(segment_metric_map.keys())
+                df_individual_display = df_individual[index_cols + value_cols].set_index(index_cols)
+                df_individual_display.columns = pd.MultiIndex.from_tuples(
+                    [segment_metric_map[col] for col in value_cols]
+                )
+
+                segment_order = [
+                    "Pelvis Rotation",
+                    "Torso Rotation",
+                    "Elbow Extension",
+                    "Shoulder Internal Rotation",
+                ]
+                ordered_cols = []
+                for seg in segment_order:
+                    segment_metrics = [
+                        "Peak (°/s)",
+                        {
+                            "Pelvis Rotation": "Peak Time from Foot Plant (ms)",
+                            "Torso Rotation": "Peak Time from Peak Pelvis (ms)",
+                            "Elbow Extension": "Peak Time from Peak Torso (ms)",
+                            "Shoulder Internal Rotation": "Peak Time from Peak Elbow (ms)",
+                        }[seg],
+                    ]
+                    for metric_name in segment_metrics:
+                        if (seg, metric_name) in df_individual_display.columns:
+                            ordered_cols.append((seg, metric_name))
+                if ordered_cols:
+                    df_individual_display = df_individual_display[ordered_cols]
+
+                segment_colors = {
+                    "Pelvis Rotation": "#DBEAFE",
+                    "Torso Rotation": "#FED7AA",
+                    "Elbow Extension": "#DCFCE7",
+                    "Shoulder Internal Rotation": "#FEE2E2",
+                }
+
+                def style_segments(col):
+                    seg = col[0]
+                    if seg in segment_colors:
+                        return [f"background-color: {segment_colors[seg]}"] * len(df_individual_display)
+                    return [""] * len(df_individual_display)
+
+                def style_segment_headers(headers):
+                    return [
+                        f"background-color: {segment_colors.get(header, '#FFFFFF')}; color: #111827;"
+                        if header in segment_colors else ""
+                        for header in headers
+                    ]
+
                 def fmt(val, decimals=2):
                     if val is None or (isinstance(val, float) and np.isnan(val)):
                         return ""
                     return f"{val:.{decimals}f}"
 
                 styled_individual = (
-                    df_individual
+                    df_individual_display
                     .style
-                    .format({
-                        "Velocity (mph)": lambda x: fmt(x, 1),
-                        "Pelvis Rotation Peak (°/s)": lambda x: fmt(x, 1),
-                        "Torso Rotation Peak (°/s)": lambda x: fmt(x, 1),
-                        "Elbow Extension Peak (°/s)": lambda x: fmt(x, 1),
-                        "Shoulder Internal Rotation Peak (°/s)": lambda x: fmt(x, 1),
-                        "Pelvis Rotation Time from FP (ms)": lambda x: "" if x is None else f"{x:.0f}",
-                        "Torso Rotation Time from Peak Pelvis (ms)": lambda x: fmt(x, 0),
-                        "Elbow Extension Time from Peak Torso (ms)": lambda x: fmt(x, 0),
-                        "Shoulder Internal Rotation Time from Peak Elbow (ms)": lambda x: fmt(x, 0),
-                    })
+                    .format(lambda x: fmt(x, 1) if isinstance(x, (int, float, np.floating)) else x)
+                    .apply(style_segments, axis=0)
+                    .apply_index(style_segment_headers, axis="columns", level=0)
                     .set_table_styles([
-                        {"selector": "th", "props": [("text-align", "center")]}
+                        {"selector": "th", "props": [("text-align", "center")]},
+                        {"selector": "th.row_heading", "props": [("text-align", "center")]},
+                        {"selector": "th.index_name", "props": [("text-align", "center")]},
                     ])
-                    .set_properties(**{"text-align": "center"})
+                    .set_properties(**{"text-align": "center", "font-weight": "500"})
                 )
 
                 st.dataframe(styled_individual, use_container_width=True)
