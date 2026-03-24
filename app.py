@@ -2796,20 +2796,17 @@ def build_shared_dashboard_state():
             st.session_state["excluded_take_ids"] = [
                 label_to_take_id[label] for label in excluded_labels
             ]
-            create_groups_col, control_group_col = st.sidebar.columns(2)
-            with create_groups_col:
-                if st.button("Create Groups", key="create_groups_mode_btn", use_container_width=True):
-                    st.session_state["create_groups_mode"] = True
+            if st.sidebar.button("Create Groups", key="create_groups_mode_btn", use_container_width=True):
+                st.session_state["create_groups_mode"] = True
+                st.rerun()
+            if not st.session_state.get("show_control_group_velocity"):
+                if st.sidebar.button(
+                    "Create Control Group",
+                    key="create_control_group_btn",
+                    use_container_width=True
+                ):
+                    st.session_state["show_control_group_velocity"] = True
                     st.rerun()
-            with control_group_col:
-                if not st.session_state.get("show_control_group_velocity"):
-                    if st.button(
-                        "Create Control Group",
-                        key="create_control_group_btn",
-                        use_container_width=True
-                    ):
-                        st.session_state["show_control_group_velocity"] = True
-                        st.rerun()
             shared_take_ids = [
                 tid for tid in shared_take_ids
                 if tid not in st.session_state["excluded_take_ids"]
@@ -4103,7 +4100,13 @@ with tab_kinematic:
                             go.Scatter(
                                 x=[max_x],
                                 y=[max_y],
-                                mode="text",
+                                mode="markers+text",
+                                marker=dict(
+                                    symbol="triangle-down",
+                                    size=24,
+                                    color=color,
+                                    opacity=0,
+                                ),
                                 text=["▼"],
                                 textposition="top center",
                                 textfont=dict(
