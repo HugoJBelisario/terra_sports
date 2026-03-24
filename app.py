@@ -2916,7 +2916,7 @@ def build_shared_dashboard_state():
                             pitcher for pitcher in st.session_state["control_group_pitchers"]
                             if pitcher in control_group_pitcher_options
                         ]
-                    if set(st.session_state["control_group_pitchers"]) != set(control_group_pitcher_options):
+                    if not st.session_state["control_group_pitchers"] and control_group_pitcher_options:
                         st.session_state["control_group_pitchers"] = list(control_group_pitcher_options)
 
                     selected_control_pitchers = st.sidebar.multiselect(
@@ -2963,8 +2963,6 @@ def build_shared_dashboard_state():
                     control_group_velocities = list(control_group_take_velocity.values())
                     if not control_group_velocities:
                         st.sidebar.info("No control-group takes found for the selected pitcher and handedness filters.")
-                        st.session_state["control_group_take_ids"] = []
-                        st.session_state["control_group_arm_slot_ids"] = []
                     else:
                         control_velocity_min = float(min(control_group_velocities))
                         control_velocity_max = float(max(control_group_velocities))
@@ -2992,7 +2990,7 @@ def build_shared_dashboard_state():
                             step=0.5,
                             key=control_velocity_key
                         )
-                        st.session_state["control_group_take_ids"] = [
+                        candidate_control_take_ids = [
                             tid for tid, velocity in control_group_take_velocity.items()
                             if selected_control_velocity_range[0]
                             <= velocity
@@ -3000,9 +2998,10 @@ def build_shared_dashboard_state():
                         ]
                         eligible_arm_slot_values = [
                             control_group_arm_slot[tid]
-                            for tid in st.session_state["control_group_take_ids"]
+                            for tid in candidate_control_take_ids
                             if tid in control_group_arm_slot
                         ]
+                        final_candidate_control_take_ids = list(candidate_control_take_ids)
                         if eligible_arm_slot_values:
                             arm_slot_min = float(min(eligible_arm_slot_values))
                             arm_slot_max = float(max(eligible_arm_slot_values))
@@ -3027,23 +3026,30 @@ def build_shared_dashboard_state():
                                 step=0.5,
                                 key=arm_slot_key
                             )
-                            st.session_state["control_group_arm_slot_ids"] = [
-                                tid for tid in st.session_state["control_group_take_ids"]
+                            final_candidate_control_take_ids = [
+                                tid for tid in candidate_control_take_ids
                                 if tid in control_group_arm_slot
                                 and selected_arm_slot_range[0]
                                 <= control_group_arm_slot[tid]
                                 <= selected_arm_slot_range[1]
                             ]
-                            st.session_state["control_group_take_ids"] = list(
-                                st.session_state["control_group_arm_slot_ids"]
-                            )
                         else:
                             st.sidebar.info("Arm slot data not available for the current control-group filters.")
-                            st.session_state["control_group_arm_slot_ids"] = []
+                        st.sidebar.caption(f"Matching takes: {len(final_candidate_control_take_ids)}")
+                        if st.sidebar.button(
+                            "Generate Control Group",
+                            key="generate_control_group_btn",
+                            use_container_width=True
+                        ):
+                            st.session_state["control_group_take_ids"] = list(final_candidate_control_take_ids)
+                            st.session_state["control_group_arm_slot_ids"] = list(final_candidate_control_take_ids)
+                            st.rerun()
+                        if st.session_state.get("control_group_take_ids"):
+                            st.sidebar.caption(
+                                f"Current control group: {len(st.session_state['control_group_take_ids'])} takes"
+                            )
                 else:
                     st.sidebar.info("No control-group takes found.")
-                    st.session_state["control_group_take_ids"] = []
-                    st.session_state["control_group_arm_slot_ids"] = []
 
             primary_take_ids = list(shared_take_ids)
             control_take_ids = [
@@ -4900,10 +4906,11 @@ with tab_joint:
         with kinematics_select_spacer:
             st.markdown("")
 
-    if not selected_kinematics:
+    has_kinematics_selection = bool(selected_kinematics)
+
+    if not has_kinematics_selection and joint_view_mode == "Single":
         st.info("Select at least one kinematic.")
-        if joint_view_mode == "Single":
-            st.stop()
+        st.stop()
 
     # --- Color map for joint types ---
     joint_color_map = {
@@ -5527,11 +5534,15 @@ with tab_joint:
     if joint_view_mode == "Comparison":
         plot_left_col, plot_right_col = st.columns(2)
         with plot_left_col:
-            st.markdown("#### Kinematics")
-            st.plotly_chart(fig, use_container_width=True, key="joint_plot_compare_left")
+            if has_kinematics_selection:
+                st.markdown("#### Kinematics")
+                st.plotly_chart(fig, use_container_width=True, key="joint_plot_compare_left")
+            else:
+                st.info("Select at least one kinematic to render the left-side plot.")
 
         with plot_right_col:
-            st.markdown("#### Energy Flow")
+            if compare_energy_metrics:
+                st.markdown("#### Energy Flow")
             if not compare_energy_metrics:
                 st.info("Select at least one energy flow metric to render the right-side plot.")
             elif not take_ids:
