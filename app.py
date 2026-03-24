@@ -4794,7 +4794,7 @@ with tab_joint:
                 key="joint_energy_metrics_compare"
             )
     else:
-        display_col, options_col, window_col, spacer_col, mode_col = st.columns([1.25, 1.3, 1.7, 1.2, 1.1])
+        display_col, options_col, spacer_col = st.columns([1.35, 1.5, 3.15])
         with display_col:
             st.markdown('<div class="joint-controls-label">Display Mode</div>', unsafe_allow_html=True)
             display_mode = st.segmented_control(
@@ -4821,6 +4821,10 @@ with tab_joint:
                     key="joint_show_signal_iqr_band",
                     help="Shows the middle 50% range around each grouped mean line.",
                 )
+        with spacer_col:
+            st.markdown("")
+
+        window_col, mode_col, second_row_spacer = st.columns([1.8, 1.1, 3.1])
         with window_col:
             st.markdown('<div class="joint-controls-label">View Window</div>', unsafe_allow_html=True)
             joint_window_mode = st.segmented_control(
@@ -4830,8 +4834,6 @@ with tab_joint:
                 key="joint_window_mode",
                 label_visibility="collapsed",
             )
-        with spacer_col:
-            st.markdown("")
         with mode_col:
             st.markdown('<div class="joint-controls-label">View Mode</div>', unsafe_allow_html=True)
             joint_view_mode = st.segmented_control(
@@ -4841,6 +4843,8 @@ with tab_joint:
                 key="joint_view_mode",
                 label_visibility="collapsed",
             )
+        with second_row_spacer:
+            st.markdown("")
         selected_kinematics = st.multiselect(
             "Select Kinematics",
             options=kinematic_options,
