@@ -2518,6 +2518,16 @@ else:
             st.rerun()
         if st.sidebar.button("Exit Group Mode", key="exit_group_mode_btn", use_container_width=True):
             exit_group_mode()
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**Control Group**")
+        if not st.session_state.get("show_control_group_velocity"):
+            if st.sidebar.button(
+                "Create Control Group",
+                key="create_control_group_btn_group_mode",
+                use_container_width=True
+            ):
+                st.session_state["show_control_group_velocity"] = True
+                st.rerun()
 
         # Merge group filters into the existing downstream data model.
         for group_cfg in group_configs:
@@ -2920,6 +2930,79 @@ def build_shared_dashboard_state():
 
                 if st.session_state.get("control_group_status_message"):
                     st.sidebar.caption(st.session_state["control_group_status_message"])
+        elif group_mode_enabled and st.session_state.get("show_control_group_velocity"):
+            if st.sidebar.button(
+                "Remove Control Group",
+                key="remove_control_group_btn_group_mode",
+                use_container_width=True
+            ):
+                remove_control_group()
+            with st.sidebar.form("control_group_filters_form_group_mode"):
+                st.multiselect(
+                    "Pitchers",
+                    options=pitcher_names,
+                    key="control_group_pitchers"
+                )
+                st.radio(
+                    "Handedness",
+                    options=["Both", "Left", "Right"],
+                    key="control_group_handedness",
+                    horizontal=True
+                )
+                st.slider(
+                    "Velocity Range (mph)",
+                    min_value=50.0,
+                    max_value=100.0,
+                    value=st.session_state.get("control_group_velocity_range", (50.0, 100.0)),
+                    step=0.5,
+                    key="control_group_velocity_range"
+                )
+                st.slider(
+                    "Arm Slot",
+                    min_value=0.0,
+                    max_value=120.0,
+                    value=st.session_state.get("control_group_arm_slot_range", (0.0, 120.0)),
+                    step=0.5,
+                    key="control_group_arm_slot_range"
+                )
+                generate_control_group = st.form_submit_button(
+                    "Generate Control Group",
+                    use_container_width=True
+                )
+
+            if generate_control_group:
+                handedness_filter = st.session_state.get("control_group_handedness", "Both")
+                pool_handedness = (
+                    "L" if handedness_filter == "Left"
+                    else "R" if handedness_filter == "Right"
+                    else None
+                )
+                all_control_group_pool = get_control_group_take_pool(pool_handedness)
+                selected_pitcher_set = set(st.session_state.get("control_group_pitchers", []))
+                selected_velocity_range = st.session_state.get("control_group_velocity_range", (50.0, 100.0))
+                selected_arm_slot_range = st.session_state.get("control_group_arm_slot_range", (0.0, 120.0))
+
+                final_candidate_control_take_ids = []
+                for take_id, pitch_velo, athlete_name, _, arm_slot_deg in all_control_group_pool:
+                    if selected_pitcher_set and athlete_name not in selected_pitcher_set:
+                        continue
+                    if pitch_velo is None or not (selected_velocity_range[0] <= float(pitch_velo) <= selected_velocity_range[1]):
+                        continue
+                    if arm_slot_deg is None or not (selected_arm_slot_range[0] <= float(arm_slot_deg) <= selected_arm_slot_range[1]):
+                        continue
+                    final_candidate_control_take_ids.append(take_id)
+
+                st.session_state["control_group_take_ids"] = list(final_candidate_control_take_ids)
+                st.session_state["control_group_arm_slot_ids"] = list(final_candidate_control_take_ids)
+                st.session_state["control_group_status_message"] = (
+                    f"Current control group: {len(final_candidate_control_take_ids)} takes"
+                    if final_candidate_control_take_ids else
+                    "No control-group takes found for the selected filters."
+                )
+                st.rerun()
+
+            if st.session_state.get("control_group_status_message"):
+                st.sidebar.caption(st.session_state["control_group_status_message"])
 
             primary_take_ids = list(shared_take_ids)
             control_take_ids = [
@@ -4313,6 +4396,16 @@ with tab_kinematic:
                         {"selector": "th", "props": [("text-align", "center")]},
                         {"selector": "th.row_heading", "props": [("text-align", "center")]},
                         {"selector": "th.index_name", "props": [("text-align", "center")]},
+                        *(
+                            [
+                                {
+                                    "selector": "th.row_heading.level0",
+                                    "props": [("min-width", "80px"), ("max-width", "80px")]
+                                }
+                            ]
+                            if df_individual_display.index.names and df_individual_display.index.names[0] == "Group"
+                            else []
+                        ),
                     ])
                     .set_properties(**{"text-align": "center", "font-weight": "500"})
                 )
@@ -4426,6 +4519,16 @@ with tab_kinematic:
                     {"selector": "th", "props": [("text-align", "center")]},
                     {"selector": "th.row_heading", "props": [("text-align", "center")]},
                     {"selector": "th.index_name", "props": [("text-align", "center")]},
+                    *(
+                        [
+                            {
+                                "selector": "th.row_heading.level0",
+                                "props": [("min-width", "80px"), ("max-width", "80px")]
+                            }
+                        ]
+                        if df_display.index.names and df_display.index.names[0] == "Group"
+                        else []
+                    ),
                 ])
                 .set_properties(**{"text-align": "center", "font-weight": "500"})
             )
@@ -5790,7 +5893,18 @@ with tab_joint:
                 **{"text-align": "center"}
             )
         )
-        st.dataframe(styled_summary, use_container_width=True)
+        summary_column_config = {}
+        if "Group" in df_summary.columns:
+            summary_column_config["Group"] = st.column_config.TextColumn(
+                "Group",
+                width="small",
+            )
+
+        st.dataframe(
+            styled_summary,
+            use_container_width=True,
+            column_config=summary_column_config or None,
+        )
 
     if not show_single_kinematics_empty_state:
         st.markdown("### Kinematic Definitions")
