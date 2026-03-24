@@ -4026,6 +4026,17 @@ with tab_kinematic:
                             **({"Group": group_label} if comparison_grouping_enabled else {}),
                             **({"Pitcher": pitcher_name} if multi_pitcher_mode else {}),
                             "Session Date": date,
+                            "Velocity (mph)": (
+                                float(np.mean([
+                                    take_velocity[tid]
+                                    for tid in curves_date.keys()
+                                    if tid in take_velocity and take_velocity[tid] is not None
+                                ]))
+                                if any(
+                                    tid in take_velocity and take_velocity[tid] is not None
+                                    for tid in curves_date.keys()
+                                ) else None
+                            ),
                             "Segment": segment_display_name(label),
                             "Peak Value (°/s)": max_y,
                             "Peak Time from Reference (ms)": reference_time_ms_grouped
@@ -4371,11 +4382,14 @@ with tab_kinematic:
             st.markdown("### Kinematic Sequence - Grouped")
 
             df = pd.DataFrame(kinematic_peak_rows)
-            index_cols = ["Session Date"]
+            index_cols = ["Session Date", "Velocity (mph)"]
             if comparison_grouping_enabled and "Group" in df.columns:
                 index_cols = ["Group"] + index_cols
             if multi_pitcher_mode and "Pitcher" in df.columns:
-                index_cols = (["Group"] if comparison_grouping_enabled and "Group" in df.columns else []) + ["Pitcher", "Session Date"]
+                index_cols = (
+                    (["Group"] if comparison_grouping_enabled and "Group" in df.columns else [])
+                    + ["Pitcher", "Session Date", "Velocity (mph)"]
+                )
 
             df_pivot = df.pivot_table(
                 index=index_cols,
