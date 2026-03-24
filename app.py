@@ -2460,8 +2460,6 @@ def remove_control_group():
 if not pitcher_names:
     st.sidebar.warning("No pitchers found in the database.")
 else:
-    if group_mode_enabled and st.sidebar.button("Exit Group Mode", key="exit_group_mode_btn", use_container_width=True):
-        exit_group_mode()
     if group_mode_enabled:
         group_count = max(1, int(st.session_state.get("group_count", 1)))
         st.session_state["group_count"] = group_count
@@ -2505,6 +2503,8 @@ else:
         if st.sidebar.button("Create Another Group", key="create_another_group_btn", use_container_width=True):
             st.session_state["group_count"] = group_count + 1
             st.rerun()
+        if st.sidebar.button("Exit Group Mode", key="exit_group_mode_btn", use_container_width=True):
+            exit_group_mode()
 
         # Merge group filters into the existing downstream data model.
         for group_cfg in group_configs:
@@ -5641,6 +5641,8 @@ with tab_joint:
                                             "%{customdata[0]} – %{customdata[1]} | "
                                             "Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
                                             + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                                            + "<br>%{customdata[0]}: %{y:.1f}"
+                                            + "<br>Time: %{x:.0f} ms rel BR"
                                             + "<extra></extra>"
                                         ),
                                         showlegend=False
@@ -5689,6 +5691,8 @@ with tab_joint:
                                         hovertemplate=(
                                             "%{customdata[0]} – %{customdata[1]}"
                                             + (" | %{customdata[2]}" if multi_pitcher_mode else "")
+                                            + "<br>%{customdata[0]}: %{y:.1f}"
+                                            + "<br>Time: %{x:.0f} ms rel BR"
                                             + "<extra></extra>"
                                         ),
                                         showlegend=False
@@ -6158,6 +6162,8 @@ with tab_energy:
                             "%{customdata[0]} – %{customdata[1]} | "
                             "Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
                             + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                            + "<br>%{customdata[0]}: %{y:.1f}"
+                            + "<br>Time: %{x:.0f} ms rel BR"
                             + "<extra></extra>"
                         ),
                         name=(
@@ -6243,6 +6249,8 @@ with tab_energy:
                         hovertemplate=(
                             "%{customdata[0]} – %{customdata[1]}"
                             + (" | %{customdata[2]}" if multi_pitcher_mode else "")
+                            + "<br>%{customdata[0]}: %{y:.1f}"
+                            + "<br>Time: %{x:.0f} ms rel BR"
                             + "<extra></extra>"
                         ),
                         showlegend=False
