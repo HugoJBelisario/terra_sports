@@ -5723,7 +5723,7 @@ with tab_joint:
             base_columns.remove("Peak Knee Height")
         if comparison_grouping_enabled:
             base_columns = ["Group"] + base_columns
-        if multi_pitcher_mode:
+        if show_group_pitcher_breakout:
             base_columns = ["Pitcher"] + base_columns
 
         if display_mode == "Grouped":
