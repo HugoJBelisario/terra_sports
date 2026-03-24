@@ -5878,6 +5878,7 @@ with tab_joint:
         styled_summary = (
             df_summary
             .style
+            .hide(axis="index")
             # Center headers
             .set_table_styles([
                 {"selector": "th", "props": [("text-align", "center")]}
