@@ -4038,6 +4038,11 @@ with tab_kinematic:
 
                         grouped_peak_time_reference[(date_key, label)] = max_x
 
+                        local_y_min = min(y_date) if y_date else max_y
+                        local_y_max = max(y_date) if y_date else max_y
+                        local_y_span = max(local_y_max - local_y_min, 1)
+                        peak_marker_y = max_y + (0.08 * local_y_span)
+
                         kinematic_peak_rows.append({
                             **({"Group": group_label} if comparison_grouping_enabled else {}),
                             **({"Pitcher": pitcher_name} if show_group_pitcher_breakout else {}),
@@ -4060,19 +4065,12 @@ with tab_kinematic:
                         peak_marker_traces.append(
                             go.Scatter(
                                 x=[max_x],
-                                y=[max_y],
-                                mode="markers+text",
+                                y=[peak_marker_y],
+                                mode="markers",
                                 marker=dict(
                                     symbol="triangle-down",
-                                    size=24,
+                                    size=18,
                                     color=color,
-                                    opacity=0,
-                                ),
-                                text=["▼"],
-                                textposition="top center",
-                                textfont=dict(
-                                    color=color,
-                                    size=28,
                                 ),
                                 showlegend=False,
                                 legendgroup=legendgroup,
@@ -4083,6 +4081,7 @@ with tab_kinematic:
                                     pitcher_name,
                                     max_y,
                                     max_x,
+                                    peak_marker_y,
                                 ]],
                                 hovertemplate=(
                                     ("%{customdata[2]} | " if comparison_grouping_enabled else "")
