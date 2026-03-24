@@ -4366,11 +4366,12 @@ with tab_kinematic:
                     .format(lambda x: fmt(x, 1) if isinstance(x, (int, float, np.floating)) else x)
                     .apply_index(style_segment_headers, axis="columns", level=0)
                     .set_table_styles([
-                        {"selector": "th", "props": [("text-align", "center")]},
-                        {"selector": "th.row_heading", "props": [("text-align", "center")]},
-                        {"selector": "th.index_name", "props": [("text-align", "center")]},
+                        {"selector": "th", "props": [("text-align", "center"), ("color", "#000000")]},
+                        {"selector": "th.row_heading", "props": [("text-align", "center"), ("color", "#000000")]},
+                        {"selector": "th.index_name", "props": [("text-align", "center"), ("color", "#000000")]},
+                        {"selector": "td", "props": [("color", "#000000")]},
                     ])
-                    .set_properties(**{"text-align": "center", "font-weight": "500"})
+                    .set_properties(**{"text-align": "center", "font-weight": "500", "color": "#000000"})
                 )
 
                 st.dataframe(styled_individual, use_container_width=True)
@@ -4457,9 +4458,19 @@ with tab_kinematic:
                 ]
 
             df_display = df_pivot.copy()
+            if "Velocity (mph)" in df_display.index.names:
+                velocity_level = df_display.index.names.index("Velocity (mph)")
+                formatted_index = []
+                for idx in df_display.index:
+                    idx_list = list(idx) if isinstance(idx, tuple) else [idx]
+                    velocity_value = idx_list[velocity_level]
+                    if velocity_value is not None and not pd.isna(velocity_value):
+                        idx_list[velocity_level] = f"{velocity_value:.1f}"
+                    formatted_index.append(tuple(idx_list) if isinstance(idx, tuple) else idx_list[0])
+                df_display.index = pd.MultiIndex.from_tuples(formatted_index, names=df_display.index.names)
             for col in df_display.columns:
                 if col[1] == "Peak (°/s)":
-                    df_display[col] = df_display[col].map(lambda x: "" if x is None or pd.isna(x) else f"{x:.1f}")
+                    df_display[col] = df_display[col].map(lambda x: "" if x is None or pd.isna(x) else f"{x:.0f}")
                 elif "Time" in col[1]:
                     df_display[col] = df_display[col].map(lambda x: "" if x is None or pd.isna(x) else f"{x:.0f}")
 
@@ -4469,11 +4480,12 @@ with tab_kinematic:
                 .apply(style_segments, axis=0)
                 .apply_index(style_segment_headers, axis="columns", level=0)
                 .set_table_styles([
-                    {"selector": "th", "props": [("text-align", "center")]},
-                    {"selector": "th.row_heading", "props": [("text-align", "center")]},
-                    {"selector": "th.index_name", "props": [("text-align", "center")]},
+                    {"selector": "th", "props": [("text-align", "center"), ("color", "#000000")]},
+                    {"selector": "th.row_heading", "props": [("text-align", "center"), ("color", "#000000")]},
+                    {"selector": "th.index_name", "props": [("text-align", "center"), ("color", "#000000")]},
+                    {"selector": "td", "props": [("color", "#000000")]},
                 ])
-                .set_properties(**{"text-align": "center", "font-weight": "500"})
+                .set_properties(**{"text-align": "center", "font-weight": "500", "color": "#000000"})
             )
             st.dataframe(styled, use_container_width=True)
 
