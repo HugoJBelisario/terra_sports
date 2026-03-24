@@ -4357,10 +4357,10 @@ with tab_kinematic:
                 df_pivot = df_pivot[ordered_cols]
 
             segment_colors = {
-                "Pelvis Rotation": "rgba(0, 0, 255, 0.10)",
-                "Torso Rotation": "rgba(255, 165, 0, 0.10)",
-                "Elbow Extension": "rgba(0, 128, 0, 0.10)",
-                "Shoulder Internal Rotation": "rgba(255, 0, 0, 0.10)"
+                "Pelvis Rotation": "#DBEAFE",
+                "Torso Rotation": "#FED7AA",
+                "Elbow Extension": "#DCFCE7",
+                "Shoulder Internal Rotation": "#FEE2E2",
             }
 
             def style_segments(col):
@@ -4368,6 +4368,13 @@ with tab_kinematic:
                 if seg in segment_colors:
                     return [f"background-color: {segment_colors[seg]}"] * len(df_pivot)
                 return [""] * len(df_pivot)
+
+            def style_segment_headers(headers):
+                return [
+                    f"background-color: {segment_colors.get(header, '#FFFFFF')}; color: #111827;"
+                    if header in segment_colors else ""
+                    for header in headers
+                ]
 
             df_display = df_pivot.copy()
             for col in df_display.columns:
@@ -4380,6 +4387,7 @@ with tab_kinematic:
                 df_display
                 .style
                 .apply(style_segments, axis=0)
+                .apply_index(style_segment_headers, axis="columns", level=0)
                 .set_table_styles([
                     {"selector": "th", "props": [("text-align", "center")]},
                     {"selector": "th.row_heading", "props": [("text-align", "center")]},
