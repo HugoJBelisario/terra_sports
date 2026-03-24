@@ -2580,9 +2580,6 @@ group_palette = [
 
 def get_group_display_label(group_cfg):
     group_idx = group_cfg["group_index"]
-    pitchers = [p for p in group_cfg.get("selected_pitchers", []) if p]
-    if pitchers:
-        return f"Group {group_idx}: {', '.join(pitchers)}"
     return f"Group {group_idx}"
 
 def is_control_group_label(label):
@@ -2645,7 +2642,7 @@ def render_group_selection_summary():
         velocity_label = "; ".join(per_pitcher_ranges) if per_pitcher_ranges else "N/A"
         st.caption(
             f"{group_label} | "
-            f"Pitchers: {', '.join(group_pitchers)} | "
+            f"{', '.join(group_pitchers)} | "
             f"Throw Type: {throw_types_label} | "
             f"Velocity Range (mph): {velocity_label}"
         )
