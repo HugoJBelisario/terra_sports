@@ -5918,24 +5918,32 @@ with tab_energy:
     with energy_spacer_col:
         st.markdown("")
 
-    energy_metrics = st.multiselect(
-        "Select Energy Flow Metrics",
-        [
-            "Distal Arm Segment Power",
-            "Arm Proximal Energy Transfer",
-            "Trunk-Shoulder Rotational Energy Flow",
-            "Trunk-Shoulder Elevation/Depression Energy Flow",
-            "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
-            "Arm Rotational Energy Flow",
-            "Arm Elevation/Depression Energy Flow",
-            "Arm Horizontal Abd/Add Energy Flow",
-            "Throwing Arm RTA MMT (Z)"
-        ],
-        default=["Distal Arm Segment Power"]
-    )
+    energy_select_col, energy_select_spacer = st.columns([3, 3])
+    with energy_select_col:
+        energy_metrics = st.multiselect(
+            "Select Energy Flow Metrics",
+            [
+                "Distal Arm Segment Power",
+                "Arm Proximal Energy Transfer",
+                "Trunk-Shoulder Rotational Energy Flow",
+                "Trunk-Shoulder Elevation/Depression Energy Flow",
+                "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
+                "Arm Rotational Energy Flow",
+                "Arm Elevation/Depression Energy Flow",
+                "Arm Horizontal Abd/Add Energy Flow",
+                "Throwing Arm RTA MMT (Z)"
+            ],
+            default=[]
+        )
+    with energy_select_spacer:
+        st.markdown("")
 
     if not energy_metrics:
-        st.info("Select at least one energy flow metric.")
+        energy_empty_col, energy_empty_spacer = st.columns([3, 3])
+        with energy_empty_col:
+            st.info("Select at least one energy flow metric.")
+        with energy_empty_spacer:
+            st.markdown("")
         st.stop()
 
     if not take_ids:
