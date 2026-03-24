@@ -4337,12 +4337,6 @@ with tab_kinematic:
                     "Shoulder Internal Rotation": "#FEE2E2",
                 }
 
-                def style_segments(col):
-                    seg = col[0]
-                    if seg in segment_colors:
-                        return [f"background-color: {segment_colors[seg]}"] * len(df_individual_display)
-                    return [""] * len(df_individual_display)
-
                 def style_segment_headers(headers):
                     return [
                         f"background-color: {segment_colors.get(header, '#FFFFFF')}; color: #111827;"
@@ -4359,7 +4353,6 @@ with tab_kinematic:
                     df_individual_display
                     .style
                     .format(lambda x: fmt(x, 1) if isinstance(x, (int, float, np.floating)) else x)
-                    .apply(style_segments, axis=0)
                     .apply_index(style_segment_headers, axis="columns", level=0)
                     .set_table_styles([
                         {"selector": "th", "props": [("text-align", "center")]},
