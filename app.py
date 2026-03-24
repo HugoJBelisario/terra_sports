@@ -4102,20 +4102,31 @@ with tab_kinematic:
             align="center"
         )
 
+        grouped_visible_y_vals = []
         yaxis_range = None
         if display_mode == "Grouped":
-            all_grouped_vals = [
-                v
-                for curves in [grouped_pelvis, grouped_torso, grouped_elbow, grouped_shoulder_ir]
-                for d in curves.values()
-                for v in d["value"]
-                if v is not None
-            ]
-            if all_grouped_vals:
-                y_min = min(all_grouped_vals)
-                y_max = max(all_grouped_vals)
+            for trace in fig.data:
+                if getattr(trace, "type", None) != "scatter":
+                    continue
+                if getattr(trace, "mode", None) != "lines":
+                    continue
+                if getattr(trace, "fill", None) == "toself":
+                    continue
+
+                trace_y = getattr(trace, "y", None)
+                if trace_y is None:
+                    continue
+
+                grouped_visible_y_vals.extend(
+                    v for v in trace_y
+                    if v is not None and np.isfinite(v)
+                )
+
+            if grouped_visible_y_vals:
+                y_min = min(grouped_visible_y_vals)
+                y_max = max(grouped_visible_y_vals)
                 y_span = max(y_max - y_min, 1)
-                yaxis_range = [y_min - (0.08 * y_span), y_max + (0.16 * y_span)]
+                yaxis_range = [y_min - (0.10 * y_span), y_max + (0.22 * y_span)]
 
         fig.update_layout(
             xaxis_title="Time Relative to Ball Release (ms)",
