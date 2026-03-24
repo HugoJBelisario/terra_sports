@@ -3369,7 +3369,7 @@ with tab_kinematic:
         """,
         unsafe_allow_html=True,
     )
-    controls_col, toggle_col, spacer_col = st.columns([1.55, 0.85, 2.6])
+    controls_col, toggle_col, shade_col, spacer_col = st.columns([1.45, 0.8, 0.95, 2.2])
     with controls_col:
         st.markdown('<div class="ks-controls-label">Display Mode</div>', unsafe_allow_html=True)
         display_mode = st.segmented_control(
@@ -3382,10 +3382,18 @@ with tab_kinematic:
     with toggle_col:
         st.markdown('<div class="ks-controls-label ks-toggle-label">Options</div>', unsafe_allow_html=True)
         show_ks_fp_iqr_band = st.toggle(
-            "Range Bands",
+            "Event Bands",
             value=False,
             key="ks_show_fp_iqr_band",
             help="Shows the middle 50% range for event timing across selected throws.",
+        )
+    with shade_col:
+        st.markdown('<div class="ks-controls-label ks-toggle-label">Options</div>', unsafe_allow_html=True)
+        show_ks_signal_iqr_band = st.toggle(
+            "Signal Bands",
+            value=True,
+            key="ks_show_signal_iqr_band",
+            help="Shows the middle 50% range of angular velocity around each grouped mean line.",
         )
     with spacer_col:
         st.markdown("")
@@ -4073,18 +4081,19 @@ with tab_kinematic:
                             )
                         )
                     # --- IQR band (with legendgroup for toggleitem) ---
-                    fig.add_trace(
-                        go.Scatter(
-                            x=x_date + x_date[::-1],
-                            y=q3_date + q1_date[::-1],
-                            fill="toself",
-                            fillcolor=to_rgba(color, alpha=0.30),
-                            line=dict(width=0),
-                            showlegend=False,
-                            hoverinfo="skip",
-                            legendgroup=legendgroup
+                    if show_ks_signal_iqr_band:
+                        fig.add_trace(
+                            go.Scatter(
+                                x=x_date + x_date[::-1],
+                                y=q3_date + q1_date[::-1],
+                                fill="toself",
+                                fillcolor=to_rgba(color, alpha=0.30),
+                                line=dict(width=0),
+                                showlegend=False,
+                                hoverinfo="skip",
+                                legendgroup=legendgroup
+                            )
                         )
-                    )
 
             for peak_marker_trace in peak_marker_traces:
                 fig.add_trace(peak_marker_trace)
