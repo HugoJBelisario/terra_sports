@@ -4713,6 +4713,13 @@ with tab_joint:
         },
     }
 
+    def get_kinematic_unit(kinematic_name):
+        if "Velocity" in kinematic_name and "Hand Speed" not in kinematic_name and "Center of Mass Velocity" not in kinematic_name:
+            return "°/s"
+        if kinematic_name in {"Hand Speed", "Center of Mass Velocity (X)"}:
+            return "m/s"
+        return "°"
+
     compare_energy_metrics = []
     compare_energy_display_mode = "Grouped"
 
@@ -5158,13 +5165,12 @@ with tab_joint:
                         x=norm_f,
                         y=norm_v,
                         mode="lines",
-                        customdata=[[kinematic_definitions.get(kinematic, {}).get("definition", ""), hover_pitcher_name]] * len(norm_f),
+                        customdata=[[hover_pitcher_name]] * len(norm_f),
                         hovertemplate=(
                             "<b>%{fullData.name}</b><br>"
-                            "Time: %{x:.1f} ms<br>"
-                            "Value: %{y:.2f}<br>"
-                            "Definition: %{customdata[0]}"
-                            + ("<br>Pitcher: %{customdata[1]}" if multi_pitcher_mode else "")
+                            f"{kinematic}: %{{y:.1f}}{get_kinematic_unit(kinematic)}<br>"
+                            "Time: %{x:.1f} ms"
+                            + ("<br>Pitcher: %{customdata[0]}" if multi_pitcher_mode else "")
                             + "<extra></extra>"
                         ),
                         line=dict(
@@ -5308,12 +5314,10 @@ with tab_joint:
                         x=x,
                         y=y,
                         mode="lines",
-                        customdata=[[kinematic_definitions.get(kinematic, {}).get("definition", "")]] * len(x),
                         hovertemplate=(
                             "<b>%{fullData.name}</b><br>"
-                            "Time: %{x:.1f} ms<br>"
-                            "Value: %{y:.2f}<br>"
-                            "Definition: %{customdata[0]}<extra></extra>"
+                            f"{kinematic}: %{{y:.1f}}{get_kinematic_unit(kinematic)}<br>"
+                            "Time: %{x:.1f} ms<extra></extra>"
                         ),
                         line=dict(width=4, color=color, dash=dash),
                         name=(
@@ -5809,22 +5813,45 @@ with tab_joint:
                 return ""
             return f"{val:.{decimals}f}"
 
-        formatters = {
-            "Average Velocity": lambda x: fmt(x, 1),
-            "Max": lambda x: fmt(x, 2),
-            "Peak Knee Height": lambda x: fmt(x, 2),
-            "Foot Plant": lambda x: fmt(x, 2),
-            "Ball Release": lambda x: fmt(x, 2),
-            "Max External Rotation": lambda x: fmt(x, 2),
-        }
+        def normalize_kinematic_name(display_name):
+            return display_name.replace(" (°/s)", "")
 
-        if display_mode == "Grouped":
-            formatters["Standard Deviation"] = lambda x: f"±{fmt(x, 2)}" if x is not None else ""
+        def format_with_unit(val, unit, decimals=2, prefix=""):
+            if val is None or (isinstance(val, float) and np.isnan(val)):
+                return ""
+            return f"{prefix}{val:.{decimals}f} {unit}".strip()
+
+        measurement_columns = [
+            "Max",
+            "Peak Knee Height",
+            "Foot Plant",
+            "Ball Release",
+            "Max External Rotation",
+        ]
+
+        for idx, row in df_summary.iterrows():
+            kinematic_name = normalize_kinematic_name(row["Kinematic"])
+            kinematic_unit = get_kinematic_unit(kinematic_name)
+
+            if "Average Velocity" in df_summary.columns:
+                df_summary.at[idx, "Average Velocity"] = format_with_unit(
+                    row["Average Velocity"], "mph", decimals=1
+                )
+
+            for col in measurement_columns:
+                if col in df_summary.columns:
+                    df_summary.at[idx, col] = format_with_unit(
+                        row[col], kinematic_unit, decimals=2
+                    )
+
+            if display_mode == "Grouped" and "Standard Deviation" in df_summary.columns:
+                df_summary.at[idx, "Standard Deviation"] = format_with_unit(
+                    row["Standard Deviation"], kinematic_unit, decimals=2, prefix="±"
+                )
 
         styled_summary = (
             df_summary
             .style
-            .format(formatters)
             # Center headers
             .set_table_styles([
                 {"selector": "th", "props": [("text-align", "center")]}
