@@ -5795,6 +5795,8 @@ with tab_joint:
             "Ball Release",
             "Max External Rotation"
         ]
+        if joint_window_mode == "Foot Plant to Ball Release View":
+            base_columns.remove("Peak Knee Height")
         if comparison_grouping_enabled:
             base_columns = ["Group"] + base_columns
         if multi_pitcher_mode:
@@ -5828,15 +5830,15 @@ with tab_joint:
             "Ball Release",
             "Max External Rotation",
         ]
+        if joint_window_mode == "Foot Plant to Ball Release View":
+            measurement_columns.remove("Peak Knee Height")
 
         for idx, row in df_summary.iterrows():
             kinematic_name = normalize_kinematic_name(row["Kinematic"])
             kinematic_unit = get_kinematic_unit(kinematic_name)
 
             if "Average Velocity" in df_summary.columns:
-                df_summary.at[idx, "Average Velocity"] = format_with_unit(
-                    row["Average Velocity"], "mph", decimals=1
-                )
+                df_summary.at[idx, "Average Velocity"] = fmt(row["Average Velocity"], 1)
 
             for col in measurement_columns:
                 if col in df_summary.columns:
@@ -5929,6 +5931,58 @@ with tab_energy:
     st.subheader("Energy Flow")
     render_group_selection_summary()
 
+    st.markdown(
+        """
+        <style>
+        .energy-controls-label {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: #6b7280;
+            margin-bottom: 0.1rem;
+        }
+
+        div[data-testid="stSegmentedControl"] label,
+        div[data-testid="stSegmentedControl"] div[role="radiogroup"] label,
+        div[data-testid="stSegmentedControl"] div[role="radiogroup"] p,
+        div[data-testid="stToggle"] label,
+        div[data-testid="stToggle"] p {
+            font-size: 1rem !important;
+            font-weight: 400 !important;
+        }
+
+        .energy-toggle-label {
+            margin-top: -0.1rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    energy_display_col, energy_options_col, energy_spacer_col = st.columns([1.45, 1.75, 2.2])
+    with energy_display_col:
+        st.markdown('<div class="energy-controls-label">Display Mode</div>', unsafe_allow_html=True)
+        display_mode = st.segmented_control(
+            "Select Display Mode",
+            ["Individual Throws", "Grouped"],
+            default="Grouped",
+            key="energy_display_mode",
+            label_visibility="collapsed",
+        )
+    with energy_options_col:
+        st.markdown('<div class="energy-controls-label energy-toggle-label">Options</div>', unsafe_allow_html=True)
+        energy_event_col, energy_empty_col = st.columns(2)
+        with energy_event_col:
+            show_energy_fp_iqr_band = st.toggle(
+                "Event Bands",
+                value=False,
+                key="energy_show_fp_iqr_band",
+                help="Shows the middle 50% range for event timing across selected throws.",
+            )
+        with energy_empty_col:
+            st.markdown("")
+    with energy_spacer_col:
+        st.markdown("")
+
     energy_metrics = st.multiselect(
         "Select Energy Flow Metrics",
         [
@@ -5948,19 +6002,6 @@ with tab_energy:
     if not energy_metrics:
         st.info("Select at least one energy flow metric.")
         st.stop()
-
-    display_mode = st.radio(
-        "Select Display Mode",
-        ["Individual Throws", "Grouped"],
-        index=1,
-        horizontal=True,
-        key="energy_display_mode"
-    )
-    show_energy_fp_iqr_band = st.checkbox(
-        "Show Event IQR Bands",
-        value=False,
-        key="energy_show_fp_iqr_band"
-    )
 
     if not take_ids:
         st.info("No takes available for Energy Flow.")
@@ -6315,172 +6356,6 @@ with tab_energy:
     )
 
     st.plotly_chart(fig, use_container_width=True, key="energy_plot_main_tab")
-
-    # --------------------------------------------------
-    # Energy Flow Table (Individual mode: per-pitch, long format with velocity)
-    # --------------------------------------------------
-    import pandas as pd
-    import numpy as np
-
-    if display_mode == "Individual Throws":
-        rows = []
-
-        for take_id in take_ids:
-            pitch_num = take_order.get(take_id)
-            velo = take_velocity.get(take_id)
-
-            for metric in energy_metrics:
-                metric_data = energy_data_by_metric.get(metric, {})
-                take_data = metric_data.get(take_id)
-
-                if not take_data:
-                    continue
-
-                br = br_frames.get(take_id)
-                if br is None:
-                    continue
-                for frame, value in zip(take_data["frame"], take_data["value"]):
-                    rel_time_ms = rel_frame_to_ms(frame - br)
-                    rows.append({
-                        **({"Group": take_group_map.get(take_id, "")} if comparison_grouping_enabled else {}),
-                        **({"Pitcher": take_pitcher_map.get(take_id)} if multi_pitcher_mode else {}),
-                        "Pitch": f"Pitch {pitch_num}",
-                        "Time (ms rel BR)": rel_time_ms,
-                        "Velocity (mph)": velo,
-                        metric: value
-                    })
-
-        # Build dataframe
-        energy_df = pd.DataFrame(rows)
-
-        # Pivot so each metric becomes its own column
-        energy_df = (
-            energy_df
-            .groupby(
-                (["Group"] if comparison_grouping_enabled else [])
-                + (["Pitcher"] if multi_pitcher_mode else [])
-                + ["Pitch", "Time (ms rel BR)", "Velocity (mph)"]
-            )
-            .first()
-            .reset_index()
-        )
-
-        # Ensure metric columns are ordered after metadata
-        ordered_cols = (
-            (["Group"] if comparison_grouping_enabled else [])
-            + (["Pitcher"] if multi_pitcher_mode else [])
-            + ["Pitch", "Time (ms rel BR)", "Velocity (mph)"] +
-            [m for m in energy_metrics if m in energy_df.columns]
-        )
-
-        energy_df = energy_df[ordered_cols]
-
-        st.dataframe(
-            energy_df,
-            use_container_width=True,
-            height=420
-        )
-    else:
-        if comparison_grouping_enabled or multi_pitcher_mode:
-            grouped_rows = []
-            group_pitcher_pairs = sorted({
-                (
-                    take_group_map.get(take_id, "") if comparison_grouping_enabled else "",
-                    take_pitcher_map.get(take_id) if multi_pitcher_mode else ""
-                )
-                for metric_data in energy_data_by_metric.values()
-                for take_id in metric_data.keys()
-                if take_id in br_frames
-            })
-
-            for group_label, pitcher_name in group_pitcher_pairs:
-                pitcher_take_ids = {
-                    tid for tid, p in take_pitcher_map.items()
-                    if (not multi_pitcher_mode or p == pitcher_name)
-                    and (not comparison_grouping_enabled or take_group_map.get(tid, "") == group_label)
-                }
-
-                common_times_ms = sorted(
-                    set(
-                        rel_frame_to_ms(frame - br_frames[take_id])
-                        for metric_data in energy_data_by_metric.values()
-                        for take_id, take_data in metric_data.items()
-                        if take_id in pitcher_take_ids and take_id in br_frames
-                        for frame in take_data["frame"]
-                    )
-                )
-
-                for t_ms in common_times_ms:
-                    row = {
-                        **({"Group": group_label} if comparison_grouping_enabled else {}),
-                        **({"Pitcher": pitcher_name} if multi_pitcher_mode else {}),
-                        "Time (ms rel BR)": t_ms,
-                    }
-                    for metric in energy_metrics:
-                        vals = []
-                        for take_id, data in energy_data_by_metric[metric].items():
-                            if take_id not in pitcher_take_ids or take_id not in br_frames:
-                                continue
-                            br = br_frames[take_id]
-                            for f, v in zip(data["frame"], data["value"]):
-                                if rel_frame_to_ms(f - br) == t_ms:
-                                    vals.append(v)
-                        row[metric] = np.nanmean(vals) if vals else np.nan
-                    grouped_rows.append(row)
-
-            energy_table = pd.DataFrame(grouped_rows)
-            ordered_cols = (
-                (["Group"] if comparison_grouping_enabled else [])
-                + (["Pitcher"] if multi_pitcher_mode else [])
-                + ["Time (ms rel BR)"]
-                + [m for m in energy_metrics if m in energy_table.columns]
-            )
-            energy_table = energy_table[ordered_cols] if not energy_table.empty else energy_table
-        else:
-            # 1) Build a common time axis (ms relative to BR)
-            common_times_ms = sorted(
-                set(
-                    rel_frame_to_ms(frame - br_frames[take_id])
-                    for metric_data in energy_data_by_metric.values()
-                    for take_id, take_data in metric_data.items()
-                    if take_id in br_frames
-                    for frame in take_data["frame"]
-                )
-            )
-
-            energy_table = pd.DataFrame({"Time (ms rel BR)": common_times_ms})
-
-            # 2) Add one column per selected metric
-            for metric in energy_metrics:
-                metric_series = {}
-
-                for take_id, data in energy_data_by_metric[metric].items():
-                    if take_id not in br_frames:
-                        continue
-                    br = br_frames[take_id]
-                    for f, v in zip(data["frame"], data["value"]):
-                        t_ms = rel_frame_to_ms(f - br)
-                        metric_series.setdefault(t_ms, []).append(v)
-
-                # Average across takes if multiple exist
-                metric_values = [
-                    np.nanmean(metric_series.get(f, [np.nan]))
-                    for f in common_times_ms
-                ]
-
-                energy_table[metric] = metric_values
-
-        # 3) Display the table
-        st.dataframe(
-            energy_table,
-            use_container_width=True,
-            height=400
-        )
-
-    # -------------------------------
-    # Energy Flow Summary Table (structure unchanged)
-    # -------------------------------
-    # (No change: compute_peak_segment_power, summary table logic, etc.)
 
 # --------------------------------------------------
 # Footer
