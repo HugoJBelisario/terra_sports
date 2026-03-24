@@ -3369,7 +3369,7 @@ with tab_kinematic:
         """,
         unsafe_allow_html=True,
     )
-    controls_col, toggle_col, shade_col, spacer_col = st.columns([1.45, 0.8, 0.95, 2.2])
+    controls_col, options_col, spacer_col = st.columns([1.45, 1.75, 2.2])
     with controls_col:
         st.markdown('<div class="ks-controls-label">Display Mode</div>', unsafe_allow_html=True)
         display_mode = st.segmented_control(
@@ -3379,22 +3379,23 @@ with tab_kinematic:
             key="ks_display_mode",
             label_visibility="collapsed",
         )
-    with toggle_col:
+    with options_col:
         st.markdown('<div class="ks-controls-label ks-toggle-label">Options</div>', unsafe_allow_html=True)
-        show_ks_fp_iqr_band = st.toggle(
-            "Event Bands",
-            value=False,
-            key="ks_show_fp_iqr_band",
-            help="Shows the middle 50% range for event timing across selected throws.",
-        )
-    with shade_col:
-        st.markdown('<div class="ks-controls-label ks-toggle-label">Options</div>', unsafe_allow_html=True)
-        show_ks_signal_iqr_band = st.toggle(
-            "Signal Bands",
-            value=True,
-            key="ks_show_signal_iqr_band",
-            help="Shows the middle 50% range of angular velocity around each grouped mean line.",
-        )
+        event_toggle_col, signal_toggle_col = st.columns(2)
+        with event_toggle_col:
+            show_ks_fp_iqr_band = st.toggle(
+                "Event Bands",
+                value=False,
+                key="ks_show_fp_iqr_band",
+                help="Shows the middle 50% range for event timing across selected throws.",
+            )
+        with signal_toggle_col:
+            show_ks_signal_iqr_band = st.toggle(
+                "Signal Bands",
+                value=True,
+                key="ks_show_signal_iqr_band",
+                help="Shows the middle 50% range of angular velocity around each grouped mean line.",
+            )
     with spacer_col:
         st.markdown("")
     st.markdown(
