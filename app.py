@@ -119,34 +119,6 @@ def login():
 if not login():
     st.stop()
 
-if "layout_mode" not in st.session_state:
-    st.session_state["layout_mode"] = "Wide"
-
-st.sidebar.markdown("**Layout**")
-layout_mode = st.sidebar.segmented_control(
-    "Layout Mode",
-    ["Wide", "Compact"],
-    default=st.session_state["layout_mode"],
-    key="layout_mode",
-    label_visibility="collapsed",
-)
-
-if layout_mode == "Compact":
-    st.markdown(
-        """
-        <style>
-        div[data-testid="stAppViewContainer"] .main .block-container {
-            max-width: 1280px;
-            padding-left: 2rem;
-            padding-right: 2rem;
-            margin-left: auto;
-            margin-right: auto;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
 # --- Safe color resolver for named/hex colors ---
 def to_rgba(color, alpha=0.35):
     """
