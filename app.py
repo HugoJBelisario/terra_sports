@@ -4050,17 +4050,16 @@ with tab_kinematic:
                             "Peak Value (°/s)": max_y,
                             "Peak Time from Reference (ms)": reference_time_ms_grouped
                         })
-                        curve_range = max(y_date) - min(y_date) if len(y_date) > 1 else 0
-                        y_offset = max(curve_range * 0.06, 18)
                         peak_marker_traces.append(
                             go.Scatter(
                                 x=[max_x],
-                                y=[max_y + y_offset],
-                                mode="markers",
-                                marker=dict(
-                                    symbol="triangle-down",
-                                    size=16,
+                                y=[max_y],
+                                mode="text",
+                                text=["▼"],
+                                textposition="top center",
+                                textfont=dict(
                                     color=color,
+                                    size=28,
                                 ),
                                 showlegend=False,
                                 legendgroup=legendgroup,
@@ -4189,10 +4188,28 @@ with tab_kinematic:
             align="center"
         )
 
+        yaxis_range = None
+        if display_mode == "Grouped":
+            all_grouped_vals = [
+                v
+                for curves in [grouped_pelvis, grouped_torso, grouped_elbow, grouped_shoulder_ir]
+                for d in curves.values()
+                for v in d["value"]
+                if v is not None
+            ]
+            if all_grouped_vals:
+                y_min = min(all_grouped_vals)
+                y_max = max(all_grouped_vals)
+                y_span = max(y_max - y_min, 1)
+                yaxis_range = [y_min - (0.08 * y_span), y_max + (0.16 * y_span)]
+
         fig.update_layout(
             xaxis_title="Time Relative to Ball Release (ms)",
             yaxis_title="Angular Velocity",
-            yaxis=dict(ticksuffix="°/s"),
+            yaxis=dict(
+                ticksuffix="°/s",
+                range=yaxis_range,
+            ),
             xaxis_range=[window_start_ms, window_end_ms],
             height=600,
             legend=dict(
