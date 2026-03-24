@@ -3928,12 +3928,12 @@ with tab_kinematic:
                     if comparison_grouping_enabled and date_key == "Control Group":
                         group_label = "Control Group"
                         pitcher_name = ""
-                        date = "All Included Takes"
+                        date = "Selected Takes"
                     elif comparison_grouping_enabled and show_group_pitcher_breakout:
                         group_label, pitcher_name, date = date_key
                     elif comparison_grouping_enabled:
                         group_label = date_key
-                        date = "All Included Takes"
+                        date = "Selected Takes"
                         pitcher_name = ""
                     elif multi_pitcher_mode and not comparison_grouping_enabled:
                         pitcher_name, date = date_key
@@ -5290,12 +5290,12 @@ with tab_joint:
             if comparison_grouping_enabled and date_key == "Control Group":
                 group_label = "Control Group"
                 pitcher_name = ""
-                date = "All Included Takes"
+                date = "Selected Takes"
             elif comparison_grouping_enabled and show_group_pitcher_breakout:
                 group_label, pitcher_name, date = date_key
             elif comparison_grouping_enabled:
                 group_label = date_key
-                date = "All Included Takes"
+                date = "Selected Takes"
                 pitcher_name = ""
             elif multi_pitcher_mode and not comparison_grouping_enabled:
                 pitcher_name, date = date_key
@@ -6257,12 +6257,12 @@ with tab_energy:
                 if comparison_grouping_enabled and date_key == "Control Group":
                     group_label = "Control Group"
                     pitcher_name = ""
-                    date = "All Included Takes"
+                    date = "Selected Takes"
                 elif comparison_grouping_enabled and show_group_pitcher_breakout:
                     group_label, pitcher_name, date = date_key
                 elif comparison_grouping_enabled:
                     group_label = date_key
-                    date = "All Included Takes"
+                    date = "Selected Takes"
                     pitcher_name = ""
                 elif multi_pitcher_mode and not comparison_grouping_enabled:
                     pitcher_name, date = date_key
