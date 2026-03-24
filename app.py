@@ -3190,6 +3190,7 @@ def build_shared_dashboard_state():
         "take_handedness": shared_take_handedness,
         "take_ids_by_handedness": shared_take_ids_by_handedness,
         "br_frames": shared_br_frames,
+        "foot_plant_zero_cross_frames": shared_foot_plant_zero_cross_frames,
         "shoulder_er_max_frames": shared_shoulder_er_max_frames,
         "knee_peak_frames": shared_knee_peak_frames,
         "fp_event_frames": shared_fp_event_frames,
@@ -3219,6 +3220,7 @@ br_frames = {}
 take_pitcher_map = {}
 take_handedness = {}
 take_ids_by_handedness = {}
+foot_plant_zero_cross_frames = {}
 shoulder_er_max_frames = {}
 knee_peak_frames = {}
 fp_event_frames = []
@@ -3309,6 +3311,7 @@ br_frames = shared_state["br_frames"]
 take_pitcher_map = shared_state["take_pitcher_map"]
 take_handedness = shared_state["take_handedness"]
 take_ids_by_handedness = shared_state["take_ids_by_handedness"]
+foot_plant_zero_cross_frames = shared_state["foot_plant_zero_cross_frames"]
 shoulder_er_max_frames = shared_state["shoulder_er_max_frames"]
 knee_peak_frames = shared_state["knee_peak_frames"]
 fp_event_frames = shared_state["fp_event_frames"]
