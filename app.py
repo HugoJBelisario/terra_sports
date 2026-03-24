@@ -2431,9 +2431,27 @@ def build_take_options_for_group(group_pitcher_filters):
 
     return options, label_to_take_id
 
+
+def exit_group_mode():
+    st.session_state["create_groups_mode"] = False
+    st.session_state["group_count"] = 1
+
+    keys_to_clear = [
+        key for key in st.session_state.keys()
+        if key.startswith("group") or key.startswith("create_groups_mode")
+    ]
+    for key in keys_to_clear:
+        if key in {"create_groups_mode", "group_count"}:
+            continue
+        del st.session_state[key]
+
+    st.rerun()
+
 if not pitcher_names:
     st.sidebar.warning("No pitchers found in the database.")
 else:
+    if group_mode_enabled and st.sidebar.button("Exit Group Mode", key="exit_group_mode_btn", use_container_width=True):
+        exit_group_mode()
     if group_mode_enabled:
         group_count = max(1, int(st.session_state.get("group_count", 1)))
         st.session_state["group_count"] = group_count
@@ -3204,6 +3222,15 @@ def build_shared_dashboard_state():
 
 
 st.title("Terra Sports Biomechanics Dashboard")
+
+if group_mode_enabled:
+    banner_col, action_col = st.columns([4.5, 1.2])
+    with banner_col:
+        st.info("Create Groups Mode Active. Return to the default view when you're finished comparing custom groups.")
+    with action_col:
+        st.markdown("")
+        if st.button("Return to Default View", key="return_to_default_view_btn", use_container_width=True):
+            exit_group_mode()
 
 # --------------------------------------------------
 # Tabs
