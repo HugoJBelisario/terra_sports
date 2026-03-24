@@ -4732,10 +4732,8 @@ with tab_joint:
     compare_energy_display_mode = "Grouped"
 
     if joint_view_mode == "Comparison":
-        compare_top_left, compare_top_right = st.columns([4.7, 1.3])
+        compare_top_left, compare_top_right = st.columns([1.3, 4.7])
         with compare_top_left:
-            st.markdown("")
-        with compare_top_right:
             st.markdown('<div class="joint-controls-label">View Mode</div>', unsafe_allow_html=True)
             joint_view_mode = st.segmented_control(
                 "View Mode",
@@ -4744,6 +4742,8 @@ with tab_joint:
                 key="joint_view_mode",
                 label_visibility="collapsed",
             )
+        with compare_top_right:
+            st.markdown("")
         control_left_col, control_right_col = st.columns(2)
         with control_left_col:
             st.markdown('<div class="joint-controls-label">Display Mode</div>', unsafe_allow_html=True)
@@ -4885,16 +4885,20 @@ with tab_joint:
             )
         with second_row_spacer:
             st.markdown("")
-        selected_kinematics = st.multiselect(
-            "Select Kinematics",
-            options=kinematic_options,
-            default=[],
-            help=(
-                "Select one or more kinematics to plot. "
-                "Hover any line in the chart to see that metric's definition."
-            ),
-            key="joint_angles_select"
-        )
+        kinematics_select_col, kinematics_select_spacer = st.columns([1.6, 4.4])
+        with kinematics_select_col:
+            selected_kinematics = st.multiselect(
+                "Select Kinematics",
+                options=kinematic_options,
+                default=[],
+                help=(
+                    "Select one or more kinematics to plot. "
+                    "Hover any line in the chart to see that metric's definition."
+                ),
+                key="joint_angles_select"
+            )
+        with kinematics_select_spacer:
+            st.markdown("")
 
     if not selected_kinematics:
         st.info("Select at least one kinematic.")
