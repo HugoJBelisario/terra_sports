@@ -4556,6 +4556,15 @@ with tab_joint:
             margin-bottom: 0.1rem;
         }
 
+        div[data-testid="stSegmentedControl"] label,
+        div[data-testid="stSegmentedControl"] div[role="radiogroup"] label,
+        div[data-testid="stSegmentedControl"] div[role="radiogroup"] p,
+        div[data-testid="stToggle"] label,
+        div[data-testid="stToggle"] p {
+            font-size: 1rem !important;
+            font-weight: 400 !important;
+        }
+
         .joint-toggle-label {
             margin-top: -0.1rem;
         }
@@ -4806,20 +4815,33 @@ with tab_joint:
             )
         with options_col:
             st.markdown('<div class="joint-controls-label joint-toggle-label">Options</div>', unsafe_allow_html=True)
-            show_joint_fp_iqr_band = st.toggle(
-                "Event Bands",
-                value=False,
-                key="joint_show_fp_iqr_band",
-                help="Shows the middle 50% range for event timing across selected throws.",
-            )
-            show_joint_signal_iqr_band = st.toggle(
-                "Signal Bands",
-                value=True,
-                key="joint_show_signal_iqr_band",
-                help="Shows the middle 50% range around each grouped mean line.",
-            )
+            joint_event_col, joint_signal_col = st.columns(2)
+            with joint_event_col:
+                show_joint_fp_iqr_band = st.toggle(
+                    "Event Bands",
+                    value=False,
+                    key="joint_show_fp_iqr_band",
+                    help="Shows the middle 50% range for event timing across selected throws.",
+                )
+            with joint_signal_col:
+                show_joint_signal_iqr_band = st.toggle(
+                    "Signal Bands",
+                    value=True,
+                    key="joint_show_signal_iqr_band",
+                    help="Shows the middle 50% range around each grouped mean line.",
+                )
         with spacer_col:
             st.markdown("")
+        st.markdown(
+            """
+            <style>
+            div[data-testid="stHorizontalBlock"] + div[data-testid="stVerticalBlock"] {
+                margin-top: -0.2rem;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
 
         window_col, mode_col, second_row_spacer = st.columns([1.8, 1.1, 3.1])
         with window_col:
