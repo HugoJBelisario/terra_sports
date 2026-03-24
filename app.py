@@ -4563,18 +4563,7 @@ with tab_joint:
         """,
         unsafe_allow_html=True,
     )
-    joint_top_col, joint_top_spacer = st.columns([1.2, 4.8])
-    with joint_top_col:
-        st.markdown('<div class="joint-controls-label">View Mode</div>', unsafe_allow_html=True)
-        joint_view_mode = st.segmented_control(
-            "View Mode",
-            ["Single", "Comparison"],
-            default="Single",
-            key="joint_view_mode",
-            label_visibility="collapsed",
-        )
-    with joint_top_spacer:
-        st.markdown("")
+    joint_view_mode = st.session_state.get("joint_view_mode", "Single")
 
     kinematic_options = [
         "Elbow Flexion",
@@ -4719,6 +4708,18 @@ with tab_joint:
     compare_energy_display_mode = "Grouped"
 
     if joint_view_mode == "Comparison":
+        compare_top_left, compare_top_right = st.columns([4.7, 1.3])
+        with compare_top_left:
+            st.markdown("")
+        with compare_top_right:
+            st.markdown('<div class="joint-controls-label">View Mode</div>', unsafe_allow_html=True)
+            joint_view_mode = st.segmented_control(
+                "View Mode",
+                ["Single", "Comparison"],
+                default="Comparison",
+                key="joint_view_mode",
+                label_visibility="collapsed",
+            )
         control_left_col, control_right_col = st.columns(2)
         with control_left_col:
             st.markdown('<div class="joint-controls-label">Display Mode</div>', unsafe_allow_html=True)
@@ -4737,6 +4738,12 @@ with tab_joint:
                     value=False,
                     key="joint_show_fp_iqr_band_compare",
                     help="Shows the middle 50% range for event timing across selected throws.",
+                )
+                show_joint_signal_iqr_band = st.toggle(
+                    "Signal Bands",
+                    value=True,
+                    key="joint_show_signal_iqr_band_compare",
+                    help="Shows the middle 50% range around each grouped mean line.",
                 )
             with left_window_col:
                 st.markdown('<div class="joint-controls-label">View Window</div>', unsafe_allow_html=True)
@@ -4787,7 +4794,7 @@ with tab_joint:
                 key="joint_energy_metrics_compare"
             )
     else:
-        display_col, options_col, window_col, spacer_col = st.columns([1.35, 0.85, 1.75, 1.8])
+        display_col, options_col, window_col, spacer_col, mode_col = st.columns([1.25, 1.3, 1.7, 1.2, 1.1])
         with display_col:
             st.markdown('<div class="joint-controls-label">Display Mode</div>', unsafe_allow_html=True)
             display_mode = st.segmented_control(
@@ -4799,12 +4806,21 @@ with tab_joint:
             )
         with options_col:
             st.markdown('<div class="joint-controls-label joint-toggle-label">Options</div>', unsafe_allow_html=True)
-            show_joint_fp_iqr_band = st.toggle(
-                "Event Bands",
-                value=False,
-                key="joint_show_fp_iqr_band",
-                help="Shows the middle 50% range for event timing across selected throws.",
-            )
+            joint_event_col, joint_signal_col = st.columns(2)
+            with joint_event_col:
+                show_joint_fp_iqr_band = st.toggle(
+                    "Event Bands",
+                    value=False,
+                    key="joint_show_fp_iqr_band",
+                    help="Shows the middle 50% range for event timing across selected throws.",
+                )
+            with joint_signal_col:
+                show_joint_signal_iqr_band = st.toggle(
+                    "Signal Bands",
+                    value=True,
+                    key="joint_show_signal_iqr_band",
+                    help="Shows the middle 50% range around each grouped mean line.",
+                )
         with window_col:
             st.markdown('<div class="joint-controls-label">View Window</div>', unsafe_allow_html=True)
             joint_window_mode = st.segmented_control(
@@ -4816,6 +4832,15 @@ with tab_joint:
             )
         with spacer_col:
             st.markdown("")
+        with mode_col:
+            st.markdown('<div class="joint-controls-label">View Mode</div>', unsafe_allow_html=True)
+            joint_view_mode = st.segmented_control(
+                "View Mode",
+                ["Single", "Comparison"],
+                default="Single",
+                key="joint_view_mode",
+                label_visibility="collapsed",
+            )
         selected_kinematics = st.multiselect(
             "Select Kinematics",
             options=kinematic_options,
@@ -5281,17 +5306,18 @@ with tab_joint:
                 )
 
                 # IQR band (color-matched)
-                fig.add_trace(
-                    go.Scatter(
-                        x=x + x[::-1],
-                        y=q3 + q1[::-1],
-                        fill="toself",
-                        fillcolor=to_rgba(color, 0.35),
-                        line=dict(width=0),
-                        showlegend=False,
-                        hoverinfo="skip"
+                if show_joint_signal_iqr_band:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x + x[::-1],
+                            y=q3 + q1[::-1],
+                            fill="toself",
+                            fillcolor=to_rgba(color, 0.35),
+                            line=dict(width=0),
+                            showlegend=False,
+                            hoverinfo="skip"
+                        )
                     )
-                )
 
                 max_val = np.max(y)
                 br_val = value_at_time_ms(x, y, 0)
