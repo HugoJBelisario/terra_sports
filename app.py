@@ -4764,7 +4764,7 @@ with tab_joint:
             )
         with second_row_spacer:
             st.markdown("")
-        kinematics_select_col, kinematics_select_spacer = st.columns([1.6, 4.4])
+        kinematics_select_col, kinematics_select_spacer = st.columns([2.35, 3.65])
         with kinematics_select_col:
             selected_kinematics = st.multiselect(
                 "Select Kinematics",
@@ -5877,7 +5877,7 @@ with tab_energy:
         )
     with energy_options_col:
         st.markdown('<div class="energy-controls-label energy-toggle-label">Options</div>', unsafe_allow_html=True)
-        energy_event_col, energy_empty_col = st.columns(2)
+        energy_event_col, energy_signal_col = st.columns(2)
         with energy_event_col:
             show_energy_fp_iqr_band = st.toggle(
                 "Event Bands",
@@ -5885,8 +5885,13 @@ with tab_energy:
                 key="energy_show_fp_iqr_band",
                 help="Shows the middle 50% range for event timing across selected throws.",
             )
-        with energy_empty_col:
-            st.markdown("")
+        with energy_signal_col:
+            show_energy_signal_iqr_band = st.toggle(
+                "Signal Bands",
+                value=True,
+                key="energy_show_signal_iqr_band",
+                help="Shows the middle 50% range around each grouped mean line.",
+            )
     with energy_spacer_col:
         st.markdown("")
 
@@ -6158,22 +6163,23 @@ with tab_energy:
                     )
                 )
 
-                fig.add_trace(
-                    go.Scatter(
-                        x=x + x[::-1],
-                        y=q3 + q1[::-1],
-                        fill="toself",
-                        fillcolor=to_rgba(
-                            group_color_map.get(group_label, metric_color)
-                            if use_group_colors_energy else
-                            metric_color,
-                            alpha=0.35
-                        ),
-                        line=dict(width=0),
-                        showlegend=False,
-                        hoverinfo="skip"
+                if show_energy_signal_iqr_band:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x + x[::-1],
+                            y=q3 + q1[::-1],
+                            fill="toself",
+                            fillcolor=to_rgba(
+                                group_color_map.get(group_label, metric_color)
+                                if use_group_colors_energy else
+                                metric_color,
+                                alpha=0.35
+                            ),
+                            line=dict(width=0),
+                            showlegend=False,
+                            hoverinfo="skip"
+                        )
                     )
-                )
 
                 fig.add_trace(
                     go.Scatter(
