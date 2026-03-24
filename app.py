@@ -2280,9 +2280,6 @@ if "control_group_arm_slot_ids" not in st.session_state:
 if "control_group_pitchers" not in st.session_state:
     st.session_state["control_group_pitchers"] = []
 
-if st.sidebar.button("Create Groups", key="create_groups_mode_btn", use_container_width=True):
-    st.session_state["create_groups_mode"] = True
-
 group_mode_enabled = st.session_state.get("create_groups_mode", False)
 if "group_count" not in st.session_state:
     st.session_state["group_count"] = 1
@@ -2444,6 +2441,19 @@ def exit_group_mode():
         if key in {"create_groups_mode", "group_count"}:
             continue
         del st.session_state[key]
+
+    st.rerun()
+
+
+def remove_control_group():
+    st.session_state["show_control_group_velocity"] = False
+    st.session_state["control_group_take_ids"] = []
+    st.session_state["control_group_arm_slot_ids"] = []
+    st.session_state["control_group_pitchers"] = []
+    st.session_state["control_group_handedness"] = "Both"
+    for key in ["control_group_velocity_range", "control_group_arm_slot_range"]:
+        if key in st.session_state:
+            del st.session_state[key]
 
     st.rerun()
 
@@ -2786,14 +2796,20 @@ def build_shared_dashboard_state():
             st.session_state["excluded_take_ids"] = [
                 label_to_take_id[label] for label in excluded_labels
             ]
-            if not st.session_state.get("show_control_group_velocity"):
-                if st.sidebar.button(
-                    "Create Control Group",
-                    key="create_control_group_btn",
-                    use_container_width=True
-                ):
-                    st.session_state["show_control_group_velocity"] = True
+            create_groups_col, control_group_col = st.sidebar.columns(2)
+            with create_groups_col:
+                if st.button("Create Groups", key="create_groups_mode_btn", use_container_width=True):
+                    st.session_state["create_groups_mode"] = True
                     st.rerun()
+            with control_group_col:
+                if not st.session_state.get("show_control_group_velocity"):
+                    if st.button(
+                        "Create Control Group",
+                        key="create_control_group_btn",
+                        use_container_width=True
+                    ):
+                        st.session_state["show_control_group_velocity"] = True
+                        st.rerun()
             shared_take_ids = [
                 tid for tid in shared_take_ids
                 if tid not in st.session_state["excluded_take_ids"]
@@ -2825,6 +2841,12 @@ def build_shared_dashboard_state():
             }
             if st.session_state.get("show_control_group_velocity"):
                 st.sidebar.markdown("**Control Group**")
+                if st.sidebar.button(
+                    "Remove Control Group",
+                    key="remove_control_group_btn",
+                    use_container_width=True
+                ):
+                    remove_control_group()
                 all_control_group_pool = get_control_group_take_pool(None)
                 if all_control_group_pool:
                     control_group_take_velocity_all = {
@@ -4125,29 +4147,6 @@ with tab_kinematic:
 
             for peak_marker_trace in peak_marker_traces:
                 fig.add_trace(peak_marker_trace)
-
-        # Median Peak Glove-Side Knee Height event
-        if knee_event_frames:
-            add_event_iqr_band(fig, knee_event_frames, "blue", show_ks_fp_iqr_band)
-            median_knee_frame = rel_frame_to_ms(int(np.median(knee_event_frames)))
-
-            fig.add_vline(
-                x=median_knee_frame,
-                line_width=3,
-                line_dash="dot",
-                line_color="blue",
-                opacity=0.9
-            )
-            fig.add_annotation(
-                x=median_knee_frame,
-                y=1.055,
-                xref="x",
-                yref="paper",
-                text="Knee",
-                showarrow=False,
-                font=dict(color="blue", size=14),
-                align="center"
-            )
 
         # Median Refined Foot Plant (zero-cross) event
         if fp_event_frames:
