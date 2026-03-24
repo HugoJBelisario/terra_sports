@@ -4806,21 +4806,18 @@ with tab_joint:
             )
         with options_col:
             st.markdown('<div class="joint-controls-label joint-toggle-label">Options</div>', unsafe_allow_html=True)
-            joint_event_col, joint_signal_col = st.columns(2)
-            with joint_event_col:
-                show_joint_fp_iqr_band = st.toggle(
-                    "Event Bands",
-                    value=False,
-                    key="joint_show_fp_iqr_band",
-                    help="Shows the middle 50% range for event timing across selected throws.",
-                )
-            with joint_signal_col:
-                show_joint_signal_iqr_band = st.toggle(
-                    "Signal Bands",
-                    value=True,
-                    key="joint_show_signal_iqr_band",
-                    help="Shows the middle 50% range around each grouped mean line.",
-                )
+            show_joint_fp_iqr_band = st.toggle(
+                "Event Bands",
+                value=False,
+                key="joint_show_fp_iqr_band",
+                help="Shows the middle 50% range for event timing across selected throws.",
+            )
+            show_joint_signal_iqr_band = st.toggle(
+                "Signal Bands",
+                value=True,
+                key="joint_show_signal_iqr_band",
+                help="Shows the middle 50% range around each grouped mean line.",
+            )
         with spacer_col:
             st.markdown("")
 
