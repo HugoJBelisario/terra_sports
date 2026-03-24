@@ -3260,6 +3260,8 @@ if control_take_ids:
             take_group_map[tid] = control_group_label
 
 multi_pitcher_mode = len(set(take_pitcher_map.values())) > 1
+group_mode_aggregate_across_pitchers = group_mode_enabled
+show_group_pitcher_breakout = multi_pitcher_mode and not group_mode_aggregate_across_pitchers
 
 
 with tab_kinematic:
@@ -3838,7 +3840,7 @@ with tab_kinematic:
                     if comparison_grouping_enabled and is_control_group_label(group_label):
                         date_key = group_label
                     elif comparison_grouping_enabled:
-                        date_key = (group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date)
+                        date_key = (group_label, date) if group_mode_aggregate_across_pitchers else ((group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date))
                     else:
                         date_key = (pitcher_name, date) if multi_pitcher_mode else date
                     curves_by_date[date_key][take_id] = d
@@ -3847,12 +3849,12 @@ with tab_kinematic:
                         group_label = "Control Group"
                         pitcher_name = ""
                         date = "All Included Takes"
-                    elif comparison_grouping_enabled and multi_pitcher_mode:
+                    elif comparison_grouping_enabled and show_group_pitcher_breakout:
                         group_label, pitcher_name, date = date_key
                     elif comparison_grouping_enabled:
                         group_label, date = date_key
                         pitcher_name = ""
-                    elif multi_pitcher_mode:
+                    elif multi_pitcher_mode and not comparison_grouping_enabled:
                         pitcher_name, date = date_key
                         group_label = ""
                     else:
@@ -3865,7 +3867,7 @@ with tab_kinematic:
                     if len(y_date) >= 11:
                         y_date = savgol_filter(y_date, window_length=7, polyorder=3)
                     dash = date_dash_map.get(date, "solid")
-                    legendgroup = f"{label}_{date}_{pitcher_name}" if multi_pitcher_mode else f"{label}_{date}"
+                    legendgroup = f"{label}_{date}_{pitcher_name}" if show_group_pitcher_breakout else f"{label}_{date}"
                     # --- Grouped curve (no legend, but legendgroup set) ---
                     fig.add_trace(
                         go.Scatter(
@@ -3881,7 +3883,7 @@ with tab_kinematic:
                             hovertemplate=(
                                 ("%{customdata[2]} | " if comparison_grouping_enabled else "")
                                 + "%{customdata[0]} | %{customdata[1]}"
-                                + (" | %{customdata[3]}" if multi_pitcher_mode else "")
+                                + (" | %{customdata[3]}" if show_group_pitcher_breakout else "")
                                 + "<br>Angular Velocity: %{y:.1f}°/s"
                                 + "<br>Time: %{x:.0f} ms rel BR"
                                 + "<extra></extra>"
@@ -3891,7 +3893,7 @@ with tab_kinematic:
                         )
                     )
                     # --- Legend-only trace (once per Segment + Date, legendgroup set) ---
-                    legend_key = (label, date, pitcher_name) if multi_pitcher_mode else (label, date)
+                    legend_key = (label, date, pitcher_name) if show_group_pitcher_breakout else (label, date)
                     if legend_key not in legend_keys_added:
                         fig.add_trace(
                             go.Scatter(
@@ -3905,11 +3907,11 @@ with tab_kinematic:
                                 ),
                             name=(
                                     f"{group_label} | {label} AV | {date} | {pitcher_name}"
-                                    if (comparison_grouping_enabled and multi_pitcher_mode) else
+                                    if (comparison_grouping_enabled and show_group_pitcher_breakout) else
                                     f"{group_label} | {label} AV | {date}"
                                     if comparison_grouping_enabled else
                                     f"{label} AV | {date} | {pitcher_name}"
-                                    if multi_pitcher_mode else
+                                    if show_group_pitcher_breakout else
                                     f"{label} AV | {date}"
                                 ),
                                 showlegend=True,
@@ -3955,7 +3957,7 @@ with tab_kinematic:
 
                         kinematic_peak_rows.append({
                             **({"Group": group_label} if comparison_grouping_enabled else {}),
-                            **({"Pitcher": pitcher_name} if multi_pitcher_mode else {}),
+                            **({"Pitcher": pitcher_name} if show_group_pitcher_breakout else {}),
                             "Session Date": date,
                             "Velocity (mph)": (
                                 float(np.mean([
@@ -4002,7 +4004,7 @@ with tab_kinematic:
                                 hovertemplate=(
                                     ("%{customdata[2]} | " if comparison_grouping_enabled else "")
                                     + "%{customdata[0]} | %{customdata[1]}"
-                                    + (" | %{customdata[3]}" if multi_pitcher_mode else "")
+                                    + (" | %{customdata[3]}" if show_group_pitcher_breakout else "")
                                     + "<br>Peak Angular Velocity: %{customdata[4]:.1f}°/s"
                                     + "<br>Peak Time: %{customdata[5]:.0f} ms rel BR"
                                     + "<extra></extra>"
@@ -5053,7 +5055,7 @@ with tab_joint:
             if comparison_grouping_enabled and control_group_take:
                 date_key = group_label
             elif comparison_grouping_enabled:
-                date_key = (group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date)
+                date_key = (group_label, date) if group_mode_aggregate_across_pitchers else ((group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date))
             else:
                 date_key = (pitcher_name, date) if multi_pitcher_mode else date
             grouped_by_date.setdefault(date_key, {}).setdefault(kinematic, {})[take_id] = {
@@ -5078,7 +5080,7 @@ with tab_joint:
                             "<b>%{fullData.name}</b><br>"
                             f"{kinematic}: %{{y:.1f}}{get_kinematic_unit(kinematic)}<br>"
                             "Time: %{x:.1f} ms"
-                            + ("<br>Pitcher: %{customdata[0]}" if multi_pitcher_mode else "")
+                            + ("<br>Pitcher: %{customdata[0]}" if show_group_pitcher_breakout else "")
                             + "<extra></extra>"
                         ),
                         line=dict(
@@ -5091,7 +5093,7 @@ with tab_joint:
                             (
                                 f"{group_label} | {kinematic} – {take_date_map[take_id]} | "
                                 f"Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph) | {pitcher_name}"
-                            ) if (multi_pitcher_mode and comparison_grouping_enabled) else
+                            ) if (show_group_pitcher_breakout and comparison_grouping_enabled) else
                             (
                                 f"{group_label} | {kinematic} – {take_date_map[take_id]} | "
                                 f"Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
@@ -5099,7 +5101,7 @@ with tab_joint:
                             (
                             f"{kinematic} – {take_date_map[take_id]} | Pitch {take_order[take_id]} "
                             f"({take_velocity[take_id]:.1f} mph) | {pitcher_name}"
-                            if multi_pitcher_mode else
+                            if show_group_pitcher_breakout else
                             f"{kinematic} – {take_date_map[take_id]} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
                             )
                         ),
@@ -5123,11 +5125,11 @@ with tab_joint:
                                 f"Control Group | {kinematic}"
                                 if (comparison_grouping_enabled and control_group_take) else
                                 f"{group_label} | {kinematic} | {date} | {pitcher_name}"
-                                if (multi_pitcher_mode and comparison_grouping_enabled) else
+                                if (show_group_pitcher_breakout and comparison_grouping_enabled) else
                                 f"{group_label} | {kinematic} | {date}"
                                 if comparison_grouping_enabled else
                                 f"{kinematic} | {date} | {pitcher_name}"
-                                if multi_pitcher_mode else
+                                if show_group_pitcher_breakout else
                                 f"{kinematic} | {date}"
                             ),
                             showlegend=True
@@ -5170,7 +5172,7 @@ with tab_joint:
 
                 summary_rows.append({
                     **({"Group": take_group_map.get(take_id, "")} if comparison_grouping_enabled else {}),
-                    **({"Pitcher": take_pitcher_map.get(take_id)} if multi_pitcher_mode else {}),
+                    **({"Pitcher": take_pitcher_map.get(take_id)} if show_group_pitcher_breakout else {}),
                     "Kinematic": kinematic + (" (°/s)" if "Velocity" in kinematic else ""),
                     "Session Date": take_date_map[take_id],
                     "Average Velocity": take_velocity[take_id],
@@ -5188,12 +5190,12 @@ with tab_joint:
                 group_label = "Control Group"
                 pitcher_name = ""
                 date = "All Included Takes"
-            elif comparison_grouping_enabled and multi_pitcher_mode:
+            elif comparison_grouping_enabled and show_group_pitcher_breakout:
                 group_label, pitcher_name, date = date_key
             elif comparison_grouping_enabled:
                 group_label, date = date_key
                 pitcher_name = ""
-            elif multi_pitcher_mode:
+            elif multi_pitcher_mode and not comparison_grouping_enabled:
                 pitcher_name, date = date_key
                 group_label = ""
             else:
@@ -5230,11 +5232,11 @@ with tab_joint:
                         line=dict(width=4, color=color, dash=dash),
                         name=(
                             f"{group_label} | {kinematic} – {date} | {pitcher_name}"
-                            if (multi_pitcher_mode and comparison_grouping_enabled) else
+                            if (show_group_pitcher_breakout and comparison_grouping_enabled) else
                             f"{group_label} | {kinematic} – {date}"
                             if comparison_grouping_enabled else
                             f"{kinematic} – {date} | {pitcher_name}"
-                            if multi_pitcher_mode else
+                            if show_group_pitcher_breakout else
                             f"{kinematic} – {date}"
                         )
                     )
@@ -5278,7 +5280,7 @@ with tab_joint:
 
                 summary_rows.append({
                     **({"Group": group_label} if comparison_grouping_enabled else {}),
-                    **({"Pitcher": pitcher_name} if multi_pitcher_mode else {}),
+                    **({"Pitcher": pitcher_name} if show_group_pitcher_breakout else {}),
                     "Kinematic": kinematic + (" (°/s)" if "Velocity" in kinematic else ""),
                     "Session Date": date,
                     "Average Velocity": np.mean([take_velocity[tid] for tid in curves.keys()]),
@@ -6062,7 +6064,7 @@ with tab_energy:
             if comparison_grouping_enabled and control_group_take:
                 date_key = group_label
             elif comparison_grouping_enabled:
-                date_key = (group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date)
+                date_key = (group_label, date) if group_mode_aggregate_across_pitchers else ((group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date))
             else:
                 date_key = (pitcher_name, date) if multi_pitcher_mode else date
             grouped_by_date.setdefault(date_key, {})[take_id] = {
@@ -6089,7 +6091,7 @@ with tab_energy:
                         hovertemplate=(
                             "%{customdata[0]} – %{customdata[1]} | "
                             "Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
-                            + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                            + (" | %{customdata[4]}" if show_group_pitcher_breakout else "")
                             + "<br>%{customdata[0]}: %{y:.1f}"
                             + "<br>Time: %{x:.0f} ms rel BR"
                             + "<extra></extra>"
@@ -6098,7 +6100,7 @@ with tab_energy:
                             f"Control Group | {metric} – Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
                             if (comparison_grouping_enabled and control_group_take) else
                             f"{group_label} | {metric} – {date} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph) | {pitcher_name}"
-                            if (comparison_grouping_enabled and multi_pitcher_mode) else
+                            if (comparison_grouping_enabled and show_group_pitcher_breakout) else
                             f"{group_label} | {metric} – {date} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
                             if comparison_grouping_enabled else None
                         ),
@@ -6121,11 +6123,11 @@ with tab_energy:
                                 f"Control Group | {metric}"
                                 if (comparison_grouping_enabled and control_group_take) else
                                 f"{group_label} | {metric} | {date} | {pitcher_name}"
-                                if (multi_pitcher_mode and comparison_grouping_enabled) else
+                                if (show_group_pitcher_breakout and comparison_grouping_enabled) else
                                 f"{group_label} | {metric} | {date}"
                                 if comparison_grouping_enabled else
                                 f"{metric} | {date} | {pitcher_name}"
-                                if multi_pitcher_mode else
+                                if show_group_pitcher_breakout else
                                 f"{metric} | {date}"
                             ),
                             showlegend=True
@@ -6142,12 +6144,12 @@ with tab_energy:
                     group_label = "Control Group"
                     pitcher_name = ""
                     date = "All Included Takes"
-                elif comparison_grouping_enabled and multi_pitcher_mode:
+                elif comparison_grouping_enabled and show_group_pitcher_breakout:
                     group_label, pitcher_name, date = date_key
                 elif comparison_grouping_enabled:
                     group_label, date = date_key
                     pitcher_name = ""
-                elif multi_pitcher_mode:
+                elif multi_pitcher_mode and not comparison_grouping_enabled:
                     pitcher_name, date = date_key
                     group_label = ""
                 else:
@@ -6176,7 +6178,7 @@ with tab_energy:
                         customdata=[[metric, date, pitcher_name]] * len(x),
                         hovertemplate=(
                             "%{customdata[0]} – %{customdata[1]}"
-                            + (" | %{customdata[2]}" if multi_pitcher_mode else "")
+                            + (" | %{customdata[2]}" if show_group_pitcher_breakout else "")
                             + "<br>%{customdata[0]}: %{y:.1f}"
                             + "<br>Time: %{x:.0f} ms rel BR"
                             + "<extra></extra>"
@@ -6219,11 +6221,11 @@ with tab_energy:
                         ),
                         name=(
                             f"{group_label} | {metric} | {date} | {pitcher_name}"
-                            if (multi_pitcher_mode and comparison_grouping_enabled) else
+                            if (show_group_pitcher_breakout and comparison_grouping_enabled) else
                             f"{group_label} | {metric} | {date}"
                             if comparison_grouping_enabled else
                             f"{metric} | {date} | {pitcher_name}"
-                            if multi_pitcher_mode else
+                            if show_group_pitcher_breakout else
                             f"{metric} | {date}"
                         ),
                         showlegend=True
