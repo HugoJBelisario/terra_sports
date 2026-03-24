@@ -2809,7 +2809,7 @@ def build_shared_dashboard_state():
             st.session_state["excluded_take_ids"] = [
                 label_to_take_id[label] for label in excluded_labels
             ]
-            if st.sidebar.button("Create Groups", key="create_groups_mode_btn", use_container_width=True):
+            if st.sidebar.button("Create Custom Groups", key="create_groups_mode_btn", use_container_width=True):
                 st.session_state["create_groups_mode"] = True
                 st.rerun()
             if not st.session_state.get("show_control_group_velocity"):
