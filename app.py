@@ -4421,14 +4421,11 @@ with tab_kinematic:
                     .format(lambda x: fmt(x, 1) if isinstance(x, (int, float, np.floating)) else x)
                     .apply_index(style_segment_headers, axis="columns", level=0)
                     .set_table_styles([
-                        {"selector": "th", "props": [("text-align", "center"), ("color", "#000000"), ("opacity", "1")]},
-                        {"selector": "thead th", "props": [("color", "#000000"), ("opacity", "1")]},
-                        {"selector": "tbody th", "props": [("color", "#000000"), ("opacity", "1")]},
-                        {"selector": "th.row_heading", "props": [("text-align", "center"), ("color", "#000000"), ("opacity", "1")]},
-                        {"selector": "th.index_name", "props": [("text-align", "center"), ("color", "#000000"), ("opacity", "1")]},
-                        {"selector": "td", "props": [("color", "#000000"), ("opacity", "1")]},
+                        {"selector": "th", "props": [("text-align", "center")]},
+                        {"selector": "th.row_heading", "props": [("text-align", "center")]},
+                        {"selector": "th.index_name", "props": [("text-align", "center")]},
                     ])
-                    .set_properties(**{"text-align": "center", "font-weight": "500", "color": "#000000"})
+                    .set_properties(**{"text-align": "center", "font-weight": "500"})
                 )
 
                 st.dataframe(styled_individual, use_container_width=True)
@@ -4537,14 +4534,11 @@ with tab_kinematic:
                 .apply(style_segments, axis=0)
                 .apply_index(style_segment_headers, axis="columns", level=0)
                 .set_table_styles([
-                    {"selector": "th", "props": [("text-align", "center"), ("color", "#000000"), ("opacity", "1")]},
-                    {"selector": "thead th", "props": [("color", "#000000"), ("opacity", "1")]},
-                    {"selector": "tbody th", "props": [("color", "#000000"), ("opacity", "1")]},
-                    {"selector": "th.row_heading", "props": [("text-align", "center"), ("color", "#000000"), ("opacity", "1")]},
-                    {"selector": "th.index_name", "props": [("text-align", "center"), ("color", "#000000"), ("opacity", "1")]},
-                    {"selector": "td", "props": [("color", "#000000"), ("opacity", "1")]},
+                    {"selector": "th", "props": [("text-align", "center")]},
+                    {"selector": "th.row_heading", "props": [("text-align", "center")]},
+                    {"selector": "th.index_name", "props": [("text-align", "center")]},
                 ])
-                .set_properties(**{"text-align": "center", "font-weight": "500", "color": "#000000"})
+                .set_properties(**{"text-align": "center", "font-weight": "500"})
             )
             st.dataframe(styled, use_container_width=True)
 
