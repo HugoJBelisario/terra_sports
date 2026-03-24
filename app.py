@@ -4322,10 +4322,21 @@ with tab_kinematic:
             df_pivot = df_pivot.swaplevel(0, 1, axis=1)
             metric_map = {
                 "Peak Value (°/s)": "Peak (°/s)",
-                "Peak Time from Reference (ms)": "Peak Time from Reference (ms)",
+            }
+            segment_reference_metric_map = {
+                "Pelvis Rotation": "Peak Time from Foot Plant (ms)",
+                "Torso Rotation": "Peak Time from Peak Pelvis (ms)",
+                "Elbow Extension": "Peak Time from Peak Torso (ms)",
+                "Shoulder Internal Rotation": "Peak Time from Peak Elbow (ms)",
             }
             df_pivot.columns = pd.MultiIndex.from_tuples(
-                [(seg, metric_map.get(metric, metric)) for seg, metric in df_pivot.columns]
+                [
+                    (
+                        seg,
+                        metric_map.get(metric, segment_reference_metric_map.get(seg, metric))
+                    )
+                    for seg, metric in df_pivot.columns
+                ]
             )
             segment_order = [
                 "Pelvis Rotation",
@@ -4333,13 +4344,15 @@ with tab_kinematic:
                 "Elbow Extension",
                 "Shoulder Internal Rotation",
             ]
-            metric_order = ["Peak (°/s)", "Peak Time from Reference (ms)"]
-            ordered_cols = [
-                (seg, met)
-                for seg in segment_order
-                for met in metric_order
-                if (seg, met) in df_pivot.columns
-            ]
+            ordered_cols = []
+            for seg in segment_order:
+                segment_metrics = [
+                    "Peak (°/s)",
+                    segment_reference_metric_map.get(seg, "Peak Time from Reference (ms)"),
+                ]
+                for metric_name in segment_metrics:
+                    if (seg, metric_name) in df_pivot.columns:
+                        ordered_cols.append((seg, metric_name))
             if ordered_cols:
                 df_pivot = df_pivot[ordered_cols]
 
