@@ -4038,8 +4038,8 @@ with tab_kinematic:
 
                         grouped_peak_time_reference[(date_key, label)] = max_x
 
-                        local_y_min = min(y_date) if y_date else max_y
-                        local_y_max = max(y_date) if y_date else max_y
+                        local_y_min = min(y_date) if len(y_date) > 0 else max_y
+                        local_y_max = max(y_date) if len(y_date) > 0 else max_y
                         local_y_span = max(local_y_max - local_y_min, 1)
                         peak_marker_y = max_y + (0.08 * local_y_span)
 
