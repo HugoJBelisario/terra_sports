@@ -4791,10 +4791,14 @@ with tab_joint:
             st.markdown("")
 
     has_kinematics_selection = bool(selected_kinematics)
+    show_single_kinematics_empty_state = not has_kinematics_selection and joint_view_mode == "Single"
 
-    if not has_kinematics_selection and joint_view_mode == "Single":
-        st.info("Select at least one kinematic.")
-        st.stop()
+    if show_single_kinematics_empty_state:
+        kinematics_empty_col, kinematics_empty_spacer = st.columns([2.35, 3.65])
+        with kinematics_empty_col:
+            st.info("Select at least one kinematic.")
+        with kinematics_empty_spacer:
+            st.markdown("")
 
     # --- Color map for joint types ---
     joint_color_map = {
@@ -4884,7 +4888,11 @@ with tab_joint:
         )
 
     # --- Load Torso Angle components conditionally ---
-    torso_angle_data = get_torso_angle_components(take_ids)
+    needs_torso_angle_data = any(
+        metric in selected_kinematics
+        for metric in ["Forward Trunk Tilt", "Lateral Trunk Tilt", "Trunk Angle"]
+    )
+    torso_angle_data = get_torso_angle_components(take_ids) if needs_torso_angle_data else {}
 
     if "Forward Trunk Tilt" in selected_kinematics:
         joint_data["Forward Trunk Tilt"] = {
@@ -5696,10 +5704,13 @@ with tab_joint:
                     )
                     st.plotly_chart(energy_fig, use_container_width=True, key="joint_plot_compare_right_energy")
     else:
-        st.plotly_chart(fig, use_container_width=True, key="joint_plot_single")
+        if show_single_kinematics_empty_state:
+            st.markdown("")
+        else:
+            st.plotly_chart(fig, use_container_width=True, key="joint_plot_single")
 
     # --- Kinematics Table ---
-    if summary_rows:
+    if not show_single_kinematics_empty_state and summary_rows:
         st.markdown("### Kinematics Summary")
         df_summary = pd.DataFrame(summary_rows)
         # Reorder columns explicitly
@@ -5789,19 +5800,20 @@ with tab_joint:
         )
         st.dataframe(styled_summary, use_container_width=True)
 
-    st.markdown("### Kinematic Definitions")
-    for metric in selected_kinematics:
-        metric_info = kinematic_definitions.get(metric, {})
-        if not metric_info:
-            continue
-        st.markdown(
-            (
-                f"<div style='font-size:1.15rem; line-height:1.6; margin:0.35rem 0 0.9rem 0;'>"
-                f"<strong>{metric}:</strong> {metric_info.get('definition', '')}"
-                f"</div>"
-            ),
-            unsafe_allow_html=True,
-        )
+    if not show_single_kinematics_empty_state:
+        st.markdown("### Kinematic Definitions")
+        for metric in selected_kinematics:
+            metric_info = kinematic_definitions.get(metric, {})
+            if not metric_info:
+                continue
+            st.markdown(
+                (
+                    f"<div style='font-size:1.15rem; line-height:1.6; margin:0.35rem 0 0.9rem 0;'>"
+                    f"<strong>{metric}:</strong> {metric_info.get('definition', '')}"
+                    f"</div>"
+                ),
+                unsafe_allow_html=True,
+            )
 
 # --------------------------------------------------
 # Energy Flow Tab
