@@ -4789,17 +4789,21 @@ with tab_joint:
                 key="joint_angles_select_compare"
             )
         with control_right_col:
-            compare_energy_display_mode = st.radio(
+            st.markdown('<div class="joint-controls-label">Display Mode</div>', unsafe_allow_html=True)
+            compare_energy_display_mode = st.segmented_control(
                 "Energy Flow Display Mode",
                 ["Individual Throws", "Grouped"],
-                index=1,
-                horizontal=True,
+                default="Grouped",
                 key="joint_energy_display_mode_compare"
+                ,
+                label_visibility="collapsed",
             )
-            show_compare_energy_fp_iqr_band = st.checkbox(
-                "Show Event IQR Bands",
+            st.markdown('<div class="joint-controls-label joint-toggle-label">Options</div>', unsafe_allow_html=True)
+            show_compare_energy_fp_iqr_band = st.toggle(
+                "Event Bands",
                 value=False,
-                key="joint_energy_show_fp_iqr_band_compare"
+                key="joint_energy_show_fp_iqr_band_compare",
+                help="Shows the middle 50% range for event timing across selected throws.",
             )
             compare_energy_metrics = st.multiselect(
                 "Select Energy Flow Metrics",
