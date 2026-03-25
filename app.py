@@ -2262,6 +2262,18 @@ st.markdown(
         text-overflow: unset !important;
         line-height: 1.25 !important;
     }
+    /* Make selected multiselect tags readable in the main page as well */
+    div[data-testid="stMultiSelect"] div[data-baseweb="tag"] {
+        max-width: 100% !important;
+        height: auto !important;
+        white-space: normal !important;
+    }
+    div[data-testid="stMultiSelect"] div[data-baseweb="tag"] > span {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: unset !important;
+        line-height: 1.25 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
