@@ -4041,7 +4041,7 @@ with tab_kinematic:
                         local_y_min = min(y_date) if len(y_date) > 0 else max_y
                         local_y_max = max(y_date) if len(y_date) > 0 else max_y
                         local_y_span = max(local_y_max - local_y_min, 1)
-                        peak_marker_y = max_y + (0.08 * local_y_span)
+                        peak_marker_y = max_y + max(0.10 * local_y_span, 120)
 
                         kinematic_peak_rows.append({
                             **({"Group": group_label} if comparison_grouping_enabled else {}),
@@ -6176,6 +6176,7 @@ with tab_energy:
             group_label = take_group_map.get(take_id, "Ungrouped")
             pitcher_name = take_pitcher_map.get(take_id, "")
             control_group_take = is_control_group_label(group_label)
+            hover_pitcher_name = "" if control_group_take else pitcher_name
             if comparison_grouping_enabled and control_group_take:
                 date_key = group_label
             elif comparison_grouping_enabled:
