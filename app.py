@@ -5642,6 +5642,7 @@ with tab_joint:
                             }
 
                             if compare_energy_display_mode == "Individual Throws":
+                                legendgroup = f"{metric}_{pitcher_name}_{date}" if multi_pitcher_mode else f"{metric}_{date}"
                                 energy_fig.add_trace(
                                     go.Scatter(
                                         x=norm_f,
@@ -5660,7 +5661,8 @@ with tab_joint:
                                             + "<br>Time: %{x:.0f} ms rel BR"
                                             + "<extra></extra>"
                                         ),
-                                        showlegend=False
+                                        showlegend=False,
+                                        legendgroup=legendgroup
                                     )
                                 )
                                 legend_key = (metric, date_key)
@@ -5680,7 +5682,8 @@ with tab_joint:
                                                 if multi_pitcher_mode else
                                                 f"{metric} | {date}"
                                             ),
-                                            showlegend=True
+                                            showlegend=True,
+                                            legendgroup=legendgroup
                                         )
                                     )
                                     energy_legend_keys.add(legend_key)
@@ -5693,6 +5696,7 @@ with tab_joint:
                                     date = date_key
                                     pitcher_name = ""
                                 x, y, q1, q3 = aggregate_curves(curves, "Mean")
+                                legendgroup = f"{metric}_{pitcher_name}_{date}" if multi_pitcher_mode else f"{metric}_{date}"
                                 if len(y) >= 11:
                                     y = savgol_filter(y, window_length=11, polyorder=3)
 
@@ -5710,7 +5714,8 @@ with tab_joint:
                                             + "<br>Time: %{x:.0f} ms rel BR"
                                             + "<extra></extra>"
                                         ),
-                                        showlegend=False
+                                        showlegend=False,
+                                        legendgroup=legendgroup
                                     )
                                 )
                                 if show_compare_energy_signal_iqr_band:
@@ -5722,7 +5727,8 @@ with tab_joint:
                                             fillcolor=to_rgba(metric_color, alpha=0.35),
                                             line=dict(width=0),
                                             showlegend=False,
-                                            hoverinfo="skip"
+                                            hoverinfo="skip",
+                                            legendgroup=legendgroup
                                         )
                                     )
                                 energy_fig.add_trace(
@@ -5736,7 +5742,8 @@ with tab_joint:
                                             if multi_pitcher_mode else
                                             f"{metric} | {date}"
                                         ),
-                                        showlegend=True
+                                        showlegend=True,
+                                        legendgroup=legendgroup
                                     )
                     )
 
@@ -5791,7 +5798,8 @@ with tab_joint:
                             yanchor="top",
                             y=-0.30,
                             xanchor="center",
-                            x=0.5
+                            x=0.5,
+                            groupclick="togglegroup"
                         ),
                         hoverlabel=dict(
                             namelength=-1,
@@ -6194,6 +6202,15 @@ with tab_energy:
             )
 
             if display_mode == "Individual Throws":
+                legendgroup = (
+                    f"{group_label}_{metric}_{pitcher_name}_{date}"
+                    if (comparison_grouping_enabled and show_group_pitcher_breakout) else
+                    f"{group_label}_{metric}_{date}"
+                    if comparison_grouping_enabled else
+                    f"{metric}_{pitcher_name}_{date}"
+                    if show_group_pitcher_breakout else
+                    f"{metric}_{date}"
+                )
                 fig.add_trace(
                     go.Scatter(
                         x=norm_f,
@@ -6220,7 +6237,8 @@ with tab_energy:
                             f"{group_label} | {metric} – {date} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
                             if comparison_grouping_enabled else None
                         ),
-                        showlegend=False
+                        showlegend=False,
+                        legendgroup=legendgroup
                     )
                 )
                 legend_key = (metric, date_key)
@@ -6242,11 +6260,12 @@ with tab_energy:
                                 if (show_group_pitcher_breakout and comparison_grouping_enabled) else
                                 f"{group_label} | {metric} | {date}"
                                 if comparison_grouping_enabled else
-                                f"{metric} | {date} | {pitcher_name}"
-                                if show_group_pitcher_breakout else
-                                f"{metric} | {date}"
-                            ),
-                            showlegend=True
+                            f"{metric} | {date} | {pitcher_name}"
+                            if show_group_pitcher_breakout else
+                            f"{metric} | {date}"
+                        ),
+                            showlegend=True,
+                            legendgroup=legendgroup
                         )
                     )
                     legend_keys_added.add(legend_key)
@@ -6274,6 +6293,15 @@ with tab_energy:
                     pitcher_name = ""
                     group_label = ""
                 x, y, q1, q3 = aggregate_curves(curves, "Mean")
+                legendgroup = (
+                    f"{group_label}_{metric}_{pitcher_name}_{date}"
+                    if (comparison_grouping_enabled and show_group_pitcher_breakout) else
+                    f"{group_label}_{metric}_{date}"
+                    if comparison_grouping_enabled else
+                    f"{metric}_{pitcher_name}_{date}"
+                    if show_group_pitcher_breakout else
+                    f"{metric}_{date}"
+                )
 
                 if len(y) >= 11:
                     y = savgol_filter(y, window_length=11, polyorder=3)
@@ -6300,7 +6328,8 @@ with tab_energy:
                             + "<br>Time: %{x:.0f} ms rel BR"
                             + "<extra></extra>"
                         ),
-                        showlegend=False
+                        showlegend=False,
+                        legendgroup=legendgroup
                     )
                 )
 
@@ -6318,7 +6347,8 @@ with tab_energy:
                             ),
                             line=dict(width=0),
                             showlegend=False,
-                            hoverinfo="skip"
+                            hoverinfo="skip",
+                            legendgroup=legendgroup
                         )
                     )
 
@@ -6345,7 +6375,8 @@ with tab_energy:
                             if show_group_pitcher_breakout else
                             f"{metric} | {date}"
                         ),
-                        showlegend=True
+                        showlegend=True,
+                        legendgroup=legendgroup
                     )
                 )
 
@@ -6405,7 +6436,8 @@ with tab_energy:
             yanchor="top",
             y=-0.30,
             xanchor="center",
-            x=0.5
+            x=0.5,
+            groupclick="togglegroup"
         ),
         hoverlabel=dict(
             namelength=-1,
