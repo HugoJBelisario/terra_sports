@@ -5697,9 +5697,6 @@ with tab_joint:
                                     pitcher_name = ""
                                 x, y, q1, q3 = aggregate_curves(curves, "Mean")
                                 legendgroup = f"{metric}_{pitcher_name}_{date}" if multi_pitcher_mode else f"{metric}_{date}"
-                                if len(y) >= 11:
-                                    y = savgol_filter(y, window_length=11, polyorder=3)
-
                                 energy_fig.add_trace(
                                     go.Scatter(
                                         x=x,
@@ -6302,9 +6299,6 @@ with tab_energy:
                     if show_group_pitcher_breakout else
                     f"{metric}_{date}"
                 )
-
-                if len(y) >= 11:
-                    y = savgol_filter(y, window_length=11, polyorder=3)
 
                 fig.add_trace(
                     go.Scatter(
