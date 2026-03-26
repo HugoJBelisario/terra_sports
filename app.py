@@ -6165,6 +6165,7 @@ with tab_joint:
             styled_summary,
             use_container_width=True,
             column_config=summary_column_config or None,
+            hide_index=True,
         )
 
     if joint_view_mode == "Comparison" and compare_energy_metrics and compare_energy_summary_rows:
@@ -6223,6 +6224,7 @@ with tab_joint:
         st.dataframe(
             styled_energy_summary,
             use_container_width=True,
+            hide_index=True,
         )
 
     rendered_definitions_heading = False
