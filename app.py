@@ -4834,16 +4834,13 @@ with tab_joint:
         },
         "Glove Side Trunk-Shoulder Energy Flow": {
             "definition": (
-                "Measures how the trunk loads and then transfers energy to the glove-side arm. "
-                "Negative = the trunk is absorbing energy (loading), positive = the trunk is "
-                "sending energy to the glove-side arm."
+                "Measures how the trunk loads and then transfers energy to the glove-side arm."
             ),
         },
         "Glove Arm Energy Flow": {
             "definition": (
                 "Measures how the glove-side arm receives and responds to energy from the trunk "
-                "at the shoulder connection. Positive values -> the glove-side arm is loading "
-                "(receiving energy). Negative values -> the glove-side arm is being accelerated by the trunk."
+                "at the shoulder connection."
             ),
         },
         "Trunk-Shoulder Elevation/Depression Energy Flow": {
