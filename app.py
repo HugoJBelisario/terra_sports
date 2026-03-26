@@ -1277,6 +1277,100 @@ def get_distal_arm_segment_power(take_ids, handedness):
 
 
 @st.cache_data(ttl=300)
+def get_glove_side_trunk_shoulder_energy_flow(take_ids, handedness):
+    """
+    Returns glove-side distal arm/trunk-shoulder energy flow (Watts).
+
+    Category: SEGMENT_POWERS
+    Segments:
+      RHP -> RTA_DIST_L
+      LHP -> RTA_DIST_R
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "RTA_DIST_L" if handedness == "R" else "RTA_DIST_R"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'SEGMENT_POWERS'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.x_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, x in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+
+            return data
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300)
+def get_glove_arm_energy_flow(take_ids, handedness):
+    """
+    Returns glove-side proximal arm energy flow (Watts).
+
+    Category: SEGMENT_POWERS
+    Segments:
+      RHP -> LAR_PROX
+      LHP -> RAR_PROX
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "LAR_PROX" if handedness == "R" else "RAR_PROX"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'SEGMENT_POWERS'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.x_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            rows = cur.fetchall()
+
+            data = {}
+            for take_id, frame, x in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+
+            return data
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300)
 def get_trunk_shoulder_rot_energy_flow(take_ids, handedness):
     """
     Trunk–Shoulder rotational energy flow.
@@ -4731,11 +4825,25 @@ with tab_joint:
                 "sending energy to the arm (throwing)."
             ),
         },
-        "Arm Energy Response (LAR_PROX | RAR_PROX)": {
+        "Arm Energy Flow (LAR_PROX | RAR_PROX)": {
             "definition": (
                 "Measures how the throwing arm receives and responds to energy from the trunk "
                 "at the shoulder connection. Positive values -> the arm is loading "
                 "(receiving energy). Negative values -> the arm is being accelerated by the trunk."
+            ),
+        },
+        "Glove Side Trunk-Shoulder Energy Flow": {
+            "definition": (
+                "Measures how the trunk loads and then transfers energy to the glove-side arm. "
+                "Negative = the trunk is absorbing energy (loading), positive = the trunk is "
+                "sending energy to the glove-side arm."
+            ),
+        },
+        "Glove Arm Energy Flow": {
+            "definition": (
+                "Measures how the glove-side arm receives and responds to energy from the trunk "
+                "at the shoulder connection. Positive values -> the glove-side arm is loading "
+                "(receiving energy). Negative values -> the glove-side arm is being accelerated by the trunk."
             ),
         },
         "Trunk-Shoulder Elevation/Depression Energy Flow": {
@@ -4873,7 +4981,9 @@ with tab_joint:
                 "Select Energy Flow Metrics",
                 [
                     "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)",
-                    "Arm Energy Response (LAR_PROX | RAR_PROX)",
+                    "Arm Energy Flow (LAR_PROX | RAR_PROX)",
+                    "Glove Side Trunk-Shoulder Energy Flow",
+                    "Glove Arm Energy Flow",
                     "Trunk-Shoulder Rotational Energy Flow",
                     "Trunk-Shoulder Elevation/Depression Energy Flow",
                     "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
@@ -5615,7 +5725,9 @@ with tab_joint:
             else:
                 energy_color_map = {
                     "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)": "#4C1D95",
-                    "Arm Energy Response (LAR_PROX | RAR_PROX)": "#7C2D12",
+                    "Arm Energy Flow (LAR_PROX | RAR_PROX)": "#7C2D12",
+                    "Glove Side Trunk-Shoulder Energy Flow": "#6D28D9",
+                    "Glove Arm Energy Flow": "#92400E",
                     "Trunk-Shoulder Rotational Energy Flow": "#DC2626",
                     "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",
                     "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",
@@ -5637,8 +5749,12 @@ with tab_joint:
                 for metric in compare_energy_metrics:
                     if metric == "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_distal_arm_segment_power)
-                    elif metric == "Arm Energy Response (LAR_PROX | RAR_PROX)":
+                    elif metric == "Arm Energy Flow (LAR_PROX | RAR_PROX)":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_arm_proximal_energy_transfer)
+                    elif metric == "Glove Side Trunk-Shoulder Energy Flow":
+                        compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_glove_side_trunk_shoulder_energy_flow)
+                    elif metric == "Glove Arm Energy Flow":
+                        compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_glove_arm_energy_flow)
                     elif metric == "Trunk-Shoulder Rotational Energy Flow":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_trunk_shoulder_rot_energy_flow)
                     elif metric == "Trunk-Shoulder Elevation/Depression Energy Flow":
@@ -6114,7 +6230,9 @@ with tab_energy:
             "Select Energy Flow Metrics",
             [
                 "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)",
-                "Arm Energy Response (LAR_PROX | RAR_PROX)",
+                "Arm Energy Flow (LAR_PROX | RAR_PROX)",
+                "Glove Side Trunk-Shoulder Energy Flow",
+                "Glove Arm Energy Flow",
                 "Trunk-Shoulder Rotational Energy Flow",
                 "Trunk-Shoulder Elevation/Depression Energy Flow",
                 "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
@@ -6143,7 +6261,9 @@ with tab_energy:
     # --- Fixed color map for Energy Flow metrics (high-contrast palette) ---
     energy_color_map = {
         "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)": "#4C1D95",  # deep indigo / purple
-        "Arm Energy Response (LAR_PROX | RAR_PROX)": "#7C2D12",  # dark brown
+        "Arm Energy Flow (LAR_PROX | RAR_PROX)": "#7C2D12",  # dark brown
+        "Glove Side Trunk-Shoulder Energy Flow": "#6D28D9",
+        "Glove Arm Energy Flow": "#92400E",
         "Trunk-Shoulder Rotational Energy Flow": "#DC2626",  # strong red
         "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",  # vivid blue
         "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",     # strong green
@@ -6166,8 +6286,12 @@ with tab_energy:
     for metric in energy_metrics:
         if metric == "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_distal_arm_segment_power)
-        elif metric == "Arm Energy Response (LAR_PROX | RAR_PROX)":
+        elif metric == "Arm Energy Flow (LAR_PROX | RAR_PROX)":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_proximal_energy_transfer)
+        elif metric == "Glove Side Trunk-Shoulder Energy Flow":
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_glove_side_trunk_shoulder_energy_flow)
+        elif metric == "Glove Arm Energy Flow":
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_glove_arm_energy_flow)
         elif metric == "Trunk-Shoulder Rotational Energy Flow":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_rot_energy_flow)
         elif metric == "Trunk-Shoulder Elevation/Depression Energy Flow":
