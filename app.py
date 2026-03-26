@@ -6063,8 +6063,10 @@ with tab_joint:
             st.plotly_chart(fig, use_container_width=True, key="joint_plot_single")
 
     # --- Kinematics Table ---
+    rendered_summary_heading = False
     if not show_single_kinematics_empty_state and summary_rows:
-        st.markdown("### Kinematics Summary")
+        st.markdown("### Summary")
+        rendered_summary_heading = True
         df_summary = pd.DataFrame(summary_rows)
         # Reorder columns explicitly
         base_columns = [
@@ -6166,7 +6168,9 @@ with tab_joint:
         )
 
     if joint_view_mode == "Comparison" and compare_energy_metrics and compare_energy_summary_rows:
-        st.markdown("### Energy Flow Summary")
+        if not rendered_summary_heading:
+            st.markdown("### Summary")
+            rendered_summary_heading = True
         df_energy_summary = pd.DataFrame(compare_energy_summary_rows)
 
         def fmt_energy(val, decimals=2):
@@ -6221,8 +6225,10 @@ with tab_joint:
             use_container_width=True,
         )
 
+    rendered_definitions_heading = False
     if not show_single_kinematics_empty_state:
-        st.markdown("### Kinematic Definitions")
+        st.markdown("### Definitions")
+        rendered_definitions_heading = True
         for metric in selected_kinematics:
             metric_info = kinematic_definitions.get(metric, {})
             if not metric_info:
@@ -6241,7 +6247,9 @@ with tab_joint:
             metric for metric in compare_energy_metrics if metric in energy_definitions
         ]
         if defined_compare_energy_metrics:
-            st.markdown("### Energy Flow Definitions")
+            if not rendered_definitions_heading:
+                st.markdown("### Definitions")
+                rendered_definitions_heading = True
             for metric in defined_compare_energy_metrics:
                 metric_info = energy_definitions.get(metric, {})
                 st.markdown(
