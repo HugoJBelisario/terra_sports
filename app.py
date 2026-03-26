@@ -269,7 +269,7 @@ def get_velocity_bounds(athlete_name, selected_dates):
     finally:
         conn.close()
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def get_control_group_take_pool(handedness_filter):
     """
     Returns control-group candidates from all takes in the database, optionally
@@ -2907,6 +2907,65 @@ def build_shared_dashboard_state():
     shared_take_date_map = {}
     shared_take_pitcher_name_map = {}
 
+    def merge_control_group_takes_into_shared_state():
+        nonlocal shared_take_ids
+        nonlocal shared_take_handedness
+        nonlocal shared_take_order
+        nonlocal shared_take_velocity
+        nonlocal shared_take_date_map
+        nonlocal shared_take_pitcher_name_map
+        nonlocal primary_take_ids
+        nonlocal control_take_ids
+
+        primary_take_ids = list(shared_take_ids)
+        control_take_ids = [
+            tid for tid in st.session_state.get("control_group_take_ids", [])
+            if tid not in primary_take_ids
+        ]
+        combined_take_ids = primary_take_ids + control_take_ids
+
+        if not control_take_ids or not combined_take_ids:
+            return
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                placeholders = ",".join(["%s"] * len(combined_take_ids))
+                cur.execute(f"""
+                    SELECT t.take_id, t.pitch_velo, t.take_date, a.athlete_name, a.handedness
+                    FROM takes t
+                    JOIN athletes a ON a.athlete_id = t.athlete_id
+                    WHERE t.take_id IN ({placeholders})
+                    ORDER BY a.athlete_name, t.take_date, t.take_id
+                """, tuple(combined_take_ids))
+                combined_rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        from collections import defaultdict
+
+        shared_take_ids = []
+        shared_take_handedness = {}
+        shared_take_order = {}
+        shared_take_velocity = {}
+        shared_take_date_map = {}
+        shared_take_pitcher_name_map = {}
+
+        combined_date_groups = defaultdict(list)
+        for tid, velo, date, pitcher, handedness in combined_rows:
+            if handedness not in ("R", "L"):
+                continue
+            shared_take_ids.append(tid)
+            shared_take_handedness[tid] = handedness
+            shared_take_velocity[tid] = velo
+            shared_take_date_map[tid] = date.strftime("%Y-%m-%d")
+            shared_take_pitcher_name_map[tid] = pitcher
+            combined_date_groups[(pitcher, date)].append((tid, velo))
+
+        for (pitcher, date), items in combined_date_groups.items():
+            for i, (tid, velo) in enumerate(items, start=1):
+                shared_take_order[tid] = i
+
     if shared_take_ids:
         conn = get_connection()
         try:
@@ -3064,7 +3123,7 @@ def build_shared_dashboard_state():
                     st.session_state["control_group_take_ids"] = list(final_candidate_control_take_ids)
                     st.session_state["control_group_arm_slot_ids"] = list(final_candidate_control_take_ids)
                     st.session_state["control_group_status_message"] = (
-                        f"Current control group: {len(final_candidate_control_take_ids)} takes"
+                        f"Total Pitches: {len(final_candidate_control_take_ids)}"
                         if final_candidate_control_take_ids else
                         "No control-group takes found for the selected filters."
                     )
@@ -3072,6 +3131,8 @@ def build_shared_dashboard_state():
 
                 if st.session_state.get("control_group_status_message"):
                     st.sidebar.caption(st.session_state["control_group_status_message"])
+                if st.session_state.get("show_control_group_velocity"):
+                    merge_control_group_takes_into_shared_state()
         elif group_mode_enabled and st.session_state.get("show_control_group_velocity"):
             if st.sidebar.button(
                 "Remove Control Group",
@@ -3129,7 +3190,7 @@ def build_shared_dashboard_state():
                 st.session_state["control_group_take_ids"] = list(final_candidate_control_take_ids)
                 st.session_state["control_group_arm_slot_ids"] = list(final_candidate_control_take_ids)
                 st.session_state["control_group_status_message"] = (
-                    f"Current control group: {len(final_candidate_control_take_ids)} takes"
+                    f"Total Pitches: {len(final_candidate_control_take_ids)}"
                     if final_candidate_control_take_ids else
                     "No control-group takes found for the selected filters."
                 )
@@ -3138,50 +3199,7 @@ def build_shared_dashboard_state():
             if st.session_state.get("control_group_status_message"):
                 st.sidebar.caption(st.session_state["control_group_status_message"])
 
-            primary_take_ids = list(shared_take_ids)
-            control_take_ids = [
-                tid for tid in st.session_state.get("control_group_take_ids", [])
-                if tid not in primary_take_ids
-            ]
-            combined_take_ids = primary_take_ids + control_take_ids
-
-            if control_take_ids and combined_take_ids:
-                conn = get_connection()
-                try:
-                    with conn.cursor() as cur:
-                        placeholders = ",".join(["%s"] * len(combined_take_ids))
-                        cur.execute(f"""
-                            SELECT t.take_id, t.pitch_velo, t.take_date, a.athlete_name, a.handedness
-                            FROM takes t
-                            JOIN athletes a ON a.athlete_id = t.athlete_id
-                            WHERE t.take_id IN ({placeholders})
-                            ORDER BY a.athlete_name, t.take_date, t.take_id
-                        """, tuple(combined_take_ids))
-                        combined_rows = cur.fetchall()
-                finally:
-                    conn.close()
-
-                shared_take_ids = []
-                shared_take_handedness = {}
-                shared_take_order = {}
-                shared_take_velocity = {}
-                shared_take_date_map = {}
-                shared_take_pitcher_name_map = {}
-
-                combined_date_groups = defaultdict(list)
-                for tid, velo, date, pitcher, handedness in combined_rows:
-                    if handedness not in ("R", "L"):
-                        continue
-                    shared_take_ids.append(tid)
-                    shared_take_handedness[tid] = handedness
-                    shared_take_velocity[tid] = velo
-                    shared_take_date_map[tid] = date.strftime("%Y-%m-%d")
-                    shared_take_pitcher_name_map[tid] = pitcher
-                    combined_date_groups[(pitcher, date)].append((tid, velo))
-
-                for (pitcher, date), items in combined_date_groups.items():
-                    for i, (tid, velo) in enumerate(items, start=1):
-                        shared_take_order[tid] = i
+            merge_control_group_takes_into_shared_state()
         else:
             primary_take_ids = []
             control_take_ids = []
