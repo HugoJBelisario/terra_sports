@@ -6063,9 +6063,19 @@ with tab_joint:
             st.plotly_chart(fig, use_container_width=True, key="joint_plot_single")
 
     # --- Kinematics Table ---
+    has_compare_energy_summary = (
+        joint_view_mode == "Comparison"
+        and bool(compare_energy_metrics)
+        and bool(compare_energy_summary_rows)
+    )
+    combined_summary_mode = (
+        not show_single_kinematics_empty_state
+        and bool(summary_rows)
+        and has_compare_energy_summary
+    )
     rendered_summary_heading = False
     if not show_single_kinematics_empty_state and summary_rows:
-        st.markdown("### Summary")
+        st.markdown("### Summary" if combined_summary_mode else "### Kinematics Summary")
         rendered_summary_heading = True
         df_summary = pd.DataFrame(summary_rows)
         # Reorder columns explicitly
@@ -6168,9 +6178,9 @@ with tab_joint:
             hide_index=True,
         )
 
-    if joint_view_mode == "Comparison" and compare_energy_metrics and compare_energy_summary_rows:
+    if has_compare_energy_summary:
         if not rendered_summary_heading:
-            st.markdown("### Summary")
+            st.markdown("### Energy Flow Summary")
             rendered_summary_heading = True
         df_energy_summary = pd.DataFrame(compare_energy_summary_rows)
 
@@ -6227,9 +6237,19 @@ with tab_joint:
             hide_index=True,
         )
 
+    has_compare_energy_definitions = (
+        joint_view_mode == "Comparison"
+        and bool(compare_energy_metrics)
+        and any(metric in energy_definitions for metric in compare_energy_metrics)
+    )
+    combined_definitions_mode = (
+        not show_single_kinematics_empty_state
+        and bool(selected_kinematics)
+        and has_compare_energy_definitions
+    )
     rendered_definitions_heading = False
     if not show_single_kinematics_empty_state:
-        st.markdown("### Definitions")
+        st.markdown("### Definitions" if combined_definitions_mode else "### Kinematic Definitions")
         rendered_definitions_heading = True
         for metric in selected_kinematics:
             metric_info = kinematic_definitions.get(metric, {})
@@ -6250,7 +6270,7 @@ with tab_joint:
         ]
         if defined_compare_energy_metrics:
             if not rendered_definitions_heading:
-                st.markdown("### Definitions")
+                st.markdown("### Energy Flow Definitions")
                 rendered_definitions_heading = True
             for metric in defined_compare_energy_metrics:
                 metric_info = energy_definitions.get(metric, {})
