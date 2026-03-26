@@ -4723,6 +4723,16 @@ with tab_joint:
         },
     }
 
+    energy_definitions = {
+        "Trunk-to-Arm Energy Flow (RTA_DIST)": {
+            "definition": (
+                "Measures how the trunk loads and then transfers energy to the throwing arm. "
+                "Negative = the trunk is absorbing energy (loading), positive = the trunk is "
+                "sending energy to the arm (throwing)."
+            ),
+        },
+    }
+
     def get_kinematic_unit(kinematic_name):
         if "Velocity" in kinematic_name and "Hand Speed" not in kinematic_name and "Center of Mass Velocity" not in kinematic_name:
             return "°/s"
@@ -4812,7 +4822,7 @@ with tab_joint:
             compare_energy_metrics = st.multiselect(
                 "Select Energy Flow Metrics",
                 [
-                    "Distal Arm Segment Power",
+                    "Trunk-to-Arm Energy Flow (RTA_DIST)",
                     "Arm Proximal Energy Transfer",
                     "Trunk-Shoulder Rotational Energy Flow",
                     "Trunk-Shoulder Elevation/Depression Energy Flow",
@@ -5554,7 +5564,7 @@ with tab_joint:
                 st.info("No takes available for Energy Flow.")
             else:
                 energy_color_map = {
-                    "Distal Arm Segment Power": "#4C1D95",
+                    "Trunk-to-Arm Energy Flow (RTA_DIST)": "#4C1D95",
                     "Arm Proximal Energy Transfer": "#7C2D12",
                     "Trunk-Shoulder Rotational Energy Flow": "#DC2626",
                     "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",
@@ -5575,7 +5585,7 @@ with tab_joint:
                     return merged
 
                 for metric in compare_energy_metrics:
-                    if metric == "Distal Arm Segment Power":
+                    if metric == "Trunk-to-Arm Energy Flow (RTA_DIST)":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_distal_arm_segment_power)
                     elif metric == "Arm Proximal Energy Transfer":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_arm_proximal_energy_transfer)
@@ -6053,7 +6063,7 @@ with tab_energy:
         energy_metrics = st.multiselect(
             "Select Energy Flow Metrics",
             [
-                "Distal Arm Segment Power",
+                "Trunk-to-Arm Energy Flow (RTA_DIST)",
                 "Arm Proximal Energy Transfer",
                 "Trunk-Shoulder Rotational Energy Flow",
                 "Trunk-Shoulder Elevation/Depression Energy Flow",
@@ -6082,7 +6092,7 @@ with tab_energy:
 
     # --- Fixed color map for Energy Flow metrics (high-contrast palette) ---
     energy_color_map = {
-        "Distal Arm Segment Power": "#4C1D95",            # deep indigo / purple
+        "Trunk-to-Arm Energy Flow (RTA_DIST)": "#4C1D95",  # deep indigo / purple
         "Arm Proximal Energy Transfer": "#7C2D12",        # dark brown
         "Trunk-Shoulder Rotational Energy Flow": "#DC2626",  # strong red
         "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",  # vivid blue
@@ -6104,7 +6114,7 @@ with tab_energy:
         return merged
 
     for metric in energy_metrics:
-        if metric == "Distal Arm Segment Power":
+        if metric == "Trunk-to-Arm Energy Flow (RTA_DIST)":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_distal_arm_segment_power)
         elif metric == "Arm Proximal Energy Transfer":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_proximal_energy_transfer)
@@ -6457,6 +6467,22 @@ with tab_energy:
     )
 
     st.plotly_chart(fig, use_container_width=True, key="energy_plot_main_tab")
+
+    defined_energy_metrics = [
+        metric for metric in energy_metrics if metric in energy_definitions
+    ]
+    if defined_energy_metrics:
+        st.markdown("### Energy Flow Definitions")
+        for metric in defined_energy_metrics:
+            metric_info = energy_definitions.get(metric, {})
+            st.markdown(
+                (
+                    f"<div style='font-size:1.15rem; line-height:1.6; margin:0.35rem 0 0.9rem 0;'>"
+                    f"<strong>{metric}:</strong> {metric_info.get('definition', '')}"
+                    f"</div>"
+                ),
+                unsafe_allow_html=True,
+            )
 
 # --------------------------------------------------
 # Footer
