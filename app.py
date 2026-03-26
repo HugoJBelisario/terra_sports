@@ -4724,7 +4724,7 @@ with tab_joint:
     }
 
     energy_definitions = {
-        "Trunk-to-Arm Energy Flow (RTA_DIST_L | RTA_DIST_R)": {
+        "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)": {
             "definition": (
                 "Measures how the trunk loads and then transfers energy to the throwing arm. "
                 "Negative = the trunk is absorbing energy (loading), positive = the trunk is "
@@ -4738,40 +4738,37 @@ with tab_joint:
                 "(receiving energy). Negative values -> the arm is being accelerated by the trunk."
             ),
         },
-        "Trunk-Shoulder Elevation/Depression Energy Flow": {
+        "Trunk-Shoulder Elevation/Depression Energy Flow (RTA_LAR_STP | RTA_RAR_STP)": {
             "definition": (
                 "Energy flow into (+) or out of (-) the trunk at the shoulder due to shoulder "
-                "elevation/depression (vertical abduction/adduction). For left-shoulder throws, "
-                "this same signal is represented with the RTA_LAR series."
+                "elevation/depression (vertical abduction/adduction)."
             ),
         },
-        "Trunk-Shoulder Horizontal Abd/Add Energy Flow": {
+        "Trunk-Shoulder Horizontal Abd/Add Energy Flow (RTA_LAR_STP | RTA_RAR_STP)": {
             "definition": (
                 "Energy flow into (+) or out of (-) the trunk at the shoulder due to shoulder "
-                "horizontal abduction/adduction (scap load). For left-shoulder throws, this same "
-                "signal is represented with the RTA_LAR series."
+                "horizontal abduction/adduction (scap load)."
             ),
         },
-        "Trunk-Shoulder Rotational Energy Flow": {
+        "Trunk-Shoulder Rotational Energy Flow (RTA_LAR_STP | RTA_RAR_STP)": {
             "definition": (
                 "Energy flow into (+) or out of (-) the trunk at the shoulder due to shoulder "
-                "internal/external rotation. For left-shoulder throws, this same signal is "
-                "represented with the RTA_LAR series."
+                "internal/external rotation."
             ),
         },
-        "Arm Elevation/Depression Energy Flow": {
+        "Arm Elevation/Depression Energy Flow (LAR_STP | RAR_STP)": {
             "definition": (
                 "Energy flow into (+) or out of (-) the upper arm at the shoulder due to "
                 "shoulder elevation/depression (vertical abduction/adduction)."
             ),
         },
-        "Arm Horizontal Abd/Add Energy Flow": {
+        "Arm Horizontal Abd/Add Energy Flow (LAR_STP | RAR_STP)": {
             "definition": (
                 "Energy flow into (+) or out of (-) the upper arm at the shoulder due to "
                 "shoulder horizontal abduction/adduction (scap load)."
             ),
         },
-        "Arm Rotational Energy Flow": {
+        "Arm Rotational Energy Flow (LAR_STP | RAR_STP)": {
             "definition": (
                 "Energy flow into (+) or out of (-) the upper arm at the shoulder due to "
                 "shoulder internal/external rotation."
@@ -4868,14 +4865,14 @@ with tab_joint:
             compare_energy_metrics = st.multiselect(
                 "Select Energy Flow Metrics",
                 [
-                    "Trunk-to-Arm Energy Flow (RTA_DIST_L | RTA_DIST_R)",
+                    "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)",
                     "Arm Energy Response (LAR_PROX | RAR_PROX)",
-                    "Trunk-Shoulder Rotational Energy Flow",
-                    "Trunk-Shoulder Elevation/Depression Energy Flow",
-                    "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
-                    "Arm Rotational Energy Flow",
-                    "Arm Elevation/Depression Energy Flow",
-                    "Arm Horizontal Abd/Add Energy Flow",
+                    "Trunk-Shoulder Rotational Energy Flow (RTA_LAR_STP | RTA_RAR_STP)",
+                    "Trunk-Shoulder Elevation/Depression Energy Flow (RTA_LAR_STP | RTA_RAR_STP)",
+                    "Trunk-Shoulder Horizontal Abd/Add Energy Flow (RTA_LAR_STP | RTA_RAR_STP)",
+                    "Arm Rotational Energy Flow (LAR_STP | RAR_STP)",
+                    "Arm Elevation/Depression Energy Flow (LAR_STP | RAR_STP)",
+                    "Arm Horizontal Abd/Add Energy Flow (LAR_STP | RAR_STP)",
                     "Throwing Arm RTA MMT (Z)"
                 ],
                 default=[],
@@ -5610,14 +5607,14 @@ with tab_joint:
                 st.info("No takes available for Energy Flow.")
             else:
                 energy_color_map = {
-                    "Trunk-to-Arm Energy Flow (RTA_DIST_L | RTA_DIST_R)": "#4C1D95",
+                    "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)": "#4C1D95",
                     "Arm Energy Response (LAR_PROX | RAR_PROX)": "#7C2D12",
-                    "Trunk-Shoulder Rotational Energy Flow": "#DC2626",
-                    "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",
-                    "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",
-                    "Arm Rotational Energy Flow": "#F59E0B",
-                    "Arm Elevation/Depression Energy Flow": "#06B6D4",
-                    "Arm Horizontal Abd/Add Energy Flow": "#9333EA",
+                    "Trunk-Shoulder Rotational Energy Flow (RTA_LAR_STP | RTA_RAR_STP)": "#DC2626",
+                    "Trunk-Shoulder Elevation/Depression Energy Flow (RTA_LAR_STP | RTA_RAR_STP)": "#2563EB",
+                    "Trunk-Shoulder Horizontal Abd/Add Energy Flow (RTA_LAR_STP | RTA_RAR_STP)": "#16A34A",
+                    "Arm Rotational Energy Flow (LAR_STP | RAR_STP)": "#F59E0B",
+                    "Arm Elevation/Depression Energy Flow (LAR_STP | RAR_STP)": "#06B6D4",
+                    "Arm Horizontal Abd/Add Energy Flow (LAR_STP | RAR_STP)": "#9333EA",
                     "Throwing Arm RTA MMT (Z)": "#FB8C00"
                 }
 
@@ -5631,21 +5628,21 @@ with tab_joint:
                     return merged
 
                 for metric in compare_energy_metrics:
-                    if metric == "Trunk-to-Arm Energy Flow (RTA_DIST_L | RTA_DIST_R)":
+                    if metric == "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_distal_arm_segment_power)
                     elif metric == "Arm Energy Response (LAR_PROX | RAR_PROX)":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_arm_proximal_energy_transfer)
-                    elif metric == "Trunk-Shoulder Rotational Energy Flow":
+                    elif metric == "Trunk-Shoulder Rotational Energy Flow (RTA_LAR_STP | RTA_RAR_STP)":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_trunk_shoulder_rot_energy_flow)
-                    elif metric == "Trunk-Shoulder Elevation/Depression Energy Flow":
+                    elif metric == "Trunk-Shoulder Elevation/Depression Energy Flow (RTA_LAR_STP | RTA_RAR_STP)":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_trunk_shoulder_elev_energy_flow)
-                    elif metric == "Trunk-Shoulder Horizontal Abd/Add Energy Flow":
+                    elif metric == "Trunk-Shoulder Horizontal Abd/Add Energy Flow (RTA_LAR_STP | RTA_RAR_STP)":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_trunk_shoulder_horizabd_energy_flow)
-                    elif metric == "Arm Rotational Energy Flow":
+                    elif metric == "Arm Rotational Energy Flow (LAR_STP | RAR_STP)":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_arm_rot_energy_flow)
-                    elif metric == "Arm Elevation/Depression Energy Flow":
+                    elif metric == "Arm Elevation/Depression Energy Flow (LAR_STP | RAR_STP)":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_arm_elev_energy_flow)
-                    elif metric == "Arm Horizontal Abd/Add Energy Flow":
+                    elif metric == "Arm Horizontal Abd/Add Energy Flow (LAR_STP | RAR_STP)":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_arm_horizabd_energy_flow)
                     elif metric == "Throwing Arm RTA MMT (Z)":
                         mmt_data = {}
@@ -6109,14 +6106,14 @@ with tab_energy:
         energy_metrics = st.multiselect(
             "Select Energy Flow Metrics",
             [
-                "Trunk-to-Arm Energy Flow (RTA_DIST_L | RTA_DIST_R)",
+                "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)",
                 "Arm Energy Response (LAR_PROX | RAR_PROX)",
-                "Trunk-Shoulder Rotational Energy Flow",
-                "Trunk-Shoulder Elevation/Depression Energy Flow",
-                "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
-                "Arm Rotational Energy Flow",
-                "Arm Elevation/Depression Energy Flow",
-                "Arm Horizontal Abd/Add Energy Flow",
+                "Trunk-Shoulder Rotational Energy Flow (RTA_LAR_STP | RTA_RAR_STP)",
+                "Trunk-Shoulder Elevation/Depression Energy Flow (RTA_LAR_STP | RTA_RAR_STP)",
+                "Trunk-Shoulder Horizontal Abd/Add Energy Flow (RTA_LAR_STP | RTA_RAR_STP)",
+                "Arm Rotational Energy Flow (LAR_STP | RAR_STP)",
+                "Arm Elevation/Depression Energy Flow (LAR_STP | RAR_STP)",
+                "Arm Horizontal Abd/Add Energy Flow (LAR_STP | RAR_STP)",
                 "Throwing Arm RTA MMT (Z)"
             ],
             default=[]
@@ -6138,14 +6135,14 @@ with tab_energy:
 
     # --- Fixed color map for Energy Flow metrics (high-contrast palette) ---
     energy_color_map = {
-        "Trunk-to-Arm Energy Flow (RTA_DIST_L | RTA_DIST_R)": "#4C1D95",  # deep indigo / purple
+        "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)": "#4C1D95",  # deep indigo / purple
         "Arm Energy Response (LAR_PROX | RAR_PROX)": "#7C2D12",  # dark brown
-        "Trunk-Shoulder Rotational Energy Flow": "#DC2626",  # strong red
-        "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",  # vivid blue
-        "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",     # strong green
-        "Arm Rotational Energy Flow": "#F59E0B",        # amber
-        "Arm Elevation/Depression Energy Flow": "#06B6D4",  # cyan
-        "Arm Horizontal Abd/Add Energy Flow": "#9333EA",     # violet
+        "Trunk-Shoulder Rotational Energy Flow (RTA_LAR_STP | RTA_RAR_STP)": "#DC2626",  # strong red
+        "Trunk-Shoulder Elevation/Depression Energy Flow (RTA_LAR_STP | RTA_RAR_STP)": "#2563EB",  # vivid blue
+        "Trunk-Shoulder Horizontal Abd/Add Energy Flow (RTA_LAR_STP | RTA_RAR_STP)": "#16A34A",     # strong green
+        "Arm Rotational Energy Flow (LAR_STP | RAR_STP)": "#F59E0B",        # amber
+        "Arm Elevation/Depression Energy Flow (LAR_STP | RAR_STP)": "#06B6D4",  # cyan
+        "Arm Horizontal Abd/Add Energy Flow (LAR_STP | RAR_STP)": "#9333EA",     # violet
         "Throwing Arm RTA MMT (Z)": "#FB8C00"
     }
 
@@ -6160,21 +6157,21 @@ with tab_energy:
         return merged
 
     for metric in energy_metrics:
-        if metric == "Trunk-to-Arm Energy Flow (RTA_DIST_L | RTA_DIST_R)":
+        if metric == "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_distal_arm_segment_power)
         elif metric == "Arm Energy Response (LAR_PROX | RAR_PROX)":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_proximal_energy_transfer)
-        elif metric == "Trunk-Shoulder Rotational Energy Flow":
+        elif metric == "Trunk-Shoulder Rotational Energy Flow (RTA_LAR_STP | RTA_RAR_STP)":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_rot_energy_flow)
-        elif metric == "Trunk-Shoulder Elevation/Depression Energy Flow":
+        elif metric == "Trunk-Shoulder Elevation/Depression Energy Flow (RTA_LAR_STP | RTA_RAR_STP)":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_elev_energy_flow)
-        elif metric == "Trunk-Shoulder Horizontal Abd/Add Energy Flow":
+        elif metric == "Trunk-Shoulder Horizontal Abd/Add Energy Flow (RTA_LAR_STP | RTA_RAR_STP)":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_horizabd_energy_flow)
-        elif metric == "Arm Rotational Energy Flow":
+        elif metric == "Arm Rotational Energy Flow (LAR_STP | RAR_STP)":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_rot_energy_flow)
-        elif metric == "Arm Elevation/Depression Energy Flow":
+        elif metric == "Arm Elevation/Depression Energy Flow (LAR_STP | RAR_STP)":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_elev_energy_flow)
-        elif metric == "Arm Horizontal Abd/Add Energy Flow":
+        elif metric == "Arm Horizontal Abd/Add Energy Flow (LAR_STP | RAR_STP)":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_horizabd_energy_flow)
         elif metric == "Throwing Arm RTA MMT (Z)":
             mmt_data = {}
