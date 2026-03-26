@@ -5208,6 +5208,7 @@ with tab_joint:
 
     import pandas as pd
     summary_rows = []
+    compare_energy_summary_rows = []
 
     fig = go.Figure()
 
@@ -5831,6 +5832,34 @@ with tab_joint:
                                 "value": norm_v
                             }
 
+                            peak_val = None
+                            if norm_v:
+                                peak_idx = int(np.argmax(np.abs(np.array(norm_v, dtype=float))))
+                                peak_val = norm_v[peak_idx]
+
+                            br_val = value_at_time_ms(norm_f, norm_v, 0)
+                            fp_val = None
+                            if fp_event_frames:
+                                median_fp = rel_frame_to_ms(int(np.median(fp_event_frames)))
+                                fp_val = value_at_time_ms(norm_f, norm_v, median_fp)
+
+                            mer_val = None
+                            if mer_event_frames:
+                                median_mer = rel_frame_to_ms(int(np.median(mer_event_frames)))
+                                mer_val = value_at_time_ms(norm_f, norm_v, median_mer)
+
+                            if compare_energy_display_mode == "Individual Throws":
+                                compare_energy_summary_rows.append({
+                                    **({"Pitcher": pitcher_name} if multi_pitcher_mode else {}),
+                                    "Metric": metric,
+                                    "Session Date": date,
+                                    "Average Velocity": take_velocity[take_id],
+                                    "Peak": peak_val,
+                                    "Foot Plant": fp_val,
+                                    "Ball Release": br_val,
+                                    "Max External Rotation": mer_val,
+                                })
+
                             if compare_energy_display_mode == "Individual Throws":
                                 legendgroup = f"{metric}_{pitcher_name}_{date}" if multi_pitcher_mode else f"{metric}_{date}"
                                 energy_fig.add_trace(
@@ -5886,6 +5915,41 @@ with tab_joint:
                                     pitcher_name = ""
                                 x, y, q1, q3 = aggregate_curves(curves, "Mean")
                                 legendgroup = f"{metric}_{pitcher_name}_{date}" if multi_pitcher_mode else f"{metric}_{date}"
+
+                                peak_val = None
+                                if y:
+                                    peak_idx = int(np.argmax(np.abs(np.array(y, dtype=float))))
+                                    peak_val = y[peak_idx]
+
+                                br_val = value_at_time_ms(x, y, 0)
+                                fp_val = None
+                                if fp_event_frames:
+                                    median_fp = rel_frame_to_ms(int(np.median(fp_event_frames)))
+                                    fp_val = value_at_time_ms(x, y, median_fp)
+
+                                mer_val = None
+                                if mer_event_frames:
+                                    median_mer = rel_frame_to_ms(int(np.median(mer_event_frames)))
+                                    mer_val = value_at_time_ms(x, y, median_mer)
+
+                                peak_vals = []
+                                for curve in curves.values():
+                                    if curve["value"]:
+                                        curve_arr = np.array(curve["value"], dtype=float)
+                                        peak_vals.append(float(curve_arr[np.argmax(np.abs(curve_arr))]))
+
+                                compare_energy_summary_rows.append({
+                                    **({"Pitcher": pitcher_name} if multi_pitcher_mode else {}),
+                                    "Metric": metric,
+                                    "Session Date": date,
+                                    "Average Velocity": np.mean([take_velocity[tid] for tid in curves.keys()]),
+                                    "Peak": peak_val,
+                                    "Foot Plant": fp_val,
+                                    "Ball Release": br_val,
+                                    "Max External Rotation": mer_val,
+                                    "Standard Deviation": (np.std(peak_vals) if peak_vals else None),
+                                })
+
                                 energy_fig.add_trace(
                                     go.Scatter(
                                         x=x,
@@ -6101,6 +6165,62 @@ with tab_joint:
             column_config=summary_column_config or None,
         )
 
+    if joint_view_mode == "Comparison" and compare_energy_metrics and compare_energy_summary_rows:
+        st.markdown("### Energy Flow Summary")
+        df_energy_summary = pd.DataFrame(compare_energy_summary_rows)
+
+        def fmt_energy(val, decimals=2):
+            if val is None or (isinstance(val, float) and np.isnan(val)):
+                return ""
+            return f"{val:.{decimals}f}"
+
+        energy_base_columns = [
+            "Metric",
+            "Session Date",
+            "Average Velocity",
+            "Peak",
+            "Foot Plant",
+            "Ball Release",
+            "Max External Rotation",
+        ]
+        if multi_pitcher_mode and "Pitcher" in df_energy_summary.columns:
+            energy_base_columns = ["Pitcher"] + energy_base_columns
+        if compare_energy_display_mode == "Grouped" and "Standard Deviation" in df_energy_summary.columns:
+            energy_column_order = energy_base_columns + ["Standard Deviation"]
+        else:
+            energy_column_order = energy_base_columns
+
+        df_energy_summary = df_energy_summary[energy_column_order]
+
+        for idx, row in df_energy_summary.iterrows():
+            if "Average Velocity" in df_energy_summary.columns:
+                df_energy_summary.at[idx, "Average Velocity"] = fmt_energy(row["Average Velocity"], 1)
+            for col in ["Peak", "Foot Plant", "Ball Release", "Max External Rotation"]:
+                if col in df_energy_summary.columns:
+                    df_energy_summary.at[idx, col] = fmt_energy(row[col], 1)
+            if compare_energy_display_mode == "Grouped" and "Standard Deviation" in df_energy_summary.columns:
+                df_energy_summary.at[idx, "Standard Deviation"] = (
+                    f"±{row['Standard Deviation']:.1f}" if row["Standard Deviation"] is not None and not (isinstance(row["Standard Deviation"], float) and np.isnan(row["Standard Deviation"])) else ""
+                )
+
+        styled_energy_summary = (
+            df_energy_summary
+            .style
+            .hide(axis="index")
+            .set_table_styles([
+                {"selector": "th", "props": [("text-align", "center")]}
+            ])
+            .set_properties(
+                subset=[c for c in df_energy_summary.columns],
+                **{"text-align": "center"}
+            )
+        )
+
+        st.dataframe(
+            styled_energy_summary,
+            use_container_width=True,
+        )
+
     if not show_single_kinematics_empty_state:
         st.markdown("### Kinematic Definitions")
         for metric in selected_kinematics:
@@ -6115,6 +6235,23 @@ with tab_joint:
                 ),
                 unsafe_allow_html=True,
             )
+
+    if joint_view_mode == "Comparison" and compare_energy_metrics:
+        defined_compare_energy_metrics = [
+            metric for metric in compare_energy_metrics if metric in energy_definitions
+        ]
+        if defined_compare_energy_metrics:
+            st.markdown("### Energy Flow Definitions")
+            for metric in defined_compare_energy_metrics:
+                metric_info = energy_definitions.get(metric, {})
+                st.markdown(
+                    (
+                        f"<div style='font-size:1.15rem; line-height:1.6; margin:0.35rem 0 0.9rem 0;'>"
+                        f"<strong>{metric}:</strong> {metric_info.get('definition', '')}"
+                        f"</div>"
+                    ),
+                    unsafe_allow_html=True,
+                )
 
 # --------------------------------------------------
 # Energy Flow Tab
