@@ -4774,6 +4774,13 @@ with tab_joint:
                 "shoulder internal/external rotation."
             ),
         },
+        "Throwing Shoulder Rotational Torque (Relative to Trunk)": {
+            "definition": (
+                "The rotational torque at the throwing shoulder over time, measured relative "
+                "to the trunk, representing the rotational load acting at the shoulder joint "
+                "throughout the pitching motion."
+            ),
+        },
     }
 
     def get_kinematic_unit(kinematic_name):
@@ -4873,7 +4880,7 @@ with tab_joint:
                     "Arm Rotational Energy Flow",
                     "Arm Elevation/Depression Energy Flow",
                     "Arm Horizontal Abd/Add Energy Flow",
-                    "Throwing Arm RTA MMT (Z)"
+                    "Throwing Shoulder Rotational Torque (Relative to Trunk)"
                 ],
                 default=[],
                 key="joint_energy_metrics_compare"
@@ -5615,7 +5622,7 @@ with tab_joint:
                     "Arm Rotational Energy Flow": "#F59E0B",
                     "Arm Elevation/Depression Energy Flow": "#06B6D4",
                     "Arm Horizontal Abd/Add Energy Flow": "#9333EA",
-                    "Throwing Arm RTA MMT (Z)": "#FB8C00"
+                    "Throwing Shoulder Rotational Torque (Relative to Trunk)": "#FB8C00"
                 }
 
                 compare_energy_data_by_metric = {}
@@ -5644,7 +5651,7 @@ with tab_joint:
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_arm_elev_energy_flow)
                     elif metric == "Arm Horizontal Abd/Add Energy Flow":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_arm_horizabd_energy_flow)
-                    elif metric == "Throwing Arm RTA MMT (Z)":
+                    elif metric == "Throwing Shoulder Rotational Torque (Relative to Trunk)":
                         mmt_data = {}
                         if take_ids_by_handedness.get("R"):
                             mmt_data.update(
@@ -6114,7 +6121,7 @@ with tab_energy:
                 "Arm Rotational Energy Flow",
                 "Arm Elevation/Depression Energy Flow",
                 "Arm Horizontal Abd/Add Energy Flow",
-                "Throwing Arm RTA MMT (Z)"
+                "Throwing Shoulder Rotational Torque (Relative to Trunk)"
             ],
             default=[]
         )
@@ -6143,7 +6150,7 @@ with tab_energy:
         "Arm Rotational Energy Flow": "#F59E0B",        # amber
         "Arm Elevation/Depression Energy Flow": "#06B6D4",  # cyan
         "Arm Horizontal Abd/Add Energy Flow": "#9333EA",     # violet
-        "Throwing Arm RTA MMT (Z)": "#FB8C00"
+        "Throwing Shoulder Rotational Torque (Relative to Trunk)": "#FB8C00"
     }
 
     # --- Load all selected metrics ---
@@ -6173,7 +6180,7 @@ with tab_energy:
             energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_elev_energy_flow)
         elif metric == "Arm Horizontal Abd/Add Energy Flow":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_horizabd_energy_flow)
-        elif metric == "Throwing Arm RTA MMT (Z)":
+        elif metric == "Throwing Shoulder Rotational Torque (Relative to Trunk)":
             mmt_data = {}
             if take_ids_by_handedness.get("R"):
                 mmt_data.update(
