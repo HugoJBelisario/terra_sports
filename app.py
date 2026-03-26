@@ -5723,8 +5723,8 @@ with tab_joint:
                 energy_color_map = {
                     "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)": "#4C1D95",
                     "Arm Energy Flow (LAR_PROX | RAR_PROX)": "#7C2D12",
-                    "Glove Side Trunk-Shoulder Energy Flow": "#6D28D9",
-                    "Glove Arm Energy Flow": "#92400E",
+                    "Glove Side Trunk-Shoulder Energy Flow": "#E11D48",
+                    "Glove Arm Energy Flow": "#14B8A6",
                     "Trunk-Shoulder Rotational Energy Flow": "#DC2626",
                     "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",
                     "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",
@@ -6257,8 +6257,8 @@ with tab_energy:
     energy_color_map = {
         "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)": "#4C1D95",  # deep indigo / purple
         "Arm Energy Flow (LAR_PROX | RAR_PROX)": "#7C2D12",  # dark brown
-        "Glove Side Trunk-Shoulder Energy Flow": "#6D28D9",
-        "Glove Arm Energy Flow": "#92400E",
+        "Glove Side Trunk-Shoulder Energy Flow": "#E11D48",
+        "Glove Arm Energy Flow": "#14B8A6",
         "Trunk-Shoulder Rotational Energy Flow": "#DC2626",  # strong red
         "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",  # vivid blue
         "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",     # strong green
