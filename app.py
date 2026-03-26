@@ -2393,8 +2393,18 @@ if "control_group_pitchers" not in st.session_state:
     st.session_state["control_group_pitchers"] = []
 if "control_group_velocity_range" not in st.session_state:
     st.session_state["control_group_velocity_range"] = (50.0, 100.0)
-if "control_group_arm_slot_range" not in st.session_state:
-    st.session_state["control_group_arm_slot_range"] = (0.0, 120.0)
+control_group_arm_slot_categories = [
+    ("Over The Top", 50, 90),
+    ("High 3/4", 30, 49),
+    ("Low 3/4", 10, 29),
+    ("Sidearm", -5, 9),
+    ("Submarine", -90, -6),
+]
+
+for category_label, _, _ in control_group_arm_slot_categories:
+    category_key = f"control_group_arm_slot_category_{category_label.lower().replace(' ', '_').replace('/', '')}"
+    if category_key not in st.session_state:
+        st.session_state[category_key] = True
 if "control_group_status_message" not in st.session_state:
     st.session_state["control_group_status_message"] = ""
 
@@ -2570,11 +2580,43 @@ def remove_control_group():
     st.session_state["control_group_pitchers"] = []
     st.session_state["control_group_handedness"] = "Both"
     st.session_state["control_group_status_message"] = ""
-    for key in ["control_group_velocity_range", "control_group_arm_slot_range"]:
+    for key in ["control_group_velocity_range"]:
         if key in st.session_state:
             del st.session_state[key]
 
     st.rerun()
+
+
+def render_control_group_arm_slot_category_checkboxes():
+    st.markdown("Arm Slot Categories")
+    checkbox_cols = st.columns(2)
+    for idx, (category_label, _, _) in enumerate(control_group_arm_slot_categories):
+        category_key = f"control_group_arm_slot_category_{category_label.lower().replace(' ', '_').replace('/', '')}"
+        with checkbox_cols[idx % 2]:
+            st.checkbox(
+                category_label,
+                key=category_key,
+            )
+
+
+def arm_slot_matches_control_group_categories(arm_slot_deg):
+    if arm_slot_deg is None:
+        return False
+
+    selected_categories = [
+        (min_slot, max_slot)
+        for category_label, min_slot, max_slot in control_group_arm_slot_categories
+        if st.session_state.get(
+            f"control_group_arm_slot_category_{category_label.lower().replace(' ', '_').replace('/', '')}",
+            False
+        )
+    ]
+
+    if not selected_categories:
+        return False
+
+    arm_slot_value = float(arm_slot_deg)
+    return any(min_slot <= arm_slot_value <= max_slot for min_slot, max_slot in selected_categories)
 
 if not pitcher_names:
     st.sidebar.warning("No pitchers found in the database.")
@@ -2992,14 +3034,7 @@ def build_shared_dashboard_state():
                         step=0.5,
                         key="control_group_velocity_range"
                     )
-                    st.slider(
-                        "Arm Slot",
-                        min_value=0.0,
-                        max_value=120.0,
-                        value=st.session_state.get("control_group_arm_slot_range", (0.0, 120.0)),
-                        step=0.5,
-                        key="control_group_arm_slot_range"
-                    )
+                    render_control_group_arm_slot_category_checkboxes()
                     generate_control_group = st.form_submit_button(
                         "Generate Control Group",
                         use_container_width=True
@@ -3015,7 +3050,6 @@ def build_shared_dashboard_state():
                     all_control_group_pool = get_control_group_take_pool(pool_handedness)
                     selected_pitcher_set = set(st.session_state.get("control_group_pitchers", []))
                     selected_velocity_range = st.session_state.get("control_group_velocity_range", (50.0, 100.0))
-                    selected_arm_slot_range = st.session_state.get("control_group_arm_slot_range", (0.0, 120.0))
 
                     final_candidate_control_take_ids = []
                     for take_id, pitch_velo, athlete_name, _, arm_slot_deg in all_control_group_pool:
@@ -3023,7 +3057,7 @@ def build_shared_dashboard_state():
                             continue
                         if pitch_velo is None or not (selected_velocity_range[0] <= float(pitch_velo) <= selected_velocity_range[1]):
                             continue
-                        if arm_slot_deg is None or not (selected_arm_slot_range[0] <= float(arm_slot_deg) <= selected_arm_slot_range[1]):
+                        if not arm_slot_matches_control_group_categories(arm_slot_deg):
                             continue
                         final_candidate_control_take_ids.append(take_id)
 
@@ -3065,14 +3099,7 @@ def build_shared_dashboard_state():
                     step=0.5,
                     key="control_group_velocity_range"
                 )
-                st.slider(
-                    "Arm Slot",
-                    min_value=0.0,
-                    max_value=120.0,
-                    value=st.session_state.get("control_group_arm_slot_range", (0.0, 120.0)),
-                    step=0.5,
-                    key="control_group_arm_slot_range"
-                )
+                render_control_group_arm_slot_category_checkboxes()
                 generate_control_group = st.form_submit_button(
                     "Generate Control Group",
                     use_container_width=True
@@ -3088,7 +3115,6 @@ def build_shared_dashboard_state():
                 all_control_group_pool = get_control_group_take_pool(pool_handedness)
                 selected_pitcher_set = set(st.session_state.get("control_group_pitchers", []))
                 selected_velocity_range = st.session_state.get("control_group_velocity_range", (50.0, 100.0))
-                selected_arm_slot_range = st.session_state.get("control_group_arm_slot_range", (0.0, 120.0))
 
                 final_candidate_control_take_ids = []
                 for take_id, pitch_velo, athlete_name, _, arm_slot_deg in all_control_group_pool:
@@ -3096,7 +3122,7 @@ def build_shared_dashboard_state():
                         continue
                     if pitch_velo is None or not (selected_velocity_range[0] <= float(pitch_velo) <= selected_velocity_range[1]):
                         continue
-                    if arm_slot_deg is None or not (selected_arm_slot_range[0] <= float(arm_slot_deg) <= selected_arm_slot_range[1]):
+                    if not arm_slot_matches_control_group_categories(arm_slot_deg):
                         continue
                     final_candidate_control_take_ids.append(take_id)
 
