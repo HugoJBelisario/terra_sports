@@ -4731,6 +4731,13 @@ with tab_joint:
                 "sending energy to the arm (throwing)."
             ),
         },
+        "Arm Energy Response (LAR_PROX | RAR_PROX)": {
+            "definition": (
+                "Measures how the throwing arm receives and responds to energy from the trunk "
+                "at the shoulder connection. Positive values -> the arm is loading "
+                "(receiving energy). Negative values -> the arm is being accelerated by the trunk."
+            ),
+        },
     }
 
     def get_kinematic_unit(kinematic_name):
@@ -4823,7 +4830,7 @@ with tab_joint:
                 "Select Energy Flow Metrics",
                 [
                     "Trunk-to-Arm Energy Flow (RTA_DIST)",
-                    "Arm Proximal Energy Transfer",
+                    "Arm Energy Response (LAR_PROX | RAR_PROX)",
                     "Trunk-Shoulder Rotational Energy Flow",
                     "Trunk-Shoulder Elevation/Depression Energy Flow",
                     "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
@@ -5565,7 +5572,7 @@ with tab_joint:
             else:
                 energy_color_map = {
                     "Trunk-to-Arm Energy Flow (RTA_DIST)": "#4C1D95",
-                    "Arm Proximal Energy Transfer": "#7C2D12",
+                    "Arm Energy Response (LAR_PROX | RAR_PROX)": "#7C2D12",
                     "Trunk-Shoulder Rotational Energy Flow": "#DC2626",
                     "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",
                     "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",
@@ -5587,7 +5594,7 @@ with tab_joint:
                 for metric in compare_energy_metrics:
                     if metric == "Trunk-to-Arm Energy Flow (RTA_DIST)":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_distal_arm_segment_power)
-                    elif metric == "Arm Proximal Energy Transfer":
+                    elif metric == "Arm Energy Response (LAR_PROX | RAR_PROX)":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_arm_proximal_energy_transfer)
                     elif metric == "Trunk-Shoulder Rotational Energy Flow":
                         compare_energy_data_by_metric[metric] = load_compare_energy_by_handedness(get_trunk_shoulder_rot_energy_flow)
@@ -6064,7 +6071,7 @@ with tab_energy:
             "Select Energy Flow Metrics",
             [
                 "Trunk-to-Arm Energy Flow (RTA_DIST)",
-                "Arm Proximal Energy Transfer",
+                "Arm Energy Response (LAR_PROX | RAR_PROX)",
                 "Trunk-Shoulder Rotational Energy Flow",
                 "Trunk-Shoulder Elevation/Depression Energy Flow",
                 "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
@@ -6093,7 +6100,7 @@ with tab_energy:
     # --- Fixed color map for Energy Flow metrics (high-contrast palette) ---
     energy_color_map = {
         "Trunk-to-Arm Energy Flow (RTA_DIST)": "#4C1D95",  # deep indigo / purple
-        "Arm Proximal Energy Transfer": "#7C2D12",        # dark brown
+        "Arm Energy Response (LAR_PROX | RAR_PROX)": "#7C2D12",  # dark brown
         "Trunk-Shoulder Rotational Energy Flow": "#DC2626",  # strong red
         "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",  # vivid blue
         "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",     # strong green
@@ -6116,7 +6123,7 @@ with tab_energy:
     for metric in energy_metrics:
         if metric == "Trunk-to-Arm Energy Flow (RTA_DIST)":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_distal_arm_segment_power)
-        elif metric == "Arm Proximal Energy Transfer":
+        elif metric == "Arm Energy Response (LAR_PROX | RAR_PROX)":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_proximal_energy_transfer)
         elif metric == "Trunk-Shoulder Rotational Energy Flow":
             energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_rot_energy_flow)
