@@ -4423,7 +4423,12 @@ with tab_kinematic:
                     .set_properties(**{"text-align": "center", "font-weight": "500"})
                 )
 
-                st.dataframe(styled_individual, use_container_width=True)
+                try:
+                    st.dataframe(styled_individual, use_container_width=True)
+                except KeyError:
+                    # Streamlit Cloud can error on some Styler/MultiIndex combinations;
+                    # fall back to the plain dataframe instead of breaking the page.
+                    st.dataframe(df_individual_display, use_container_width=True)
 
         # --- Kinematic Sequence Peak Summary Table (Segment-Grouped) ---
         if display_mode == "Grouped" and kinematic_peak_rows:
