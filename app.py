@@ -5847,10 +5847,9 @@ with tab_joint:
                                         ),
                                         customdata=[[metric, date, take_order[take_id], take_velocity[take_id], pitcher_name]] * len(norm_f),
                                         hovertemplate=(
-                                            "%{customdata[0]} – %{customdata[1]} | "
-                                            "Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
-                                            + (" | %{customdata[4]}" if multi_pitcher_mode else "")
+                                            ("%{customdata[4]} | %{customdata[1]}" if multi_pitcher_mode else "%{customdata[1]}")
                                             + "<br>%{customdata[0]}: %{y:.1f}"
+                                            + "<br>Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
                                             + "<br>Time: %{x:.0f} ms rel BR"
                                             + "<extra></extra>"
                                         ),
@@ -5898,8 +5897,7 @@ with tab_joint:
                                         line=dict(width=4, color=metric_color, dash=date_dash_map[date]),
                                         customdata=[[metric, date, pitcher_name]] * len(x),
                                         hovertemplate=(
-                                            "%{customdata[0]} – %{customdata[1]}"
-                                            + (" | %{customdata[2]}" if multi_pitcher_mode else "")
+                                            ("%{customdata[2]} | %{customdata[1]}" if multi_pitcher_mode else "%{customdata[1]}")
                                             + "<br>%{customdata[0]}: %{y:.1f}"
                                             + "<br>Time: %{x:.0f} ms rel BR"
                                             + "<extra></extra>"
@@ -6420,10 +6418,9 @@ with tab_energy:
                         ),
                         customdata=[[metric, date, take_order[take_id], take_velocity[take_id], hover_pitcher_name]] * len(norm_f),
                         hovertemplate=(
-                            "%{customdata[0]} – %{customdata[1]} | "
-                            "Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
-                            + (" | %{customdata[4]}" if show_group_pitcher_breakout else "")
+                            ("%{customdata[4]} | %{customdata[1]}" if show_group_pitcher_breakout else "%{customdata[1]}")
                             + "<br>%{customdata[0]}: %{y:.1f}"
+                            + "<br>Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
                             + "<br>Time: %{x:.0f} ms rel BR"
                             + "<extra></extra>"
                         ),
@@ -6517,8 +6514,7 @@ with tab_energy:
                         ),
                         customdata=[[metric, date, pitcher_name]] * len(x),
                         hovertemplate=(
-                            "%{customdata[0]} – %{customdata[1]}"
-                            + (" | %{customdata[2]}" if show_group_pitcher_breakout else "")
+                            ("%{customdata[2]} | %{customdata[1]}" if show_group_pitcher_breakout else "%{customdata[1]}")
                             + "<br>%{customdata[0]}: %{y:.1f}"
                             + "<br>Time: %{x:.0f} ms rel BR"
                             + "<extra></extra>"
