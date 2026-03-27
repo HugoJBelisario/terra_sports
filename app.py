@@ -27,6 +27,44 @@ def get_page_icon():
 
     return None
 
+
+def render_logo(use_container_width=True):
+    if not LOGO_PATH.exists():
+        return
+
+    if LOGO_PATH.suffix.lower() != ".svg":
+        st.image(str(LOGO_PATH), use_container_width=use_container_width)
+        return
+
+    svg_markup = LOGO_PATH.read_text(encoding="utf-8")
+    st.markdown(
+        f"""
+        <style>
+        .terra-logo-wrap svg {{
+            width: 100%;
+            height: auto;
+            display: block;
+        }}
+
+        @media (prefers-color-scheme: dark) {{
+            .terra-logo-wrap svg [fill="#0E0E0E"],
+            .terra-logo-wrap svg [fill="#0C0A0A"],
+            .terra-logo-wrap svg [fill="#130103"],
+            .terra-logo-wrap svg [fill="#010000"],
+            .terra-logo-wrap svg [fill="#010101"],
+            .terra-logo-wrap svg [fill="#020202"],
+            .terra-logo-wrap svg [fill="#140102"] {{
+                fill: #FFFFFF !important;
+            }}
+        }}
+        </style>
+        <div class="terra-logo-wrap">
+            {svg_markup}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 # --------------------------------------------------
 # Page config
 # --------------------------------------------------
@@ -94,8 +132,7 @@ def login():
     left_col, center_col, right_col = st.columns([1.2, 1, 1.2])
     with center_col:
         st.markdown('<div class="login-shell">', unsafe_allow_html=True)
-        if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), use_container_width=True)
+        render_logo(use_container_width=True)
 
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
@@ -3704,7 +3741,7 @@ with tab_kinematic:
                 }
 
                 if norm_torso_frames and display_mode == "Individual Throws":
-                    legendgroup = f"Torso_{take_date_map[take_id]}"
+                    legendgroup = "Control_Group_Torso" if control_group_take else f"Torso_{take_date_map[take_id]}"
                     pitcher_name = take_pitcher_map.get(take_id, "")
                     trace_name = (
                         f"Control Group | Torso – Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} MPH)"
@@ -3738,12 +3775,8 @@ with tab_kinematic:
                         )
                     )
                     # Legend-only trace (once per Torso + Date)
-                    legend_key = (
-                        ("Torso", take_date_map[take_id], pitcher_name)
-                        if multi_pitcher_mode else
-                        ("Torso", take_date_map[take_id])
-                    )
-                    if legend_key not in legend_keys_added:
+                    legend_key = ("Control Group", "Torso") if control_group_take else None
+                    if control_group_take and legend_key not in legend_keys_added:
                         fig.add_trace(
                             go.Scatter(
                                 x=[None],
@@ -3801,7 +3834,7 @@ with tab_kinematic:
                 }
 
                 if norm_elbow_frames and display_mode == "Individual Throws":
-                    legendgroup = f"Elbow_{take_date_map[take_id]}"
+                    legendgroup = "Control_Group_Elbow" if control_group_take else f"Elbow_{take_date_map[take_id]}"
                     pitcher_name = take_pitcher_map.get(take_id, "")
                     # Actual data trace (no legend)
                     fig.add_trace(
@@ -3834,12 +3867,8 @@ with tab_kinematic:
                         )
                     )
                     # Legend-only trace (once per Elbow + Date)
-                    legend_key = (
-                        ("Elbow", take_date_map[take_id], pitcher_name)
-                        if multi_pitcher_mode else
-                        ("Elbow", take_date_map[take_id])
-                    )
-                    if legend_key not in legend_keys_added:
+                    legend_key = ("Control Group", "Elbow") if control_group_take else None
+                    if control_group_take and legend_key not in legend_keys_added:
                         fig.add_trace(
                             go.Scatter(
                                 x=[None],
@@ -3900,7 +3929,7 @@ with tab_kinematic:
                 }
 
                 if norm_sh_frames and display_mode == "Individual Throws":
-                    legendgroup = f"Shoulder IR_{take_date_map[take_id]}"
+                    legendgroup = "Control_Group_Shoulder_IR" if control_group_take else f"Shoulder IR_{take_date_map[take_id]}"
                     pitcher_name = take_pitcher_map.get(take_id, "")
                     # Actual data trace (no legend)
                     fig.add_trace(
@@ -3933,12 +3962,8 @@ with tab_kinematic:
                         )
                     )
                     # Legend-only trace (once per Shoulder IR + Date)
-                    legend_key = (
-                        ("Shoulder IR", take_date_map[take_id], pitcher_name)
-                        if multi_pitcher_mode else
-                        ("Shoulder IR", take_date_map[take_id])
-                    )
-                    if legend_key not in legend_keys_added:
+                    legend_key = ("Control Group", "Shoulder IR") if control_group_take else None
+                    if control_group_take and legend_key not in legend_keys_added:
                         fig.add_trace(
                             go.Scatter(
                                 x=[None],
@@ -3970,7 +3995,7 @@ with tab_kinematic:
                 continue
 
             if display_mode == "Individual Throws":
-                legendgroup = f"Pelvis_{take_date_map[take_id]}"
+                legendgroup = "Control_Group_Pelvis" if control_group_take else f"Pelvis_{take_date_map[take_id]}"
                 pitcher_name = take_pitcher_map.get(take_id, "")
                 # Actual data trace (no legend)
                 fig.add_trace(
@@ -4003,12 +4028,8 @@ with tab_kinematic:
                     )
                 )
                 # Legend-only trace (once per Pelvis + Date)
-                legend_key = (
-                    ("Pelvis", take_date_map[take_id], pitcher_name)
-                    if multi_pitcher_mode else
-                    ("Pelvis", take_date_map[take_id])
-                )
-                if legend_key not in legend_keys_added:
+                legend_key = ("Control Group", "Pelvis") if control_group_take else None
+                if control_group_take and legend_key not in legend_keys_added:
                     fig.add_trace(
                         go.Scatter(
                             x=[None],
@@ -5441,7 +5462,7 @@ with tab_joint:
                 )
                 # Add one legend-only trace per (kinematic, date) (shows color + dash)
                 legend_key = (kinematic, date_key)
-                if legend_key not in legend_keys_added:
+                if control_group_take and legend_key not in legend_keys_added:
                     fig.add_trace(
                         go.Scatter(
                             x=[None],
@@ -6645,7 +6666,7 @@ with tab_energy:
                     )
                 )
                 legend_key = (metric, date_key)
-                if legend_key not in legend_keys_added:
+                if control_group_take and legend_key not in legend_keys_added:
                     fig.add_trace(
                         go.Scatter(
                             x=[None],
