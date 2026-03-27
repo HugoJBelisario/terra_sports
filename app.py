@@ -27,44 +27,6 @@ def get_page_icon():
 
     return None
 
-
-def render_logo(use_container_width=True):
-    if not LOGO_PATH.exists():
-        return
-
-    if LOGO_PATH.suffix.lower() != ".svg":
-        st.image(str(LOGO_PATH), use_container_width=use_container_width)
-        return
-
-    svg_markup = LOGO_PATH.read_text(encoding="utf-8")
-    st.markdown(
-        f"""
-        <style>
-        .terra-logo-wrap svg {{
-            width: 100%;
-            height: auto;
-            display: block;
-        }}
-
-        @media (prefers-color-scheme: dark) {{
-            .terra-logo-wrap svg [fill="#0E0E0E"],
-            .terra-logo-wrap svg [fill="#0C0A0A"],
-            .terra-logo-wrap svg [fill="#130103"],
-            .terra-logo-wrap svg [fill="#010000"],
-            .terra-logo-wrap svg [fill="#010101"],
-            .terra-logo-wrap svg [fill="#020202"],
-            .terra-logo-wrap svg [fill="#140102"] {{
-                fill: #FFFFFF !important;
-            }}
-        }}
-        </style>
-        <div class="terra-logo-wrap">
-            {svg_markup}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
 # --------------------------------------------------
 # Page config
 # --------------------------------------------------
@@ -132,7 +94,8 @@ def login():
     left_col, center_col, right_col = st.columns([1.2, 1, 1.2])
     with center_col:
         st.markdown('<div class="login-shell">', unsafe_allow_html=True)
-        render_logo(use_container_width=True)
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), use_container_width=True)
 
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
