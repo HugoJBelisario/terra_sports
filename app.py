@@ -4723,26 +4723,33 @@ with tab_joint:
     joint_view_mode = st.session_state.get("joint_view_mode", "Single")
 
     kinematic_options = [
+        # Arm and hand
+        "Elbow Extension Velocity",
         "Elbow Flexion",
+        "Forearm Pronation/Supination",
         "Hand Speed",
-        "Center of Mass Velocity (Anterior/Posterior)",
-        "Shoulder Rotation",
-        "Shoulder Rotation Velocity",
-        "Shoulder Abduction",
-        "Shoulder Horizontal Abduction",
+
+        # Lower body
+        "Hip-Shoulder Separation",
         "Lead Knee Flexion",
         "Lead Knee Flexion/Extension Velocity",
+        "Pelvic Lateral Tilt",
+        "Pelvis Rotation",
+        "Pelvis Rotational Velocity",
+
+        # Shoulder
+        "Shoulder Abduction",
+        "Shoulder Horizontal Abduction",
+        "Shoulder Rotation",
+        "Shoulder Rotation Velocity",
+
+        # Trunk and whole-body movement
+        "Center of Mass Velocity (Anterior/Posterior)",
+        "Torso-Pelvis Rotational Velocity",
         "Trunk Forward Tilt",
         "Trunk Lateral Tilt",
         "Trunk Rotation",
-        "Pelvis Rotation",
-        "Pelvic Lateral Tilt",
-        "Hip-Shoulder Separation",
-        "Pelvis Rotational Velocity",
         "Trunk Rotational Velocity",
-        "Torso-Pelvis Rotational Velocity",
-        "Elbow Extension Velocity",
-        "Forearm Pronation/Supination"
     ]
 
     kinematic_definitions = {
@@ -5268,6 +5275,7 @@ with tab_joint:
         "Pelvis Rotational Velocity",
         "Elbow Extension Velocity",
     }
+    collapse_control_group_in_comparison = joint_view_mode == "Comparison" and bool(control_take_ids)
     right_hand_mirror_kinematics = {
         "Shoulder Horizontal Abduction",
         "Shoulder Rotation",
@@ -5356,6 +5364,8 @@ with tab_joint:
             )
 
             if display_mode == "Individual Throws":
+                if collapse_control_group_in_comparison and control_group_take:
+                    continue
                 # Use kinematic color and date-based dash for individual throws
                 fig.add_trace(
                     go.Scatter(
@@ -5423,6 +5433,54 @@ with tab_joint:
                         )
                     )
                     legend_keys_added.add(legend_key)
+
+    if display_mode == "Individual Throws" and collapse_control_group_in_comparison:
+        control_group_curves = grouped_by_date.get("Control Group", {})
+        for kinematic, curves in control_group_curves.items():
+            if not curves:
+                continue
+
+            x, y, q1, q3 = aggregate_curves(curves, "Mean")
+            if len(y) >= 11:
+                y = savgol_filter(y, window_length=11, polyorder=3)
+
+            color = (
+                group_color_map.get("Control Group", joint_color_map.get(kinematic, "#444"))
+                if use_group_colors_joint else
+                joint_color_map.get(kinematic, "#444")
+            )
+            legendgroup = f"Control_Group_{kinematic}"
+
+            if show_joint_signal_iqr_band:
+                fig.add_trace(
+                    go.Scatter(
+                        x=x + x[::-1],
+                        y=q3 + q1[::-1],
+                        fill="toself",
+                        fillcolor=to_rgba(color, 0.35),
+                        line=dict(width=0),
+                        showlegend=False,
+                        hoverinfo="skip",
+                        legendgroup=legendgroup
+                    )
+                )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=y,
+                    mode="lines",
+                    line=dict(width=4, color=color),
+                    hovertemplate=(
+                        "<b>%{fullData.name}</b><br>"
+                        f"{kinematic}: %{{y:.1f}}{get_kinematic_unit(kinematic)}<br>"
+                        "Time: %{x:.1f} ms<extra></extra>"
+                    ),
+                    name=f"Control Group | {kinematic}",
+                    showlegend=True,
+                    legendgroup=legendgroup
+                )
+            )
 
     # --- Summary table: Individual Throws ---
     if display_mode == "Individual Throws":
@@ -5793,6 +5851,7 @@ with tab_joint:
                     st.warning("No energy flow data found for the selected metrics.")
                 else:
                     energy_fig = go.Figure()
+                    collapse_control_group_energy = bool(control_take_ids)
                     unique_dates = sorted(set(take_date_map.values()))
                     dash_styles = ["solid", "dash", "dot", "dashdot"]
                     date_dash_map = {
@@ -5826,7 +5885,12 @@ with tab_joint:
 
                             date = take_date_map[take_id]
                             pitcher_name = take_pitcher_map.get(take_id, "")
-                            date_key = (pitcher_name, date) if multi_pitcher_mode else date
+                            group_label = take_group_map.get(take_id, "")
+                            control_group_take = is_control_group_label(group_label)
+                            if comparison_grouping_enabled and control_group_take:
+                                date_key = "Control Group"
+                            else:
+                                date_key = (pitcher_name, date) if multi_pitcher_mode else date
                             grouped_by_date.setdefault(date_key, {})[take_id] = {
                                 "frame": norm_f,
                                 "value": norm_v
@@ -5861,6 +5925,8 @@ with tab_joint:
                                 })
 
                             if compare_energy_display_mode == "Individual Throws":
+                                if collapse_control_group_energy and control_group_take:
+                                    continue
                                 legendgroup = f"{metric}_{pitcher_name}_{date}" if multi_pitcher_mode else f"{metric}_{date}"
                                 energy_fig.add_trace(
                                     go.Scatter(
@@ -5906,15 +5972,62 @@ with tab_joint:
                                     )
                                     energy_legend_keys.add(legend_key)
 
+                        if compare_energy_display_mode == "Individual Throws" and collapse_control_group_energy:
+                            control_curves = grouped_by_date.get("Control Group", {})
+                            if control_curves:
+                                x, y, q1, q3 = aggregate_curves(control_curves, "Mean")
+                                legendgroup = f"{metric}_Control_Group"
+
+                                if show_compare_energy_signal_iqr_band:
+                                    energy_fig.add_trace(
+                                        go.Scatter(
+                                            x=x + x[::-1],
+                                            y=q3 + q1[::-1],
+                                            fill="toself",
+                                            fillcolor=to_rgba(metric_color, alpha=0.35),
+                                            line=dict(width=0),
+                                            showlegend=False,
+                                            hoverinfo="skip",
+                                            legendgroup=legendgroup
+                                        )
+                                    )
+
+                                energy_fig.add_trace(
+                                    go.Scatter(
+                                        x=x,
+                                        y=y,
+                                        mode="lines",
+                                        line=dict(width=4, color=metric_color),
+                                        hovertemplate=(
+                                            "Control Group"
+                                            + "<br>%{fullData.name}: %{y:.1f}"
+                                            + "<br>Time: %{x:.0f} ms rel BR"
+                                            + "<extra></extra>"
+                                        ),
+                                        name=f"Control Group | {metric}",
+                                        showlegend=True,
+                                        legendgroup=legendgroup
+                                    )
+                                )
+
                         if compare_energy_display_mode == "Grouped":
                             for date_key, curves in grouped_by_date.items():
-                                if multi_pitcher_mode:
+                                control_group_curves = comparison_grouping_enabled and date_key == "Control Group"
+                                if control_group_curves:
+                                    pitcher_name = ""
+                                    date = "Selected Takes"
+                                elif multi_pitcher_mode:
                                     pitcher_name, date = date_key
                                 else:
                                     date = date_key
                                     pitcher_name = ""
                                 x, y, q1, q3 = aggregate_curves(curves, "Mean")
-                                legendgroup = f"{metric}_{pitcher_name}_{date}" if multi_pitcher_mode else f"{metric}_{date}"
+                                dash_style = date_dash_map.get(date, "solid")
+                                legendgroup = (
+                                    f"{metric}_Control_Group"
+                                    if control_group_curves else
+                                    f"{metric}_{pitcher_name}_{date}" if multi_pitcher_mode else f"{metric}_{date}"
+                                )
 
                                 peak_val = None
                                 if y:
@@ -5950,23 +6063,6 @@ with tab_joint:
                                     "Standard Deviation": (np.std(peak_vals) if peak_vals else None),
                                 })
 
-                                energy_fig.add_trace(
-                                    go.Scatter(
-                                        x=x,
-                                        y=y,
-                                        mode="lines",
-                                        line=dict(width=4, color=metric_color, dash=date_dash_map[date]),
-                                        customdata=[[metric, date, pitcher_name]] * len(x),
-                                        hovertemplate=(
-                                            ("%{customdata[2]} | %{customdata[1]}" if multi_pitcher_mode else "%{customdata[1]}")
-                                            + "<br>%{customdata[0]}: %{y:.1f}"
-                                            + "<br>Time: %{x:.0f} ms rel BR"
-                                            + "<extra></extra>"
-                                        ),
-                                        showlegend=False,
-                                        legendgroup=legendgroup
-                                    )
-                                )
                                 if show_compare_energy_signal_iqr_band:
                                     energy_fig.add_trace(
                                         go.Scatter(
@@ -5982,11 +6078,30 @@ with tab_joint:
                                     )
                                 energy_fig.add_trace(
                                     go.Scatter(
+                                        x=x,
+                                        y=y,
+                                        mode="lines",
+                                        line=dict(width=4, color=metric_color, dash=dash_style),
+                                        customdata=[[metric, date, pitcher_name]] * len(x),
+                                        hovertemplate=(
+                                            ("Control Group" if control_group_curves else "%{customdata[2]} | %{customdata[1]}" if multi_pitcher_mode else "%{customdata[1]}")
+                                            + "<br>%{customdata[0]}: %{y:.1f}"
+                                            + "<br>Time: %{x:.0f} ms rel BR"
+                                            + "<extra></extra>"
+                                        ),
+                                        showlegend=False,
+                                        legendgroup=legendgroup
+                                    )
+                                )
+                                energy_fig.add_trace(
+                                    go.Scatter(
                                         x=[None],
                                         y=[None],
                                         mode="lines",
-                                        line=dict(color=metric_color, dash=date_dash_map[date], width=4),
+                                        line=dict(color=metric_color, dash=dash_style, width=4),
                                         name=(
+                                            f"Control Group | {metric}"
+                                            if control_group_curves else
                                             f"{metric} | {date} | {pitcher_name}"
                                             if multi_pitcher_mode else
                                             f"{metric} | {date}"
