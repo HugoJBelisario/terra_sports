@@ -4370,26 +4370,6 @@ with tab_kinematic:
             },
         )
 
-        kinematic_sequence_definitions = {
-            "Pelvis": "Pelvis rotation velocity: how fast the hips are rotating.",
-            "Torso": "Trunk rotation velocity: how fast the shoulders are rotating.",
-            "Elbow": "Elbow extension velocity: how fast the elbow is straightening.",
-            "Shoulder": (
-                "Shoulder rotation velocity: how fast the shoulder rotates during the throw. "
-                "Peak internal rotation velocity describes how quickly the arm turns forward."
-            ),
-        }
-        st.markdown("### Kinematic Sequence Definitions")
-        for segment, definition in kinematic_sequence_definitions.items():
-            st.markdown(
-                (
-                    f"<div style='font-size:1.15rem; line-height:1.6; margin:0.35rem 0 0.9rem 0;'>"
-                    f"<strong>{segment}:</strong> {definition}"
-                    f"</div>"
-                ),
-                unsafe_allow_html=True,
-            )
-
         # --- Kinematic Sequence Peak Summary Table (Individual Throws) ---
         if display_mode == "Individual Throws":
 
@@ -4692,6 +4672,26 @@ with tab_kinematic:
                 .set_properties(**{"text-align": "center", "font-weight": "500"})
             )
             st.dataframe(styled, use_container_width=True)
+
+        kinematic_sequence_definitions = {
+            "Pelvis": "Pelvis rotation velocity: how fast the hips are rotating.",
+            "Torso": "Trunk rotation velocity: how fast the shoulders are rotating.",
+            "Elbow": "Elbow extension velocity: how fast the elbow is straightening.",
+            "Shoulder": (
+                "Shoulder rotation velocity: how fast the shoulder rotates during the throw. "
+                "Peak internal rotation velocity describes how quickly the arm turns forward."
+            ),
+        }
+        st.markdown("### Kinematic Sequence Definitions")
+        for segment, definition in kinematic_sequence_definitions.items():
+            st.markdown(
+                (
+                    f"<div style='font-size:1.15rem; line-height:1.6; margin:0.35rem 0 0.9rem 0;'>"
+                    f"<strong>{segment}:</strong> {definition}"
+                    f"</div>"
+                ),
+                unsafe_allow_html=True,
+            )
 
 
 with tab_joint:
@@ -5278,6 +5278,7 @@ with tab_joint:
     left_hand_mirror_kinematics = {
         "Trunk Forward Tilt",
         "Trunk Lateral Tilt",
+        "Trunk Rotation",
         "Pelvic Lateral Tilt",
         "Pelvis Rotation",
         "Hip-Shoulder Separation",
