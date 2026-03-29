@@ -4085,6 +4085,20 @@ with tab_kinematic:
                         y_date = savgol_filter(y_date, window_length=7, polyorder=3)
                     dash = date_dash_map.get(date, "solid")
                     legendgroup = f"{label}_{date}_{pitcher_name}" if show_group_pitcher_breakout else f"{label}_{date}"
+                    # --- IQR band (draw first so the line color stays visually true on top) ---
+                    if show_ks_signal_iqr_band:
+                        fig.add_trace(
+                            go.Scatter(
+                                x=x_date + x_date[::-1],
+                                y=q3_date + q1_date[::-1],
+                                fill="toself",
+                                fillcolor=to_rgba(color, alpha=0.30),
+                                line=dict(width=0),
+                                showlegend=False,
+                                hoverinfo="skip",
+                                legendgroup=legendgroup
+                            )
+                        )
                     # --- Grouped curve (no legend, but legendgroup set) ---
                     fig.add_trace(
                         go.Scatter(
@@ -4227,21 +4241,6 @@ with tab_kinematic:
                                 ),
                             )
                         )
-                    # --- IQR band (with legendgroup for toggleitem) ---
-                    if show_ks_signal_iqr_band:
-                        fig.add_trace(
-                            go.Scatter(
-                                x=x_date + x_date[::-1],
-                                y=q3_date + q1_date[::-1],
-                                fill="toself",
-                                fillcolor=to_rgba(color, alpha=0.30),
-                                line=dict(width=0),
-                                showlegend=False,
-                                hoverinfo="skip",
-                                legendgroup=legendgroup
-                            )
-                        )
-
             for peak_marker_trace in peak_marker_traces:
                 fig.add_trace(peak_marker_trace)
 
@@ -4370,6 +4369,26 @@ with tab_kinematic:
                 }
             },
         )
+
+        kinematic_sequence_definitions = {
+            "Pelvis": "Pelvis rotation velocity: how fast the hips are rotating.",
+            "Torso": "Trunk rotation velocity: how fast the shoulders are rotating.",
+            "Elbow": "Elbow extension velocity: how fast the elbow is straightening.",
+            "Shoulder": (
+                "Shoulder rotation velocity: how fast the shoulder rotates during the throw. "
+                "Peak internal rotation velocity describes how quickly the arm turns forward."
+            ),
+        }
+        st.markdown("### Kinematic Sequence Definitions")
+        for segment, definition in kinematic_sequence_definitions.items():
+            st.markdown(
+                (
+                    f"<div style='font-size:1.15rem; line-height:1.6; margin:0.35rem 0 0.9rem 0;'>"
+                    f"<strong>{segment}:</strong> {definition}"
+                    f"</div>"
+                ),
+                unsafe_allow_html=True,
+            )
 
         # --- Kinematic Sequence Peak Summary Table (Individual Throws) ---
         if display_mode == "Individual Throws":
@@ -4709,139 +4728,86 @@ with tab_joint:
     kinematic_options = [
         "Elbow Flexion",
         "Hand Speed",
-        "Center of Mass Velocity (X)",
-        "Shoulder ER",
-        "Shoulder Internal Rotation Velocity",
+        "Center of Mass Velocity (Anterior/Posterior)",
+        "Shoulder Rotation",
+        "Shoulder Rotation Velocity",
         "Shoulder Abduction",
         "Shoulder Horizontal Abduction",
-        "Front Knee Flexion",
-        "Front Knee Extension Velocity",
-        "Forward Trunk Tilt",
-        "Lateral Trunk Tilt",
-        "Trunk Angle",
-        "Pelvis Angle",
+        "Lead Knee Flexion",
+        "Lead Knee Flexion/Extension Velocity",
+        "Trunk Forward Tilt",
+        "Trunk Lateral Tilt",
+        "Trunk Rotation",
+        "Pelvis Rotation",
         "Pelvic Lateral Tilt",
         "Hip-Shoulder Separation",
         "Pelvis Rotational Velocity",
         "Trunk Rotational Velocity",
         "Torso-Pelvis Rotational Velocity",
+        "Elbow Extension Velocity",
         "Forearm Pronation/Supination"
     ]
 
     kinematic_definitions = {
         "Elbow Flexion": {
-            "definition": "How bent the throwing elbow is throughout the motion.",
-            "measured_as": "Joint angle in degrees (deg).",
-            "why": "Helps describe arm path and timing during arm acceleration.",
-            "interpretation": "Higher values generally mean a more flexed elbow position."
+            "definition": "Angle of the elbow (forearm relative to upper arm) showing how bent the arm is during the throw. 0° = fully straight; >90° at foot plant = inside 90.",
         },
         "Hand Speed": {
-            "definition": "Linear speed of the throwing hand over time.",
-            "measured_as": "Speed in meters per second (m/s).",
-            "why": "Relates to how quickly force is transferred to the hand.",
-            "interpretation": "Higher peak hand speed is usually associated with faster throws."
+            "definition": "How fast the throwing hand is moving in space during the throw (total speed in all directions).",
         },
-        "Center of Mass Velocity (X)": {
-            "definition": "Forward/backward velocity of the body center of mass.",
-            "measured_as": "Velocity along the X axis in m/s.",
-            "why": "Captures how efficiently momentum moves toward the plate.",
-            "interpretation": "More positive forward values indicate stronger forward drive."
+        "Center of Mass Velocity (Anterior/Posterior)": {
+            "definition": "Forward/backward speed of the body's center of mass toward or away from home plate. Positive = moving toward home plate; negative = moving back toward the mound.",
         },
-        "Shoulder ER": {
-            "definition": "External rotation angle of the shoulder as the arm cocks back.",
-            "measured_as": "Joint angle in degrees (deg).",
-            "why": "A key marker of arm-cocking position and timing.",
-            "interpretation": "Larger peaks indicate greater external rotation range."
+        "Shoulder Rotation": {
+            "definition": "How much the throwing arm rotates back and forward at the shoulder.",
         },
-        "Shoulder Internal Rotation Velocity": {
-            "definition": "Speed of inward shoulder rotation during acceleration.",
-            "measured_as": "Angular velocity in degrees per second (deg/s).",
-            "why": "Reflects rapid arm acceleration demands near ball release.",
-            "interpretation": "Higher peaks indicate faster inward rotational acceleration."
+        "Shoulder Rotation Velocity": {
+            "definition": "How fast the shoulder rotates during the throw. Peak internal rotation velocity = how quickly the arm turns forward. ~90° = goalpost position; moving forward toward 0° = arm rotating forward.",
         },
         "Shoulder Abduction": {
-            "definition": "How far the upper arm is elevated away from the torso.",
-            "measured_as": "Joint angle in degrees (deg).",
-            "why": "Provides context on arm slot and shoulder loading profile.",
-            "interpretation": "Higher values generally mean a more elevated arm position."
+            "definition": "How far the arm is lifted away from the body. 0° = arms at your side; 90° = straight out (T-pose).",
         },
         "Shoulder Horizontal Abduction": {
-            "definition": "How far the upper arm moves backward/forward in the horizontal plane.",
-            "measured_as": "Joint angle in degrees (deg).",
-            "why": "Helps describe scapular and shoulder positioning through cocking.",
-            "interpretation": "Larger positive magnitude usually means more horizontal layback."
+            "definition": "How far the upper arm moves forward or backward relative to the trunk. 0° = T-pose; positive = arm moves behind you.",
         },
-        "Front Knee Flexion": {
-            "definition": "Bend angle of the lead knee during stride and bracing.",
-            "measured_as": "Joint angle in degrees (deg).",
-            "why": "Important for lead-leg stabilization and force transfer.",
-            "interpretation": "Lower values typically indicate a straighter, more braced lead leg."
+        "Lead Knee Flexion": {
+            "definition": "Angle of the front knee (lower leg relative to upper leg). 0° = fully straight; higher values = more bend.",
         },
-        "Front Knee Extension Velocity": {
-            "definition": "Speed at which the lead knee extends or straightens.",
-            "measured_as": "Angular velocity in degrees per second (deg/s).",
-            "why": "Represents how quickly the front side firms up.",
-            "interpretation": "Higher extension speed often aligns with stronger front-leg blocking."
+        "Lead Knee Flexion/Extension Velocity": {
+            "definition": "How fast the front knee is bending or straightening.",
         },
-        "Forward Trunk Tilt": {
-            "definition": "Forward lean angle of the trunk relative to upright.",
-            "measured_as": "Angle component in degrees (deg).",
-            "why": "Influences release posture and ball direction.",
-            "interpretation": "Higher values indicate more forward trunk lean."
+        "Trunk Forward Tilt": {
+            "definition": "Forward/backward lean of the upper body. 0° = upright; positive = leaning forward; negative = leaning back.",
         },
-        "Lateral Trunk Tilt": {
-            "definition": "Side-to-side trunk lean angle during the throw.",
-            "measured_as": "Angle component in degrees (deg).",
-            "why": "Helps characterize trunk positioning and arm-slot adaptation.",
-            "interpretation": "Magnitude reflects how much the torso tilts laterally."
+        "Trunk Lateral Tilt": {
+            "definition": "Side-to-side lean of the upper body. 0° = upright; positive = leaning toward the lead leg side.",
         },
-        "Trunk Angle": {
-            "definition": "Rotational orientation of the trunk segment.",
-            "measured_as": "Angle component in degrees (deg).",
-            "why": "Tracks torso orientation through rotation and release.",
-            "interpretation": "Changes indicate how trunk orientation evolves over time."
+        "Trunk Rotation": {
+            "definition": "How much the shoulders are turned toward home plate. -90° = open/sideways; 0° = square to home plate.",
         },
-        "Pelvis Angle": {
-            "definition": "Rotational orientation of the pelvis segment.",
-            "measured_as": "Angle in degrees (deg).",
-            "why": "Used to evaluate lower-body rotational contribution.",
-            "interpretation": "Steeper progression indicates faster pelvis opening."
+        "Pelvis Rotation": {
+            "definition": "How much the hips are turned toward home plate. -90° = open/sideways; 0° = square to home plate.",
         },
         "Pelvic Lateral Tilt": {
-            "definition": "Side-to-side tilt of the pelvis.",
-            "measured_as": "Angle in degrees (deg).",
-            "why": "Provides insight into balance and lower-body control.",
-            "interpretation": "Greater magnitude indicates more pelvic obliquity."
+            "definition": "Side-to-side tilt of the hips. 0° = level; positive = lead leg side drops; negative = trail side drops.",
         },
         "Hip-Shoulder Separation": {
-            "definition": "Difference in rotational angle between pelvis and shoulders.",
-            "measured_as": "Relative angle in degrees (deg).",
-            "why": "Classic measure of rotational sequencing and stretch.",
-            "interpretation": "Larger separation can indicate greater torso-pelvis dissociation."
+            "definition": "Difference between hip and shoulder rotation. Positive = hips are opening ahead of the shoulders.",
         },
         "Pelvis Rotational Velocity": {
-            "definition": "Speed of pelvis rotation around the vertical axis.",
-            "measured_as": "Angular velocity in degrees per second (deg/s).",
-            "why": "Describes rotational contribution from the lower body.",
-            "interpretation": "Higher peak values indicate faster pelvis turn."
+            "definition": "How fast the hips are rotating.",
         },
         "Trunk Rotational Velocity": {
-            "definition": "Speed of torso rotation around the vertical axis.",
-            "measured_as": "Angular velocity in degrees per second (deg/s).",
-            "why": "A major contributor to upper-body energy transfer.",
-            "interpretation": "Higher peaks indicate faster trunk rotation toward release."
+            "definition": "How fast the shoulders are rotating.",
         },
         "Torso-Pelvis Rotational Velocity": {
-            "definition": "Relative rotational speed between torso and pelvis.",
-            "measured_as": "Differential angular velocity in degrees per second (deg/s).",
-            "why": "Highlights how quickly the torso rotates relative to the hips.",
-            "interpretation": "Higher values suggest faster torso-over-pelvis separation rate."
+            "definition": "How fast the shoulders are rotating relative to the hips.",
+        },
+        "Elbow Extension Velocity": {
+            "definition": "How fast the elbow is straightening.",
         },
         "Forearm Pronation/Supination": {
-            "definition": "Rotation of the forearm around its long axis.",
-            "measured_as": "Joint angle in degrees (deg).",
-            "why": "Useful for arm action context before and after release.",
-            "interpretation": "Curve direction indicates pronation versus supination dominance."
+            "definition": "Rotation of the forearm (palm turning down vs. up).",
         },
     }
 
@@ -4919,7 +4885,7 @@ with tab_joint:
     def get_kinematic_unit(kinematic_name):
         if "Velocity" in kinematic_name and "Hand Speed" not in kinematic_name and "Center of Mass Velocity" not in kinematic_name:
             return "°/s"
-        if kinematic_name in {"Hand Speed", "Center of Mass Velocity (X)"}:
+        if kinematic_name in {"Hand Speed", "Center of Mass Velocity (Anterior/Posterior)"}:
             return "m/s"
         return "°"
 
@@ -5111,31 +5077,32 @@ with tab_joint:
     joint_color_map = {
         "Elbow Flexion": "purple",
         "Hand Speed": "deeppink",
-        "Center of Mass Velocity (X)": "cyan",
-        "Shoulder ER": "teal",
-        "Shoulder Internal Rotation Velocity": "magenta",
+        "Center of Mass Velocity (Anterior/Posterior)": "cyan",
+        "Shoulder Rotation": "teal",
+        "Shoulder Rotation Velocity": "magenta",
         "Shoulder Abduction": "orange",
         "Shoulder Horizontal Abduction": "brown",
         "Forearm Pronation/Supination": "crimson",
         "Pelvis Rotational Velocity": "navy",
         "Trunk Rotational Velocity": "darkorange",
         "Torso-Pelvis Rotational Velocity": "dodgerblue",
+        "Elbow Extension Velocity": "limegreen",
     }
     joint_color_map.update({
-        "Forward Trunk Tilt": "blue",
-        "Lateral Trunk Tilt": "green",
-        "Trunk Angle": "#E9FF70"
+        "Trunk Forward Tilt": "blue",
+        "Trunk Lateral Tilt": "green",
+        "Trunk Rotation": "#E9FF70"
     })
     joint_color_map.update({
-        "Pelvis Angle": "darkblue",
+        "Pelvis Rotation": "darkblue",
         "Pelvic Lateral Tilt": "#FF4FA3",
         "Hip-Shoulder Separation": "darkred"
     })
     joint_color_map.update({
-        "Front Knee Flexion": "darkgreen"
+        "Lead Knee Flexion": "darkgreen"
     })
     joint_color_map.update({
-        "Front Knee Extension Velocity": "olive"
+        "Lead Knee Flexion/Extension Velocity": "olive"
     })
 
     # --- Load joint data conditionally ---
@@ -5164,14 +5131,14 @@ with tab_joint:
     if "Hand Speed" in selected_kinematics:
         joint_data["Hand Speed"] = load_joint_by_handedness(get_hand_speed)
 
-    if "Center of Mass Velocity (X)" in selected_kinematics:
-        joint_data["Center of Mass Velocity (X)"] = get_center_of_mass_velocity_x(take_ids)
+    if "Center of Mass Velocity (Anterior/Posterior)" in selected_kinematics:
+        joint_data["Center of Mass Velocity (Anterior/Posterior)"] = get_center_of_mass_velocity_x(take_ids)
 
-    if "Shoulder ER" in selected_kinematics:
-        joint_data["Shoulder ER"] = load_joint_by_handedness(get_shoulder_er_angle)
+    if "Shoulder Rotation" in selected_kinematics:
+        joint_data["Shoulder Rotation"] = load_joint_by_handedness(get_shoulder_er_angle)
 
-    if "Shoulder Internal Rotation Velocity" in selected_kinematics:
-        joint_data["Shoulder Internal Rotation Velocity"] = load_joint_by_handedness(get_shoulder_ir_velocity)
+    if "Shoulder Rotation Velocity" in selected_kinematics:
+        joint_data["Shoulder Rotation Velocity"] = load_joint_by_handedness(get_shoulder_ir_velocity)
 
     if "Shoulder Abduction" in selected_kinematics:
         joint_data["Shoulder Abduction"] = load_joint_by_handedness(get_shoulder_abduction_angle)
@@ -5186,47 +5153,50 @@ with tab_joint:
             get_forearm_pron_sup_angle
         )
 
-    if "Front Knee Flexion" in selected_kinematics:
-        joint_data["Front Knee Flexion"] = load_joint_by_handedness(get_front_knee_flexion_angle)
+    if "Lead Knee Flexion" in selected_kinematics:
+        joint_data["Lead Knee Flexion"] = load_joint_by_handedness(get_front_knee_flexion_angle)
 
-    if "Front Knee Extension Velocity" in selected_kinematics:
-        joint_data["Front Knee Extension Velocity"] = load_joint_by_handedness(
+    if "Lead Knee Flexion/Extension Velocity" in selected_kinematics:
+        joint_data["Lead Knee Flexion/Extension Velocity"] = load_joint_by_handedness(
             get_front_knee_extension_velocity
         )
 
     # --- Load Torso Angle components conditionally ---
     needs_torso_angle_data = any(
         metric in selected_kinematics
-        for metric in ["Forward Trunk Tilt", "Lateral Trunk Tilt", "Trunk Angle"]
+        for metric in ["Trunk Forward Tilt", "Trunk Lateral Tilt", "Trunk Rotation"]
     )
     torso_angle_data = get_torso_angle_components(take_ids) if needs_torso_angle_data else {}
 
-    if "Forward Trunk Tilt" in selected_kinematics:
-        joint_data["Forward Trunk Tilt"] = {
+    if "Trunk Forward Tilt" in selected_kinematics:
+        joint_data["Trunk Forward Tilt"] = {
             k: {"frame": v["frame"], "value": v["x"]}
             for k, v in torso_angle_data.items()
         }
 
-    if "Lateral Trunk Tilt" in selected_kinematics:
-        joint_data["Lateral Trunk Tilt"] = {
+    if "Trunk Lateral Tilt" in selected_kinematics:
+        joint_data["Trunk Lateral Tilt"] = {
             k: {"frame": v["frame"], "value": v["y"]}
             for k, v in torso_angle_data.items()
         }
 
-    if "Trunk Angle" in selected_kinematics:
-        joint_data["Trunk Angle"] = {
+    if "Trunk Rotation" in selected_kinematics:
+        joint_data["Trunk Rotation"] = {
             k: {"frame": v["frame"], "value": v["z"]}
             for k, v in torso_angle_data.items()
         }
 
-    if "Pelvis Angle" in selected_kinematics:
-        joint_data["Pelvis Angle"] = get_pelvis_angle(take_ids)
+    if "Pelvis Rotation" in selected_kinematics:
+        joint_data["Pelvis Rotation"] = get_pelvis_angle(take_ids)
 
     if "Pelvic Lateral Tilt" in selected_kinematics:
         joint_data["Pelvic Lateral Tilt"] = get_pelvic_lateral_tilt(take_ids)
 
     if "Hip-Shoulder Separation" in selected_kinematics:
         joint_data["Hip-Shoulder Separation"] = get_hip_shoulder_separation(take_ids)
+
+    if "Elbow Extension Velocity" in selected_kinematics:
+        joint_data["Elbow Extension Velocity"] = load_joint_by_handedness(get_elbow_angular_velocity)
 
     # --- Helper for extracting value at a specific time (ms) ---
     def value_at_time_ms(times_ms, values, target_time_ms):
@@ -5295,18 +5265,22 @@ with tab_joint:
 
     # Reuse take_order and take_velocity from Kinematic Sequence section if available
     peak_positive_kinematics = {
-        "Shoulder Internal Rotation Velocity",
+        "Shoulder Rotation Velocity",
         "Trunk Rotational Velocity",
         "Torso-Pelvis Rotational Velocity",
         "Pelvis Rotational Velocity",
+        "Elbow Extension Velocity",
     }
     right_hand_mirror_kinematics = {
         "Shoulder Horizontal Abduction",
-        "Shoulder ER",
+        "Shoulder Rotation",
     }
     left_hand_mirror_kinematics = {
-        "Forward Trunk Tilt",
-        "Lateral Trunk Tilt",
+        "Trunk Forward Tilt",
+        "Trunk Lateral Tilt",
+        "Pelvic Lateral Tilt",
+        "Pelvis Rotation",
+        "Hip-Shoulder Separation",
     }
     for kinematic, data_dict in joint_data.items():
         grouped[kinematic] = {}
@@ -5535,6 +5509,20 @@ with tab_joint:
                 )
                 dash = date_dash_map.get(date, "solid")
 
+                # IQR band (draw first so the line color stays visually true on top)
+                if show_joint_signal_iqr_band:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x + x[::-1],
+                            y=q3 + q1[::-1],
+                            fill="toself",
+                            fillcolor=to_rgba(color, 0.35),
+                            line=dict(width=0),
+                            showlegend=False,
+                            hoverinfo="skip"
+                        )
+                    )
+
                 fig.add_trace(
                     go.Scatter(
                         x=x,
@@ -5557,20 +5545,6 @@ with tab_joint:
                         )
                     )
                 )
-
-                # IQR band (color-matched)
-                if show_joint_signal_iqr_band:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=x + x[::-1],
-                            y=q3 + q1[::-1],
-                            fill="toself",
-                            fillcolor=to_rgba(color, 0.35),
-                            line=dict(width=0),
-                            showlegend=False,
-                            hoverinfo="skip"
-                        )
-                    )
 
                 max_val = np.max(y)
                 br_val = value_at_time_ms(x, y, 0)
