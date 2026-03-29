@@ -4189,7 +4189,7 @@ with tab_kinematic:
                         local_y_min = min(y_date) if len(y_date) > 0 else max_y
                         local_y_max = max(y_date) if len(y_date) > 0 else max_y
                         local_y_span = max(local_y_max - local_y_min, 1)
-                        peak_marker_y = max_y + max(0.03 * local_y_span, 20)
+                        peak_marker_y = max_y + max(0.05 * local_y_span, 35)
 
                         kinematic_peak_rows.append({
                             **({"Group": group_label} if comparison_grouping_enabled else {}),
