@@ -4674,13 +4674,10 @@ with tab_kinematic:
             st.dataframe(styled, use_container_width=True)
 
         kinematic_sequence_definitions = {
-            "Pelvis": "Pelvis rotation velocity: how fast the hips are rotating.",
-            "Torso": "Trunk rotation velocity: how fast the shoulders are rotating.",
-            "Elbow": "Elbow extension velocity: how fast the elbow is straightening.",
-            "Shoulder": (
-                "Shoulder rotation velocity: how fast the shoulder rotates during the throw. "
-                "Peak internal rotation velocity describes how quickly the arm turns forward."
-            ),
+            "Pelvis Angular Velocity": "how fast the hips are rotating.",
+            "Torso Angular Velocity": "how fast the shoulders are rotating.",
+            "Elbow Angular Velocity": "how fast the elbow is straightening.",
+            "Shoulder Angular Velocity": "how fast the shoulder rotates during the throw.",
         }
         st.markdown("### Kinematic Sequence Definitions")
         for segment, definition in kinematic_sequence_definitions.items():
