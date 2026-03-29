@@ -4036,6 +4036,7 @@ with tab_kinematic:
             # --- Condensed legend: track (Segment, Date) pairs ---
             legend_keys_added = set()
             peak_marker_traces = []
+            peak_marker_annotations = []
 
             for label, curves in [
                 ("Pelvis", grouped_pelvis),
@@ -4213,12 +4214,13 @@ with tab_kinematic:
                         peak_marker_traces.append(
                             go.Scatter(
                                 x=[max_x],
-                                y=[peak_marker_y],
+                                y=[max_y],
                                 mode="markers",
                                 marker=dict(
-                                    symbol="triangle-down",
-                                    size=18,
+                                    symbol="circle",
+                                    size=10,
                                     color=color,
+                                    opacity=0,
                                 ),
                                 showlegend=False,
                                 legendgroup=legendgroup,
@@ -4241,8 +4243,26 @@ with tab_kinematic:
                                 ),
                             )
                         )
+                        peak_marker_annotations.append(
+                            dict(
+                                x=max_x,
+                                y=max_y,
+                                xref="x",
+                                yref="y",
+                                text="",
+                                showarrow=True,
+                                arrowhead=2,
+                                arrowsize=1.2,
+                                arrowwidth=2,
+                                arrowcolor=color,
+                                ax=0,
+                                ay=-40,
+                            )
+                        )
             for peak_marker_trace in peak_marker_traces:
                 fig.add_trace(peak_marker_trace)
+            for peak_marker_annotation in peak_marker_annotations:
+                fig.add_annotation(**peak_marker_annotation)
 
         # Median Refined Foot Plant (zero-cross) event
         if fp_event_frames:
