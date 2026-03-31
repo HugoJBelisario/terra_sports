@@ -4080,6 +4080,17 @@ with tab_kinematic:
                         pitcher_name = ""
                         group_label = ""
                     x_date, y_date, q1_date, q3_date = aggregate_curves(curves_date, "Mean")
+                    avg_velocity = (
+                        float(np.mean([
+                            take_velocity[tid]
+                            for tid in curves_date.keys()
+                            if tid in take_velocity and take_velocity[tid] is not None
+                        ]))
+                        if any(
+                            tid in take_velocity and take_velocity[tid] is not None
+                            for tid in curves_date.keys()
+                        ) else None
+                    )
                     color = color_map[label]
                     # Smoothing
                     if len(y_date) >= 11:
@@ -4113,9 +4124,10 @@ with tab_kinematic:
                             ),
                             customdata=[[label, date, group_label, pitcher_name]] * len(x_date),
                             hovertemplate=(
-                                ("%{customdata[2]} | " if comparison_grouping_enabled else "")
-                                + "%{customdata[0]} | %{customdata[1]}"
+                                (f"{group_label}<br>" if comparison_grouping_enabled else "")
+                                + ("%{customdata[0]}" if comparison_grouping_enabled else "%{customdata[0]} | %{customdata[1]}")
                                 + (" | %{customdata[3]}" if show_group_pitcher_breakout else "")
+                                + (f"<br>Avg Velocity: {avg_velocity:.1f} mph" if avg_velocity is not None else "")
                                 + "<br>Angular Velocity: %{y:.1f}°/s"
                                 + "<br>Time: %{x:.0f} ms rel BR"
                                 + "<extra></extra>"
@@ -5573,6 +5585,7 @@ with tab_joint:
                     continue
 
                 x, y, q1, q3 = aggregate_curves(curves, "Mean")
+                avg_velocity = np.mean([take_velocity[tid] for tid in curves.keys()])
 
                 # Smooth grouped curve ONLY
                 if len(y) >= 11:
@@ -5605,7 +5618,9 @@ with tab_joint:
                         y=y,
                         mode="lines",
                         hovertemplate=(
-                            "<b>%{fullData.name}</b><br>"
+                            (f"<b>{group_label}</b><br>" if comparison_grouping_enabled else "<b>%{fullData.name}</b><br>")
+                            + (f"Avg Velocity: {avg_velocity:.1f} mph<br>" if avg_velocity is not None else "")
+                            + 
                             f"{kinematic}: %{{y:.1f}}{get_kinematic_unit(kinematic)}<br>"
                             "Time: %{x:.1f} ms<extra></extra>"
                         ),
@@ -6082,6 +6097,7 @@ with tab_joint:
                                     "Max External Rotation": mer_val,
                                     "Standard Deviation": (np.std(peak_vals) if peak_vals else None),
                                 })
+                                avg_velocity = np.mean([take_velocity[tid] for tid in curves.keys()])
 
                                 if show_compare_energy_signal_iqr_band:
                                     energy_fig.add_trace(
@@ -6105,6 +6121,7 @@ with tab_joint:
                                         customdata=[[metric, date, pitcher_name]] * len(x),
                                         hovertemplate=(
                                             ("Control Group" if control_group_curves else "%{customdata[2]} | %{customdata[1]}" if multi_pitcher_mode else "%{customdata[1]}")
+                                            + (f"<br>Avg Velocity: {avg_velocity:.1f} mph" if avg_velocity is not None else "")
                                             + "<br>%{customdata[0]}: %{y:.1f}"
                                             + "<br>Time: %{x:.0f} ms rel BR"
                                             + "<extra></extra>"
@@ -6787,6 +6804,7 @@ with tab_energy:
                     pitcher_name = ""
                     group_label = ""
                 x, y, q1, q3 = aggregate_curves(curves, "Mean")
+                avg_velocity = np.mean([take_velocity[tid] for tid in curves.keys()])
                 legendgroup = (
                     f"{group_label}_{metric}_{pitcher_name}_{date}"
                     if (comparison_grouping_enabled and show_group_pitcher_breakout) else
@@ -6811,9 +6829,12 @@ with tab_energy:
                             ),
                             dash=date_dash_map.get(date, "solid")
                         ),
-                        customdata=[[metric, date, pitcher_name]] * len(x),
+                        customdata=[[metric, date, group_label, pitcher_name]] * len(x),
                         hovertemplate=(
-                            ("%{customdata[2]} | %{customdata[1]}" if show_group_pitcher_breakout else "%{customdata[1]}")
+                            (f"{group_label}<br>" if comparison_grouping_enabled else "")
+                            + ("%{customdata[0]}" if comparison_grouping_enabled else "%{customdata[3]} | %{customdata[1]}" if show_group_pitcher_breakout else "%{customdata[1]}")
+                            + (" | %{customdata[3]}" if show_group_pitcher_breakout and comparison_grouping_enabled else "")
+                            + (f"<br>Avg Velocity: {avg_velocity:.1f} mph" if avg_velocity is not None else "")
                             + "<br>%{customdata[0]}: %{y:.1f}"
                             + "<br>Time: %{x:.0f} ms rel BR"
                             + "<extra></extra>"
