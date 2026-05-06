@@ -2465,15 +2465,22 @@ def build_pitcher_filters_for_group(selected_group_pitchers, group_index, show_g
                 if show_group_prefix else
                 f"Velocity Range{label_suffix} (mph)"
             )
-            velocity_range_i = st.sidebar.slider(
-                velocity_label,
-                min_value=float(vel_min_i),
-                max_value=float(vel_max_i),
-                value=(float(vel_min_i), float(vel_max_i)),
-                step=0.5,
-                key=f"group{group_index}_velocity_range_{i}"
-            )
-            velocity_min_i, velocity_max_i = velocity_range_i
+            vel_min_float = float(vel_min_i)
+            vel_max_float = float(vel_max_i)
+            if vel_min_float == vel_max_float:
+                velocity_min_i = vel_min_float
+                velocity_max_i = vel_max_float
+                st.sidebar.caption(f"{velocity_label}: {vel_min_float:.1f}")
+            else:
+                velocity_range_i = st.sidebar.slider(
+                    velocity_label,
+                    min_value=vel_min_float,
+                    max_value=vel_max_float,
+                    value=(vel_min_float, vel_max_float),
+                    step=0.5,
+                    key=f"group{group_index}_velocity_range_{i}"
+                )
+                velocity_min_i, velocity_max_i = velocity_range_i
         else:
             velocity_min_i, velocity_max_i = None, None
             st.sidebar.info(f"Velocity data not available for {pitcher}.")
