@@ -1689,6 +1689,80 @@ def get_energy_flow_from_segment(take_ids, segment_name, component="x"):
     finally:
         conn.close()
 
+NEW_TRUNK_PELVIS_ENERGY_CATEGORIES = [
+    "JCS_STP_FLEX",
+    "JCS_STP_SIDE",
+    "JCS_STP_X",
+    "JCS_STP_Y",
+    "JCS_STP_Z",
+]
+
+NEW_TRUNK_PELVIS_ENERGY_SEGMENTS = [
+    "RPV_RTA",
+    "RTA",
+]
+
+NEW_TRUNK_PELVIS_ENERGY_METRICS = [
+    f"{segment} {category}"
+    for segment in NEW_TRUNK_PELVIS_ENERGY_SEGMENTS
+    for category in NEW_TRUNK_PELVIS_ENERGY_CATEGORIES
+]
+
+NEW_TRUNK_PELVIS_ENERGY_COLOR_MAP = {
+    "RPV_RTA JCS_STP_FLEX": "#0F766E",
+    "RPV_RTA JCS_STP_SIDE": "#1D4ED8",
+    "RPV_RTA JCS_STP_X": "#A16207",
+    "RPV_RTA JCS_STP_Y": "#BE123C",
+    "RPV_RTA JCS_STP_Z": "#6D28D9",
+    "RTA JCS_STP_FLEX": "#059669",
+    "RTA JCS_STP_SIDE": "#2563EB",
+    "RTA JCS_STP_X": "#CA8A04",
+    "RTA JCS_STP_Y": "#E11D48",
+    "RTA JCS_STP_Z": "#7C3AED",
+}
+
+@st.cache_data(ttl=300)
+def get_energy_flow_from_category_segment(take_ids, category_name, segment_name, component="x"):
+    """
+    Generic energy-flow loader by category, segment name, and component.
+    """
+    if not take_ids or not category_name or not segment_name:
+        return {}
+    component_col = {
+        "x": "ts.x_data",
+        "y": "ts.y_data",
+        "z": "ts.z_data",
+    }.get(component, "ts.x_data")
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    {component_col}
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = %s
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND {component_col} IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (category_name, segment_name, *take_ids))
+
+            rows = cur.fetchall()
+            data = {}
+            for take_id, frame, x in rows:
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+            return data
+    finally:
+        conn.close()
+
 @st.cache_data(ttl=300)
 def get_hand_cg_velocity(take_ids, handedness):
     """
@@ -5024,7 +5098,8 @@ with tab_joint:
                     "Arm Rotational Energy Flow",
                     "Arm Elevation/Depression Energy Flow",
                     "Arm Horizontal Abd/Add Energy Flow",
-                    "Throwing Shoulder Rotational Torque (Relative to Trunk)"
+                    "Throwing Shoulder Rotational Torque (Relative to Trunk)",
+                    *NEW_TRUNK_PELVIS_ENERGY_METRICS,
                 ],
                 default=[],
                 key="joint_energy_metrics_compare"
@@ -5832,7 +5907,8 @@ with tab_joint:
                     "Arm Rotational Energy Flow": "#F59E0B",
                     "Arm Elevation/Depression Energy Flow": "#06B6D4",
                     "Arm Horizontal Abd/Add Energy Flow": "#9333EA",
-                    "Throwing Shoulder Rotational Torque (Relative to Trunk)": "#FB8C00"
+                    "Throwing Shoulder Rotational Torque (Relative to Trunk)": "#FB8C00",
+                    **NEW_TRUNK_PELVIS_ENERGY_COLOR_MAP,
                 }
 
                 compare_energy_data_by_metric = {}
@@ -5884,6 +5960,14 @@ with tab_joint:
                                 )
                             )
                         compare_energy_data_by_metric[metric] = mmt_data
+                    elif metric in NEW_TRUNK_PELVIS_ENERGY_METRICS:
+                        segment_name, category_name = metric.split(" ", 1)
+                        compare_energy_data_by_metric[metric] = get_energy_flow_from_category_segment(
+                            take_ids,
+                            category_name,
+                            segment_name,
+                            component="x",
+                        )
 
                 compare_energy_data_by_metric = {
                     k: v for k, v in compare_energy_data_by_metric.items() if v
@@ -6560,7 +6644,8 @@ with tab_energy:
                 "Arm Rotational Energy Flow",
                 "Arm Elevation/Depression Energy Flow",
                 "Arm Horizontal Abd/Add Energy Flow",
-                "Throwing Shoulder Rotational Torque (Relative to Trunk)"
+                "Throwing Shoulder Rotational Torque (Relative to Trunk)",
+                *NEW_TRUNK_PELVIS_ENERGY_METRICS,
             ],
             default=[]
         )
@@ -6591,7 +6676,8 @@ with tab_energy:
         "Arm Rotational Energy Flow": "#F59E0B",        # amber
         "Arm Elevation/Depression Energy Flow": "#06B6D4",  # cyan
         "Arm Horizontal Abd/Add Energy Flow": "#9333EA",     # violet
-        "Throwing Shoulder Rotational Torque (Relative to Trunk)": "#FB8C00"
+        "Throwing Shoulder Rotational Torque (Relative to Trunk)": "#FB8C00",
+        **NEW_TRUNK_PELVIS_ENERGY_COLOR_MAP,
     }
 
     # --- Load all selected metrics ---
@@ -6644,6 +6730,14 @@ with tab_energy:
                     )
                 )
             energy_data_by_metric[metric] = mmt_data
+        elif metric in NEW_TRUNK_PELVIS_ENERGY_METRICS:
+            segment_name, category_name = metric.split(" ", 1)
+            energy_data_by_metric[metric] = get_energy_flow_from_category_segment(
+                take_ids,
+                category_name,
+                segment_name,
+                component="x",
+            )
 
     energy_data_by_metric = {
         k: v for k, v in energy_data_by_metric.items() if v
