@@ -1689,36 +1689,30 @@ def get_energy_flow_from_segment(take_ids, segment_name, component="x"):
     finally:
         conn.close()
 
-NEW_TRUNK_PELVIS_ENERGY_CATEGORIES = [
-    "JCS_STP_FLEX",
-    "JCS_STP_SIDE",
-    "JCS_STP_X",
-    "JCS_STP_Y",
-    "JCS_STP_Z",
-]
+NEW_TRUNK_PELVIS_ENERGY_METRIC_MAP = {
+    "RPV_DIST_STP_FLEX": ("RPV_DIST", "JCS_STP_FLEX"),
+    "RPV_DIST_STP_SIDE": ("RPV_DIST", "JCS_STP_SIDE"),
+    "RPV_DIST_STP_ROT": ("RPV_DIST", "JCS_STP_ROT"),
+    "RTA_PROX_STP_FLEX": ("RTA_PROX", "JCS_STP_FLEX"),
+    "RTA_PROX_STP_SIDE": ("RTA_PROX", "JCS_STP_SIDE"),
+    "RTA_PROX_STP_ROT": ("RTA_PROX", "JCS_STP_ROT"),
+    "RTA_PROX_STP_X": ("RTA_PROX", "JCS_STP_X"),
+    "RTA_PROX_STP_Y": ("RTA_PROX", "JCS_STP_Y"),
+    "RTA_PROX_STP_Z": ("RTA_PROX", "JCS_STP_Z"),
+}
 
-NEW_TRUNK_PELVIS_ENERGY_SEGMENTS = [
-    "RPV_RTA",
-    "RTA",
-]
-
-NEW_TRUNK_PELVIS_ENERGY_METRICS = [
-    f"{segment} {category}"
-    for segment in NEW_TRUNK_PELVIS_ENERGY_SEGMENTS
-    for category in NEW_TRUNK_PELVIS_ENERGY_CATEGORIES
-]
+NEW_TRUNK_PELVIS_ENERGY_METRICS = list(NEW_TRUNK_PELVIS_ENERGY_METRIC_MAP.keys())
 
 NEW_TRUNK_PELVIS_ENERGY_COLOR_MAP = {
-    "RPV_RTA JCS_STP_FLEX": "#0F766E",
-    "RPV_RTA JCS_STP_SIDE": "#1D4ED8",
-    "RPV_RTA JCS_STP_X": "#A16207",
-    "RPV_RTA JCS_STP_Y": "#BE123C",
-    "RPV_RTA JCS_STP_Z": "#6D28D9",
-    "RTA JCS_STP_FLEX": "#059669",
-    "RTA JCS_STP_SIDE": "#2563EB",
-    "RTA JCS_STP_X": "#CA8A04",
-    "RTA JCS_STP_Y": "#E11D48",
-    "RTA JCS_STP_Z": "#7C3AED",
+    "RPV_DIST_STP_FLEX": "#0F766E",
+    "RPV_DIST_STP_SIDE": "#1D4ED8",
+    "RPV_DIST_STP_ROT": "#A16207",
+    "RTA_PROX_STP_FLEX": "#059669",
+    "RTA_PROX_STP_SIDE": "#2563EB",
+    "RTA_PROX_STP_ROT": "#CA8A04",
+    "RTA_PROX_STP_X": "#BE123C",
+    "RTA_PROX_STP_Y": "#6D28D9",
+    "RTA_PROX_STP_Z": "#7C3AED",
 }
 
 @st.cache_data(ttl=300)
@@ -5961,7 +5955,7 @@ with tab_joint:
                             )
                         compare_energy_data_by_metric[metric] = mmt_data
                     elif metric in NEW_TRUNK_PELVIS_ENERGY_METRICS:
-                        segment_name, category_name = metric.split(" ", 1)
+                        segment_name, category_name = NEW_TRUNK_PELVIS_ENERGY_METRIC_MAP[metric]
                         compare_energy_data_by_metric[metric] = get_energy_flow_from_category_segment(
                             take_ids,
                             category_name,
@@ -6731,7 +6725,7 @@ with tab_energy:
                 )
             energy_data_by_metric[metric] = mmt_data
         elif metric in NEW_TRUNK_PELVIS_ENERGY_METRICS:
-            segment_name, category_name = metric.split(" ", 1)
+            segment_name, category_name = NEW_TRUNK_PELVIS_ENERGY_METRIC_MAP[metric]
             energy_data_by_metric[metric] = get_energy_flow_from_category_segment(
                 take_ids,
                 category_name,
