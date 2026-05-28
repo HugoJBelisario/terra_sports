@@ -5002,6 +5002,7 @@ with tab_joint:
 
     compare_energy_metrics = []
     compare_energy_display_mode = "Grouped"
+    compare_energy_window_mode = "Peak Knee Height View"
 
     if joint_view_mode == "Comparison":
         compare_top_left, compare_top_right = st.columns([1.3, 4.7])
@@ -5061,6 +5062,14 @@ with tab_joint:
                 default="Grouped",
                 key="joint_energy_display_mode_compare"
                 ,
+                label_visibility="collapsed",
+            )
+            st.markdown('<div class="joint-controls-label">View Window</div>', unsafe_allow_html=True)
+            compare_energy_window_mode = st.segmented_control(
+                "Energy Flow View",
+                ["Peak Knee Height View", "Foot Plant to Ball Release View"],
+                default="Peak Knee Height View",
+                key="joint_energy_window_mode_compare",
                 label_visibility="collapsed",
             )
             st.markdown('<div class="joint-controls-label joint-toggle-label">Options</div>', unsafe_allow_html=True)
@@ -5980,8 +5989,25 @@ with tab_joint:
                     }
 
                     energy_legend_keys = set()
-                    energy_window_end = 50
-                    energy_window_start_ms = rel_frame_to_ms(window_start)
+                    compare_energy_median_pkh_frame = None
+                    if mound_only_sidebar and knee_event_frames:
+                        compare_energy_median_pkh_frame = int(np.median(knee_event_frames))
+
+                    if compare_energy_window_mode == "Foot Plant to Ball Release View":
+                        compare_energy_median_fp_frame = int(np.median(fp_event_frames)) if fp_event_frames else None
+                        energy_window_start = (
+                            compare_energy_median_fp_frame - 25
+                            if compare_energy_median_fp_frame is not None else
+                            window_start
+                        )
+                        energy_window_end = 25
+                    else:
+                        energy_window_start = window_start
+                        energy_window_end = 50
+                        if compare_energy_median_pkh_frame is not None:
+                            energy_window_start = min(window_start, compare_energy_median_pkh_frame - 20)
+
+                    energy_window_start_ms = rel_frame_to_ms(energy_window_start)
                     energy_window_end_ms = rel_frame_to_ms(energy_window_end)
 
                     for metric, energy_data in compare_energy_data_by_metric.items():
@@ -5999,7 +6025,7 @@ with tab_joint:
                             norm_f, norm_v = [], []
                             for f, v in zip(frames, values):
                                 rel = f - br
-                                if window_start <= rel <= energy_window_end:
+                                if energy_window_start <= rel <= energy_window_end:
                                     norm_f.append(rel_frame_to_ms(rel))
                                     norm_v.append(v)
 
@@ -6232,6 +6258,35 @@ with tab_joint:
                                         legendgroup=legendgroup
                                     )
                     )
+
+                    if compare_energy_median_pkh_frame is not None:
+                        add_event_iqr_band(energy_fig, knee_event_frames, "gold", show_compare_energy_fp_iqr_band)
+                        median_pkh = rel_frame_to_ms(compare_energy_median_pkh_frame)
+                        energy_fig.add_vline(x=median_pkh, line_width=3, line_dash="dash", line_color="gold")
+                        energy_fig.add_annotation(
+                            x=median_pkh,
+                            y=1.06,
+                            xref="x",
+                            yref="paper",
+                            text="PKH",
+                            showarrow=False,
+                            font=dict(color="gold", size=13, family="Arial"),
+                            align="center"
+                        )
+                    elif knee_event_frames:
+                        add_event_iqr_band(energy_fig, knee_event_frames, "gold", show_compare_energy_fp_iqr_band)
+                        median_knee = rel_frame_to_ms(int(np.median(knee_event_frames)))
+                        energy_fig.add_vline(x=median_knee, line_width=3, line_dash="dash", line_color="gold")
+                        energy_fig.add_annotation(
+                            x=median_knee,
+                            y=1.06,
+                            xref="x",
+                            yref="paper",
+                            text="Knee",
+                            showarrow=False,
+                            font=dict(color="gold", size=13, family="Arial"),
+                            align="center"
+                        )
 
                     if fp_event_frames:
                         add_event_iqr_band(energy_fig, fp_event_frames, "green", show_compare_energy_fp_iqr_band)
@@ -6623,6 +6678,19 @@ with tab_energy:
     with energy_spacer_col:
         st.markdown("")
 
+    energy_window_col, energy_window_spacer = st.columns([2.35, 3.65])
+    with energy_window_col:
+        st.markdown('<div class="energy-controls-label">View Window</div>', unsafe_allow_html=True)
+        energy_window_mode = st.segmented_control(
+            "Energy Flow View",
+            ["Peak Knee Height View", "Foot Plant to Ball Release View"],
+            default="Peak Knee Height View",
+            key="energy_window_mode",
+            label_visibility="collapsed",
+        )
+    with energy_window_spacer:
+        st.markdown("")
+
     energy_select_col, energy_select_spacer = st.columns([3, 3])
     with energy_select_col:
         energy_metrics = st.multiselect(
@@ -6752,8 +6820,25 @@ with tab_energy:
     }
 
     legend_keys_added = set()
-    energy_window_end = 50
-    energy_window_start_ms = rel_frame_to_ms(window_start)
+    energy_median_pkh_frame = None
+    if mound_only_sidebar and knee_event_frames:
+        energy_median_pkh_frame = int(np.median(knee_event_frames))
+
+    if energy_window_mode == "Foot Plant to Ball Release View":
+        energy_median_fp_frame = int(np.median(fp_event_frames)) if fp_event_frames else None
+        energy_window_start = (
+            energy_median_fp_frame - 25
+            if energy_median_fp_frame is not None else
+            window_start
+        )
+        energy_window_end = 25
+    else:
+        energy_window_start = window_start
+        energy_window_end = 50
+        if energy_median_pkh_frame is not None:
+            energy_window_start = min(window_start, energy_median_pkh_frame - 20)
+
+    energy_window_start_ms = rel_frame_to_ms(energy_window_start)
     energy_window_end_ms = rel_frame_to_ms(energy_window_end)
     use_group_colors_energy = (
         comparison_grouping_enabled
@@ -6781,7 +6866,7 @@ with tab_energy:
             norm_f, norm_v = [], []
             for f, v in zip(frames, values):
                 rel = f - br
-                if window_start <= rel <= energy_window_end:
+                if energy_window_start <= rel <= energy_window_end:
                     norm_f.append(rel_frame_to_ms(rel))
                     norm_v.append(v)
 
@@ -6989,6 +7074,35 @@ with tab_energy:
     # -------------------------------
     # Event Lines (with text labels above)
     # -------------------------------
+    if energy_median_pkh_frame is not None:
+        add_event_iqr_band(fig, knee_event_frames, "gold", show_energy_fp_iqr_band)
+        median_pkh = rel_frame_to_ms(energy_median_pkh_frame)
+        fig.add_vline(x=median_pkh, line_width=3, line_dash="dash", line_color="gold")
+        fig.add_annotation(
+            x=median_pkh,
+            y=1.06,
+            xref="x",
+            yref="paper",
+            text="PKH",
+            showarrow=False,
+            font=dict(color="gold", size=13, family="Arial"),
+            align="center"
+        )
+    elif knee_event_frames:
+        add_event_iqr_band(fig, knee_event_frames, "gold", show_energy_fp_iqr_band)
+        median_knee = rel_frame_to_ms(int(np.median(knee_event_frames)))
+        fig.add_vline(x=median_knee, line_width=3, line_dash="dash", line_color="gold")
+        fig.add_annotation(
+            x=median_knee,
+            y=1.06,
+            xref="x",
+            yref="paper",
+            text="Knee",
+            showarrow=False,
+            font=dict(color="gold", size=13, family="Arial"),
+            align="center"
+        )
+
     if fp_event_frames:
         add_event_iqr_band(fig, fp_event_frames, "green", show_energy_fp_iqr_band)
         median_fp = rel_frame_to_ms(int(np.median(fp_event_frames)))
