@@ -2720,7 +2720,7 @@ def build_take_exclusion_options(take_ids):
     return take_options, label_to_take_id
 
 
-def render_control_group_exclude_takes(key):
+def render_control_group_exclude_takes(key, container=st.sidebar):
     control_group_take_ids = st.session_state.get("control_group_take_ids", [])
     if not control_group_take_ids:
         st.session_state["excluded_control_group_take_ids"] = []
@@ -2731,7 +2731,7 @@ def render_control_group_exclude_takes(key):
         tid for tid in st.session_state.get("excluded_control_group_take_ids", [])
         if tid in control_group_take_ids
     }
-    excluded_labels = st.sidebar.multiselect(
+    excluded_labels = container.multiselect(
         "Exclude Takes",
         options=take_options,
         default=[
@@ -3243,6 +3243,7 @@ def build_shared_dashboard_state():
                         key="control_group_velocity_range"
                     )
                     render_control_group_arm_slot_category_checkboxes()
+                    render_control_group_exclude_takes("exclude_control_group_takes", st)
                     generate_control_group = st.form_submit_button(
                         "Generate Control Group",
                         use_container_width=True
@@ -3280,7 +3281,6 @@ def build_shared_dashboard_state():
 
                 if st.session_state.get("control_group_status_message"):
                     st.sidebar.caption(st.session_state["control_group_status_message"])
-                render_control_group_exclude_takes("exclude_control_group_takes")
                 if st.session_state.get("show_control_group_velocity"):
                     merge_control_group_takes_into_shared_state()
         elif group_mode_enabled and st.session_state.get("show_control_group_velocity"):
@@ -3311,6 +3311,7 @@ def build_shared_dashboard_state():
                     key="control_group_velocity_range"
                 )
                 render_control_group_arm_slot_category_checkboxes()
+                render_control_group_exclude_takes("exclude_control_group_takes_group_mode", st)
                 generate_control_group = st.form_submit_button(
                     "Generate Control Group",
                     use_container_width=True
@@ -3348,7 +3349,6 @@ def build_shared_dashboard_state():
 
             if st.session_state.get("control_group_status_message"):
                 st.sidebar.caption(st.session_state["control_group_status_message"])
-            render_control_group_exclude_takes("exclude_control_group_takes_group_mode")
 
             merge_control_group_takes_into_shared_state()
         else:
