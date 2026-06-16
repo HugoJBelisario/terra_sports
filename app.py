@@ -2453,6 +2453,8 @@ if "show_control_group_velocity" not in st.session_state:
     st.session_state["show_control_group_velocity"] = False
 if "control_group_take_ids" not in st.session_state:
     st.session_state["control_group_take_ids"] = []
+if "excluded_control_group_take_ids" not in st.session_state:
+    st.session_state["excluded_control_group_take_ids"] = []
 if "control_group_handedness" not in st.session_state:
     st.session_state["control_group_handedness"] = "Both"
 if "control_group_arm_slot_ids" not in st.session_state:
@@ -2651,6 +2653,7 @@ def exit_group_mode():
 def remove_control_group():
     st.session_state["show_control_group_velocity"] = False
     st.session_state["control_group_take_ids"] = []
+    st.session_state["excluded_control_group_take_ids"] = []
     st.session_state["control_group_arm_slot_ids"] = []
     st.session_state["control_group_pitchers"] = []
     st.session_state["control_group_handedness"] = "Both"
@@ -2672,6 +2675,74 @@ def render_control_group_arm_slot_category_checkboxes():
                 category_label,
                 key=category_key,
             )
+
+
+def build_take_exclusion_options(take_ids):
+    if not take_ids:
+        return [], {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT t.take_id, t.pitch_velo, t.take_date, a.athlete_name
+                FROM takes t
+                JOIN athletes a ON a.athlete_id = t.athlete_id
+                WHERE t.take_id IN ({placeholders})
+                ORDER BY a.athlete_name, t.take_date, t.take_id
+            """, tuple(take_ids))
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    from collections import defaultdict
+
+    requested_take_ids = set(take_ids)
+    date_groups = defaultdict(list)
+    take_labels = {}
+    for tid, velo, date, pitcher in rows:
+        if tid in requested_take_ids:
+            date_groups[(pitcher, date)].append((tid, velo))
+
+    for (pitcher, date), items in date_groups.items():
+        for i, (tid, velo) in enumerate(items, start=1):
+            date_label = date.strftime("%Y-%m-%d")
+            velo_label = f"{float(velo):.1f}" if velo is not None else "N/A"
+            take_labels[tid] = f"{pitcher} | {date_label} - Pitch {i} ({velo_label} mph)"
+
+    take_options = [take_labels[tid] for tid in take_ids if tid in take_labels]
+    label_to_take_id = {
+        take_labels[tid]: tid
+        for tid in take_ids
+        if tid in take_labels
+    }
+    return take_options, label_to_take_id
+
+
+def render_control_group_exclude_takes(key):
+    control_group_take_ids = st.session_state.get("control_group_take_ids", [])
+    if not control_group_take_ids:
+        st.session_state["excluded_control_group_take_ids"] = []
+        return
+
+    take_options, label_to_take_id = build_take_exclusion_options(control_group_take_ids)
+    valid_excluded_take_ids = {
+        tid for tid in st.session_state.get("excluded_control_group_take_ids", [])
+        if tid in control_group_take_ids
+    }
+    excluded_labels = st.sidebar.multiselect(
+        "Exclude Takes",
+        options=take_options,
+        default=[
+            label for label, tid in label_to_take_id.items()
+            if tid in valid_excluded_take_ids
+        ],
+        key=key
+    )
+    st.session_state["excluded_control_group_take_ids"] = [
+        label_to_take_id[label] for label in excluded_labels
+    ]
 
 
 def arm_slot_matches_control_group_categories(arm_slot_deg):
@@ -2993,9 +3064,12 @@ def build_shared_dashboard_state():
         nonlocal control_take_ids
 
         primary_take_ids = list(shared_take_ids)
+        excluded_control_group_take_ids = set(
+            st.session_state.get("excluded_control_group_take_ids", [])
+        )
         control_take_ids = [
             tid for tid in st.session_state.get("control_group_take_ids", [])
-            if tid not in primary_take_ids
+            if tid not in primary_take_ids and tid not in excluded_control_group_take_ids
         ]
         combined_take_ids = primary_take_ids + control_take_ids
 
@@ -3206,6 +3280,7 @@ def build_shared_dashboard_state():
 
                 if st.session_state.get("control_group_status_message"):
                     st.sidebar.caption(st.session_state["control_group_status_message"])
+                render_control_group_exclude_takes("exclude_control_group_takes")
                 if st.session_state.get("show_control_group_velocity"):
                     merge_control_group_takes_into_shared_state()
         elif group_mode_enabled and st.session_state.get("show_control_group_velocity"):
@@ -3273,6 +3348,7 @@ def build_shared_dashboard_state():
 
             if st.session_state.get("control_group_status_message"):
                 st.sidebar.caption(st.session_state["control_group_status_message"])
+            render_control_group_exclude_takes("exclude_control_group_takes_group_mode")
 
             merge_control_group_takes_into_shared_state()
         else:
