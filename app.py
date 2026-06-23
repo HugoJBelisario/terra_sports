@@ -7601,572 +7601,6 @@ def compute_peak_segment_power(energy_data, br_frames, fp_event_frames):
     return peak_map
 
 
-with tab_energy:
-    st.subheader("Energy Flow")
-    render_group_selection_summary()
-
-    st.markdown(
-        """
-        <style>
-        .energy-controls-label {
-            font-size: 0.8rem;
-            font-weight: 700;
-            color: #6b7280;
-            margin-bottom: 0.1rem;
-        }
-
-        div[data-testid="stSegmentedControl"] label,
-        div[data-testid="stSegmentedControl"] div[role="radiogroup"] label,
-        div[data-testid="stSegmentedControl"] div[role="radiogroup"] p,
-        div[data-testid="stToggle"] label,
-        div[data-testid="stToggle"] p {
-            font-size: 1rem !important;
-            font-weight: 400 !important;
-        }
-
-        .energy-toggle-label {
-            margin-top: -0.1rem;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    energy_display_col, energy_options_col, energy_spacer_col = st.columns([1.45, 1.75, 2.2])
-    with energy_display_col:
-        st.markdown('<div class="energy-controls-label">Display Mode</div>', unsafe_allow_html=True)
-        display_mode = st.segmented_control(
-            "Select Display Mode",
-            ["Individual Throws", "Grouped"],
-            default="Grouped",
-            key="energy_display_mode",
-            label_visibility="collapsed",
-        )
-    with energy_options_col:
-        st.markdown('<div class="energy-controls-label energy-toggle-label">Options</div>', unsafe_allow_html=True)
-        energy_event_col, energy_signal_col = st.columns(2)
-        with energy_event_col:
-            show_energy_fp_iqr_band = st.toggle(
-                "Event Bands",
-                value=False,
-                key="energy_show_fp_iqr_band",
-                help="Shows the middle 50% range for event timing across selected throws.",
-            )
-        with energy_signal_col:
-            show_energy_signal_iqr_band = st.toggle(
-                "Signal Bands",
-                value=True,
-                key="energy_show_signal_iqr_band",
-                help="Shows the middle 50% range around each grouped mean line.",
-            )
-    with energy_spacer_col:
-        st.markdown("")
-
-    energy_window_col, energy_window_spacer = st.columns([2.35, 3.65])
-    with energy_window_col:
-        st.markdown('<div class="energy-controls-label">View Window</div>', unsafe_allow_html=True)
-        energy_window_mode = st.segmented_control(
-            "Energy Flow View",
-            ["Peak Knee Height View", "Foot Plant to Ball Release View"],
-            default="Peak Knee Height View",
-            key="energy_window_mode",
-            label_visibility="collapsed",
-        )
-    with energy_window_spacer:
-        st.markdown("")
-
-    energy_select_col, energy_select_spacer = st.columns([3, 3])
-    with energy_select_col:
-        energy_metrics = st.multiselect(
-            "Select Energy Flow Metrics",
-            [
-                "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)",
-                "Arm Energy Flow (LAR_PROX | RAR_PROX)",
-                "Glove Side Trunk-Shoulder Energy Flow",
-                "Glove Arm Energy Flow",
-                "Trunk-Shoulder Rotational Energy Flow",
-                "Trunk-Shoulder Elevation/Depression Energy Flow",
-                "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
-                "Arm Rotational Energy Flow",
-                "Arm Elevation/Depression Energy Flow",
-                "Arm Horizontal Abd/Add Energy Flow",
-                "Throwing Shoulder Rotational Torque (Relative to Trunk)",
-                *NEW_TRUNK_PELVIS_ENERGY_METRICS,
-            ],
-            default=[]
-        )
-    with energy_select_spacer:
-        st.markdown("")
-
-    if not energy_metrics:
-        energy_empty_col, energy_empty_spacer = st.columns([3, 3])
-        with energy_empty_col:
-            st.info("Select at least one energy flow metric.")
-        with energy_empty_spacer:
-            st.markdown("")
-        st.stop()
-
-    if not take_ids:
-        st.info("No takes available for Energy Flow.")
-        st.stop()
-
-    # --- Fixed color map for Energy Flow metrics (high-contrast palette) ---
-    energy_color_map = {
-        "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)": "#4C1D95",  # deep indigo / purple
-        "Arm Energy Flow (LAR_PROX | RAR_PROX)": "#7C2D12",  # dark brown
-        "Glove Side Trunk-Shoulder Energy Flow": "#E11D48",
-        "Glove Arm Energy Flow": "#14B8A6",
-        "Trunk-Shoulder Rotational Energy Flow": "#DC2626",  # strong red
-        "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",  # vivid blue
-        "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",     # strong green
-        "Arm Rotational Energy Flow": "#F59E0B",        # amber
-        "Arm Elevation/Depression Energy Flow": "#06B6D4",  # cyan
-        "Arm Horizontal Abd/Add Energy Flow": "#9333EA",     # violet
-        "Throwing Shoulder Rotational Torque (Relative to Trunk)": "#FB8C00",
-        **NEW_TRUNK_PELVIS_ENERGY_COLOR_MAP,
-    }
-
-    # --- Load all selected metrics ---
-    energy_data_by_metric = {}
-
-    def load_energy_by_handedness(loader_fn):
-        merged = {}
-        for hand, ids in take_ids_by_handedness.items():
-            if ids:
-                merged.update(loader_fn(ids, hand))
-        return merged
-
-    for metric in energy_metrics:
-        if metric == "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)":
-            energy_data_by_metric[metric] = load_energy_by_handedness(get_distal_arm_segment_power)
-        elif metric == "Arm Energy Flow (LAR_PROX | RAR_PROX)":
-            energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_proximal_energy_transfer)
-        elif metric == "Glove Side Trunk-Shoulder Energy Flow":
-            energy_data_by_metric[metric] = load_energy_by_handedness(get_glove_side_trunk_shoulder_energy_flow)
-        elif metric == "Glove Arm Energy Flow":
-            energy_data_by_metric[metric] = load_energy_by_handedness(get_glove_arm_energy_flow)
-        elif metric == "Trunk-Shoulder Rotational Energy Flow":
-            energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_rot_energy_flow)
-        elif metric == "Trunk-Shoulder Elevation/Depression Energy Flow":
-            energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_elev_energy_flow)
-        elif metric == "Trunk-Shoulder Horizontal Abd/Add Energy Flow":
-            energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_horizabd_energy_flow)
-        elif metric == "Arm Rotational Energy Flow":
-            energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_rot_energy_flow)
-        elif metric == "Arm Elevation/Depression Energy Flow":
-            energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_elev_energy_flow)
-        elif metric == "Arm Horizontal Abd/Add Energy Flow":
-            energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_horizabd_energy_flow)
-        elif metric == "Throwing Shoulder Rotational Torque (Relative to Trunk)":
-            mmt_data = {}
-            if take_ids_by_handedness.get("R"):
-                mmt_data.update(
-                    get_energy_flow_from_segment(
-                        take_ids_by_handedness["R"],
-                        "RT_SHOULDER_RTA_MMT",
-                        component="z"
-                    )
-                )
-            if take_ids_by_handedness.get("L"):
-                mmt_data.update(
-                    get_energy_flow_from_segment(
-                        take_ids_by_handedness["L"],
-                        "LT_SHOULDER_RTA_MMT",
-                        component="z"
-                    )
-                )
-            energy_data_by_metric[metric] = mmt_data
-        elif metric in NEW_TRUNK_PELVIS_ENERGY_METRICS:
-            segment_name, category_name = NEW_TRUNK_PELVIS_ENERGY_METRIC_MAP[metric]
-            energy_data_by_metric[metric] = get_energy_flow_from_category_segment(
-                take_ids,
-                category_name,
-                segment_name,
-                component="x",
-            )
-
-    energy_data_by_metric = {
-        k: v for k, v in energy_data_by_metric.items() if v
-    }
-
-    if not energy_data_by_metric:
-        st.warning("No energy flow data found for the selected metrics.")
-        st.stop()
-
-    fig = go.Figure()
-
-    # --- Date dash styles (same as KS) ---
-    unique_dates = sorted(set(take_date_map.values()))
-    dash_styles = ["solid", "dash", "dot", "dashdot"]
-    date_dash_map = {
-        d: dash_styles[i % len(dash_styles)]
-        for i, d in enumerate(unique_dates)
-    }
-
-    legend_keys_added = set()
-    energy_median_pkh_frame = None
-    if mound_only_sidebar and knee_event_frames:
-        energy_median_pkh_frame = int(np.median(knee_event_frames))
-
-    if energy_window_mode == "Foot Plant to Ball Release View":
-        energy_median_fp_frame = int(np.median(fp_event_frames)) if fp_event_frames else None
-        energy_window_start = (
-            energy_median_fp_frame - 25
-            if energy_median_fp_frame is not None else
-            window_start
-        )
-        energy_window_end = 25
-    else:
-        energy_window_start = window_start
-        energy_window_end = 50
-        if energy_median_pkh_frame is not None:
-            energy_window_start = min(window_start, energy_median_pkh_frame - 20)
-
-    energy_window_start_ms = rel_frame_to_ms(energy_window_start)
-    energy_window_end_ms = rel_frame_to_ms(energy_window_end)
-    use_group_colors_energy = (
-        comparison_grouping_enabled
-        and len(energy_metrics) == 1
-        and len(group_color_map) >= 2
-    )
-
-    # -------------------------------
-    # Normalize to Ball Release and Plot
-    # -------------------------------
-    for metric, energy_data in energy_data_by_metric.items():
-        metric_color = energy_color_map.get(metric, "#444")
-
-        grouped_power = {}
-        grouped_by_date = {}
-
-        for take_id, d in energy_data.items():
-            if take_id not in br_frames:
-                continue
-
-            frames = d["frame"]
-            values = d["value"]
-            br = br_frames[take_id]
-
-            norm_f, norm_v = [], []
-            for f, v in zip(frames, values):
-                rel = f - br
-                if energy_window_start <= rel <= energy_window_end:
-                    norm_f.append(rel_frame_to_ms(rel))
-                    norm_v.append(v)
-
-            grouped_power[take_id] = {"frame": norm_f, "value": norm_v}
-
-            date = take_date_map[take_id]
-            group_label = take_group_map.get(take_id, "Ungrouped")
-            pitcher_name = take_pitcher_map.get(take_id, "")
-            control_group_take = is_control_group_label(group_label)
-            hover_pitcher_name = "" if control_group_take else pitcher_name
-            if comparison_grouping_enabled and control_group_take:
-                date_key = group_label
-            elif comparison_grouping_enabled:
-                date_key = group_label if group_mode_aggregate_across_pitchers else ((group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date))
-            else:
-                date_key = (pitcher_name, date) if multi_pitcher_mode else date
-            grouped_by_date.setdefault(date_key, {})[take_id] = {
-                "frame": norm_f,
-                "value": norm_v
-            }
-            trace_color = (
-                group_color_map.get(group_label, metric_color)
-                if use_group_colors_energy else
-                metric_color
-            )
-
-            if display_mode == "Individual Throws":
-                legendgroup = (
-                    f"{group_label}_{metric}_{pitcher_name}_{date}"
-                    if (comparison_grouping_enabled and show_group_pitcher_breakout) else
-                    f"{group_label}_{metric}_{date}"
-                    if comparison_grouping_enabled else
-                    f"{metric}_{pitcher_name}_{date}"
-                    if show_group_pitcher_breakout else
-                    f"{metric}_{date}"
-                )
-                fig.add_trace(
-                    go.Scatter(
-                        x=norm_f,
-                        y=norm_v,
-                        mode="lines",
-                        line=dict(
-                            color=trace_color,
-                            dash=date_dash_map[date]
-                        ),
-                        customdata=[[metric, date, take_order[take_id], take_velocity[take_id], hover_pitcher_name]] * len(norm_f),
-                        hovertemplate=(
-                            ("%{customdata[4]} | %{customdata[1]}" if show_group_pitcher_breakout else "%{customdata[1]}")
-                            + "<br>%{customdata[0]}: %{y:.1f}"
-                            + "<br>Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
-                            + "<br>Time: %{x:.0f} ms rel BR"
-                            + "<extra></extra>"
-                        ),
-                        name=(
-                            f"Control Group | {metric} – Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
-                            if (comparison_grouping_enabled and control_group_take) else
-                            f"{group_label} | {metric} – {date} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph) | {pitcher_name}"
-                            if (comparison_grouping_enabled and show_group_pitcher_breakout) else
-                            f"{group_label} | {metric} – {date} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
-                            if comparison_grouping_enabled else None
-                        ),
-                        showlegend=False,
-                        legendgroup=legendgroup
-                    )
-                )
-                legend_key = (metric, date_key)
-                if control_group_take and legend_key not in legend_keys_added:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=[None],
-                            y=[None],
-                            mode="lines",
-                            line=dict(
-                                color=trace_color,
-                                dash=date_dash_map[date],
-                                width=4
-                            ),
-                            name=(
-                                f"Control Group | {metric}"
-                                if (comparison_grouping_enabled and control_group_take) else
-                                f"{group_label} | {metric} | {date} | {pitcher_name}"
-                                if (show_group_pitcher_breakout and comparison_grouping_enabled) else
-                                f"{group_label} | {metric} | {date}"
-                                if comparison_grouping_enabled else
-                            f"{metric} | {date} | {pitcher_name}"
-                            if show_group_pitcher_breakout else
-                            f"{metric} | {date}"
-                        ),
-                            showlegend=True,
-                            legendgroup=legendgroup
-                        )
-                    )
-                    legend_keys_added.add(legend_key)
-
-        # -------------------------------
-        # Grouped (Mean + IQR per date)
-        # -------------------------------
-        if display_mode == "Grouped":
-            for date_key, curves in grouped_by_date.items():
-                if comparison_grouping_enabled and date_key == "Control Group":
-                    group_label = "Control Group"
-                    pitcher_name = ""
-                    date = "Selected Takes"
-                elif comparison_grouping_enabled and show_group_pitcher_breakout:
-                    group_label, pitcher_name, date = date_key
-                elif comparison_grouping_enabled:
-                    group_label = date_key
-                    date = "Selected Takes"
-                    pitcher_name = ""
-                elif multi_pitcher_mode and not comparison_grouping_enabled:
-                    pitcher_name, date = date_key
-                    group_label = ""
-                else:
-                    date = date_key
-                    pitcher_name = ""
-                    group_label = ""
-                x, y, q1, q3 = aggregate_curves(curves, "Mean")
-                avg_velocity = np.mean([take_velocity[tid] for tid in curves.keys()])
-                legendgroup = (
-                    f"{group_label}_{metric}_{pitcher_name}_{date}"
-                    if (comparison_grouping_enabled and show_group_pitcher_breakout) else
-                    f"{group_label}_{metric}_{date}"
-                    if comparison_grouping_enabled else
-                    f"{metric}_{pitcher_name}_{date}"
-                    if show_group_pitcher_breakout else
-                    f"{metric}_{date}"
-                )
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=x,
-                        y=y,
-                        mode="lines",
-                        line=dict(
-                            width=4,
-                            color=(
-                                group_color_map.get(group_label, metric_color)
-                                if use_group_colors_energy else
-                                metric_color
-                            ),
-                            dash=date_dash_map.get(date, "solid")
-                        ),
-                        customdata=[[metric, date, group_label, pitcher_name]] * len(x),
-                        hovertemplate=(
-                            (f"{group_label}<br>" if comparison_grouping_enabled else "")
-                            + ("%{customdata[0]}" if comparison_grouping_enabled else "%{customdata[3]} | %{customdata[1]}" if show_group_pitcher_breakout else "%{customdata[1]}")
-                            + (" | %{customdata[3]}" if show_group_pitcher_breakout and comparison_grouping_enabled else "")
-                            + (f"<br>Avg Velocity: {avg_velocity:.1f} mph" if avg_velocity is not None else "")
-                            + "<br>%{customdata[0]}: %{y:.1f}"
-                            + "<br>Time: %{x:.0f} ms rel BR"
-                            + "<extra></extra>"
-                        ),
-                        showlegend=False,
-                        legendgroup=legendgroup
-                    )
-                )
-
-                if show_energy_signal_iqr_band:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=x + x[::-1],
-                            y=q3 + q1[::-1],
-                            fill="toself",
-                            fillcolor=to_rgba(
-                                group_color_map.get(group_label, metric_color)
-                                if use_group_colors_energy else
-                                metric_color,
-                                alpha=0.35
-                            ),
-                            line=dict(width=0),
-                            showlegend=False,
-                            hoverinfo="skip",
-                            legendgroup=legendgroup
-                        )
-                    )
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=[None],
-                        y=[None],
-                        mode="lines",
-                        line=dict(
-                            color=(
-                                group_color_map.get(group_label, metric_color)
-                                if use_group_colors_energy else
-                                metric_color
-                            ),
-                            dash=date_dash_map.get(date, "solid"),
-                            width=4
-                        ),
-                        name=(
-                            f"{group_label} | {metric} | {date} | {pitcher_name}"
-                            if (show_group_pitcher_breakout and comparison_grouping_enabled) else
-                            f"{group_label} | {metric} | {date}"
-                            if comparison_grouping_enabled else
-                            f"{metric} | {date} | {pitcher_name}"
-                            if show_group_pitcher_breakout else
-                            f"{metric} | {date}"
-                        ),
-                        showlegend=True,
-                        legendgroup=legendgroup
-                    )
-                )
-
-    # -------------------------------
-    # Event Lines (with text labels above)
-    # -------------------------------
-    if energy_median_pkh_frame is not None:
-        add_event_iqr_band(fig, knee_event_frames, "gold", show_energy_fp_iqr_band)
-        median_pkh = rel_frame_to_ms(energy_median_pkh_frame)
-        fig.add_vline(x=median_pkh, line_width=3, line_dash="dash", line_color="gold")
-        fig.add_annotation(
-            x=median_pkh,
-            y=1.06,
-            xref="x",
-            yref="paper",
-            text="PKH",
-            showarrow=False,
-            font=dict(color="gold", size=13, family="Arial"),
-            align="center"
-        )
-    elif knee_event_frames:
-        add_event_iqr_band(fig, knee_event_frames, "gold", show_energy_fp_iqr_band)
-        median_knee = rel_frame_to_ms(int(np.median(knee_event_frames)))
-        fig.add_vline(x=median_knee, line_width=3, line_dash="dash", line_color="gold")
-        fig.add_annotation(
-            x=median_knee,
-            y=1.06,
-            xref="x",
-            yref="paper",
-            text="Knee",
-            showarrow=False,
-            font=dict(color="gold", size=13, family="Arial"),
-            align="center"
-        )
-
-    if fp_event_frames:
-        add_event_iqr_band(fig, fp_event_frames, "green", show_energy_fp_iqr_band)
-        median_fp = rel_frame_to_ms(int(np.median(fp_event_frames)))
-        fig.add_vline(x=median_fp, line_width=3, line_dash="dash", line_color="green")
-        fig.add_annotation(
-            x=median_fp,
-            y=1.06,
-            xref="x",
-            yref="paper",
-            text="FP",
-            showarrow=False,
-            font=dict(color="green", size=13, family="Arial"),
-            align="center"
-        )
-
-    if mer_event_frames:
-        add_event_iqr_band(fig, mer_event_frames, "red", show_energy_fp_iqr_band)
-        median_mer = rel_frame_to_ms(int(np.median(mer_event_frames)))
-        fig.add_vline(x=median_mer, line_width=3, line_dash="dash", line_color="red")
-        fig.add_annotation(
-            x=median_mer,
-            y=1.06,
-            xref="x",
-            yref="paper",
-            text="MER",
-            showarrow=False,
-            font=dict(color="red", size=13, family="Arial"),
-            align="center"
-        )
-
-    add_event_iqr_band(fig, [0] * max(len(take_ids), 1), "blue", show_energy_fp_iqr_band)
-    fig.add_vline(x=0, line_width=3, line_dash="dash", line_color="blue")
-    fig.add_annotation(
-        x=0,
-        y=1.06,
-        xref="x",
-        yref="paper",
-        text="BR",
-        showarrow=False,
-        font=dict(color="blue", size=13, family="Arial"),
-        align="center"
-    )
-
-    fig.update_layout(
-        xaxis_title="Time Relative to Ball Release (ms)",
-        yaxis_title="Energy Flow / Segment Power",
-        xaxis_range=[energy_window_start_ms, energy_window_end_ms],
-        height=600,
-        legend=dict(
-            orientation="h",
-            yanchor="top",
-            y=-0.30,
-            xanchor="center",
-            x=0.5,
-            groupclick="togglegroup"
-        ),
-        hoverlabel=dict(
-            namelength=-1,
-            font_size=13
-        )
-    )
-
-    st.plotly_chart(fig, use_container_width=True, key="energy_plot_main_tab")
-
-    defined_energy_metrics = [
-        metric for metric in energy_metrics if metric in energy_definitions
-    ]
-    if defined_energy_metrics:
-        st.markdown("### Energy Flow Definitions")
-        for metric in defined_energy_metrics:
-            metric_info = energy_definitions.get(metric, {})
-            st.markdown(
-                (
-                    f"<div style='font-size:1.15rem; line-height:1.6; margin:0.35rem 0 0.9rem 0;'>"
-                    f"<strong>{metric}:</strong> {metric_info.get('definition', '')}"
-                    f"</div>"
-                ),
-                unsafe_allow_html=True,
-            )
-
 # --------------------------------------------------
 # Report Tab
 # --------------------------------------------------
@@ -12309,6 +11743,572 @@ with tab_report:
                             type="primary",
                         )
 
+
+with tab_energy:
+    st.subheader("Energy Flow")
+    render_group_selection_summary()
+
+    st.markdown(
+        """
+        <style>
+        .energy-controls-label {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: #6b7280;
+            margin-bottom: 0.1rem;
+        }
+
+        div[data-testid="stSegmentedControl"] label,
+        div[data-testid="stSegmentedControl"] div[role="radiogroup"] label,
+        div[data-testid="stSegmentedControl"] div[role="radiogroup"] p,
+        div[data-testid="stToggle"] label,
+        div[data-testid="stToggle"] p {
+            font-size: 1rem !important;
+            font-weight: 400 !important;
+        }
+
+        .energy-toggle-label {
+            margin-top: -0.1rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    energy_display_col, energy_options_col, energy_spacer_col = st.columns([1.45, 1.75, 2.2])
+    with energy_display_col:
+        st.markdown('<div class="energy-controls-label">Display Mode</div>', unsafe_allow_html=True)
+        display_mode = st.segmented_control(
+            "Select Display Mode",
+            ["Individual Throws", "Grouped"],
+            default="Grouped",
+            key="energy_display_mode",
+            label_visibility="collapsed",
+        )
+    with energy_options_col:
+        st.markdown('<div class="energy-controls-label energy-toggle-label">Options</div>', unsafe_allow_html=True)
+        energy_event_col, energy_signal_col = st.columns(2)
+        with energy_event_col:
+            show_energy_fp_iqr_band = st.toggle(
+                "Event Bands",
+                value=False,
+                key="energy_show_fp_iqr_band",
+                help="Shows the middle 50% range for event timing across selected throws.",
+            )
+        with energy_signal_col:
+            show_energy_signal_iqr_band = st.toggle(
+                "Signal Bands",
+                value=True,
+                key="energy_show_signal_iqr_band",
+                help="Shows the middle 50% range around each grouped mean line.",
+            )
+    with energy_spacer_col:
+        st.markdown("")
+
+    energy_window_col, energy_window_spacer = st.columns([2.35, 3.65])
+    with energy_window_col:
+        st.markdown('<div class="energy-controls-label">View Window</div>', unsafe_allow_html=True)
+        energy_window_mode = st.segmented_control(
+            "Energy Flow View",
+            ["Peak Knee Height View", "Foot Plant to Ball Release View"],
+            default="Peak Knee Height View",
+            key="energy_window_mode",
+            label_visibility="collapsed",
+        )
+    with energy_window_spacer:
+        st.markdown("")
+
+    energy_select_col, energy_select_spacer = st.columns([3, 3])
+    with energy_select_col:
+        energy_metrics = st.multiselect(
+            "Select Energy Flow Metrics",
+            [
+                "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)",
+                "Arm Energy Flow (LAR_PROX | RAR_PROX)",
+                "Glove Side Trunk-Shoulder Energy Flow",
+                "Glove Arm Energy Flow",
+                "Trunk-Shoulder Rotational Energy Flow",
+                "Trunk-Shoulder Elevation/Depression Energy Flow",
+                "Trunk-Shoulder Horizontal Abd/Add Energy Flow",
+                "Arm Rotational Energy Flow",
+                "Arm Elevation/Depression Energy Flow",
+                "Arm Horizontal Abd/Add Energy Flow",
+                "Throwing Shoulder Rotational Torque (Relative to Trunk)",
+                *NEW_TRUNK_PELVIS_ENERGY_METRICS,
+            ],
+            default=[]
+        )
+    with energy_select_spacer:
+        st.markdown("")
+
+    if not energy_metrics:
+        energy_empty_col, energy_empty_spacer = st.columns([3, 3])
+        with energy_empty_col:
+            st.info("Select at least one energy flow metric.")
+        with energy_empty_spacer:
+            st.markdown("")
+        st.stop()
+
+    if not take_ids:
+        st.info("No takes available for Energy Flow.")
+        st.stop()
+
+    # --- Fixed color map for Energy Flow metrics (high-contrast palette) ---
+    energy_color_map = {
+        "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)": "#4C1D95",  # deep indigo / purple
+        "Arm Energy Flow (LAR_PROX | RAR_PROX)": "#7C2D12",  # dark brown
+        "Glove Side Trunk-Shoulder Energy Flow": "#E11D48",
+        "Glove Arm Energy Flow": "#14B8A6",
+        "Trunk-Shoulder Rotational Energy Flow": "#DC2626",  # strong red
+        "Trunk-Shoulder Elevation/Depression Energy Flow": "#2563EB",  # vivid blue
+        "Trunk-Shoulder Horizontal Abd/Add Energy Flow": "#16A34A",     # strong green
+        "Arm Rotational Energy Flow": "#F59E0B",        # amber
+        "Arm Elevation/Depression Energy Flow": "#06B6D4",  # cyan
+        "Arm Horizontal Abd/Add Energy Flow": "#9333EA",     # violet
+        "Throwing Shoulder Rotational Torque (Relative to Trunk)": "#FB8C00",
+        **NEW_TRUNK_PELVIS_ENERGY_COLOR_MAP,
+    }
+
+    # --- Load all selected metrics ---
+    energy_data_by_metric = {}
+
+    def load_energy_by_handedness(loader_fn):
+        merged = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if ids:
+                merged.update(loader_fn(ids, hand))
+        return merged
+
+    for metric in energy_metrics:
+        if metric == "Trunk-Shoulder Energy Flow (RTA_DIST_L | RTA_DIST_R)":
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_distal_arm_segment_power)
+        elif metric == "Arm Energy Flow (LAR_PROX | RAR_PROX)":
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_proximal_energy_transfer)
+        elif metric == "Glove Side Trunk-Shoulder Energy Flow":
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_glove_side_trunk_shoulder_energy_flow)
+        elif metric == "Glove Arm Energy Flow":
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_glove_arm_energy_flow)
+        elif metric == "Trunk-Shoulder Rotational Energy Flow":
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_rot_energy_flow)
+        elif metric == "Trunk-Shoulder Elevation/Depression Energy Flow":
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_elev_energy_flow)
+        elif metric == "Trunk-Shoulder Horizontal Abd/Add Energy Flow":
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_trunk_shoulder_horizabd_energy_flow)
+        elif metric == "Arm Rotational Energy Flow":
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_rot_energy_flow)
+        elif metric == "Arm Elevation/Depression Energy Flow":
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_elev_energy_flow)
+        elif metric == "Arm Horizontal Abd/Add Energy Flow":
+            energy_data_by_metric[metric] = load_energy_by_handedness(get_arm_horizabd_energy_flow)
+        elif metric == "Throwing Shoulder Rotational Torque (Relative to Trunk)":
+            mmt_data = {}
+            if take_ids_by_handedness.get("R"):
+                mmt_data.update(
+                    get_energy_flow_from_segment(
+                        take_ids_by_handedness["R"],
+                        "RT_SHOULDER_RTA_MMT",
+                        component="z"
+                    )
+                )
+            if take_ids_by_handedness.get("L"):
+                mmt_data.update(
+                    get_energy_flow_from_segment(
+                        take_ids_by_handedness["L"],
+                        "LT_SHOULDER_RTA_MMT",
+                        component="z"
+                    )
+                )
+            energy_data_by_metric[metric] = mmt_data
+        elif metric in NEW_TRUNK_PELVIS_ENERGY_METRICS:
+            segment_name, category_name = NEW_TRUNK_PELVIS_ENERGY_METRIC_MAP[metric]
+            energy_data_by_metric[metric] = get_energy_flow_from_category_segment(
+                take_ids,
+                category_name,
+                segment_name,
+                component="x",
+            )
+
+    energy_data_by_metric = {
+        k: v for k, v in energy_data_by_metric.items() if v
+    }
+
+    if not energy_data_by_metric:
+        st.warning("No energy flow data found for the selected metrics.")
+        st.stop()
+
+    fig = go.Figure()
+
+    # --- Date dash styles (same as KS) ---
+    unique_dates = sorted(set(take_date_map.values()))
+    dash_styles = ["solid", "dash", "dot", "dashdot"]
+    date_dash_map = {
+        d: dash_styles[i % len(dash_styles)]
+        for i, d in enumerate(unique_dates)
+    }
+
+    legend_keys_added = set()
+    energy_median_pkh_frame = None
+    if mound_only_sidebar and knee_event_frames:
+        energy_median_pkh_frame = int(np.median(knee_event_frames))
+
+    if energy_window_mode == "Foot Plant to Ball Release View":
+        energy_median_fp_frame = int(np.median(fp_event_frames)) if fp_event_frames else None
+        energy_window_start = (
+            energy_median_fp_frame - 25
+            if energy_median_fp_frame is not None else
+            window_start
+        )
+        energy_window_end = 25
+    else:
+        energy_window_start = window_start
+        energy_window_end = 50
+        if energy_median_pkh_frame is not None:
+            energy_window_start = min(window_start, energy_median_pkh_frame - 20)
+
+    energy_window_start_ms = rel_frame_to_ms(energy_window_start)
+    energy_window_end_ms = rel_frame_to_ms(energy_window_end)
+    use_group_colors_energy = (
+        comparison_grouping_enabled
+        and len(energy_metrics) == 1
+        and len(group_color_map) >= 2
+    )
+
+    # -------------------------------
+    # Normalize to Ball Release and Plot
+    # -------------------------------
+    for metric, energy_data in energy_data_by_metric.items():
+        metric_color = energy_color_map.get(metric, "#444")
+
+        grouped_power = {}
+        grouped_by_date = {}
+
+        for take_id, d in energy_data.items():
+            if take_id not in br_frames:
+                continue
+
+            frames = d["frame"]
+            values = d["value"]
+            br = br_frames[take_id]
+
+            norm_f, norm_v = [], []
+            for f, v in zip(frames, values):
+                rel = f - br
+                if energy_window_start <= rel <= energy_window_end:
+                    norm_f.append(rel_frame_to_ms(rel))
+                    norm_v.append(v)
+
+            grouped_power[take_id] = {"frame": norm_f, "value": norm_v}
+
+            date = take_date_map[take_id]
+            group_label = take_group_map.get(take_id, "Ungrouped")
+            pitcher_name = take_pitcher_map.get(take_id, "")
+            control_group_take = is_control_group_label(group_label)
+            hover_pitcher_name = "" if control_group_take else pitcher_name
+            if comparison_grouping_enabled and control_group_take:
+                date_key = group_label
+            elif comparison_grouping_enabled:
+                date_key = group_label if group_mode_aggregate_across_pitchers else ((group_label, pitcher_name, date) if multi_pitcher_mode else (group_label, date))
+            else:
+                date_key = (pitcher_name, date) if multi_pitcher_mode else date
+            grouped_by_date.setdefault(date_key, {})[take_id] = {
+                "frame": norm_f,
+                "value": norm_v
+            }
+            trace_color = (
+                group_color_map.get(group_label, metric_color)
+                if use_group_colors_energy else
+                metric_color
+            )
+
+            if display_mode == "Individual Throws":
+                legendgroup = (
+                    f"{group_label}_{metric}_{pitcher_name}_{date}"
+                    if (comparison_grouping_enabled and show_group_pitcher_breakout) else
+                    f"{group_label}_{metric}_{date}"
+                    if comparison_grouping_enabled else
+                    f"{metric}_{pitcher_name}_{date}"
+                    if show_group_pitcher_breakout else
+                    f"{metric}_{date}"
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=norm_f,
+                        y=norm_v,
+                        mode="lines",
+                        line=dict(
+                            color=trace_color,
+                            dash=date_dash_map[date]
+                        ),
+                        customdata=[[metric, date, take_order[take_id], take_velocity[take_id], hover_pitcher_name]] * len(norm_f),
+                        hovertemplate=(
+                            ("%{customdata[4]} | %{customdata[1]}" if show_group_pitcher_breakout else "%{customdata[1]}")
+                            + "<br>%{customdata[0]}: %{y:.1f}"
+                            + "<br>Pitch %{customdata[2]} (%{customdata[3]:.1f} mph)"
+                            + "<br>Time: %{x:.0f} ms rel BR"
+                            + "<extra></extra>"
+                        ),
+                        name=(
+                            f"Control Group | {metric} – Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
+                            if (comparison_grouping_enabled and control_group_take) else
+                            f"{group_label} | {metric} – {date} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph) | {pitcher_name}"
+                            if (comparison_grouping_enabled and show_group_pitcher_breakout) else
+                            f"{group_label} | {metric} – {date} | Pitch {take_order[take_id]} ({take_velocity[take_id]:.1f} mph)"
+                            if comparison_grouping_enabled else None
+                        ),
+                        showlegend=False,
+                        legendgroup=legendgroup
+                    )
+                )
+                legend_key = (metric, date_key)
+                if control_group_take and legend_key not in legend_keys_added:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[None],
+                            y=[None],
+                            mode="lines",
+                            line=dict(
+                                color=trace_color,
+                                dash=date_dash_map[date],
+                                width=4
+                            ),
+                            name=(
+                                f"Control Group | {metric}"
+                                if (comparison_grouping_enabled and control_group_take) else
+                                f"{group_label} | {metric} | {date} | {pitcher_name}"
+                                if (show_group_pitcher_breakout and comparison_grouping_enabled) else
+                                f"{group_label} | {metric} | {date}"
+                                if comparison_grouping_enabled else
+                            f"{metric} | {date} | {pitcher_name}"
+                            if show_group_pitcher_breakout else
+                            f"{metric} | {date}"
+                        ),
+                            showlegend=True,
+                            legendgroup=legendgroup
+                        )
+                    )
+                    legend_keys_added.add(legend_key)
+
+        # -------------------------------
+        # Grouped (Mean + IQR per date)
+        # -------------------------------
+        if display_mode == "Grouped":
+            for date_key, curves in grouped_by_date.items():
+                if comparison_grouping_enabled and date_key == "Control Group":
+                    group_label = "Control Group"
+                    pitcher_name = ""
+                    date = "Selected Takes"
+                elif comparison_grouping_enabled and show_group_pitcher_breakout:
+                    group_label, pitcher_name, date = date_key
+                elif comparison_grouping_enabled:
+                    group_label = date_key
+                    date = "Selected Takes"
+                    pitcher_name = ""
+                elif multi_pitcher_mode and not comparison_grouping_enabled:
+                    pitcher_name, date = date_key
+                    group_label = ""
+                else:
+                    date = date_key
+                    pitcher_name = ""
+                    group_label = ""
+                x, y, q1, q3 = aggregate_curves(curves, "Mean")
+                avg_velocity = np.mean([take_velocity[tid] for tid in curves.keys()])
+                legendgroup = (
+                    f"{group_label}_{metric}_{pitcher_name}_{date}"
+                    if (comparison_grouping_enabled and show_group_pitcher_breakout) else
+                    f"{group_label}_{metric}_{date}"
+                    if comparison_grouping_enabled else
+                    f"{metric}_{pitcher_name}_{date}"
+                    if show_group_pitcher_breakout else
+                    f"{metric}_{date}"
+                )
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=x,
+                        y=y,
+                        mode="lines",
+                        line=dict(
+                            width=4,
+                            color=(
+                                group_color_map.get(group_label, metric_color)
+                                if use_group_colors_energy else
+                                metric_color
+                            ),
+                            dash=date_dash_map.get(date, "solid")
+                        ),
+                        customdata=[[metric, date, group_label, pitcher_name]] * len(x),
+                        hovertemplate=(
+                            (f"{group_label}<br>" if comparison_grouping_enabled else "")
+                            + ("%{customdata[0]}" if comparison_grouping_enabled else "%{customdata[3]} | %{customdata[1]}" if show_group_pitcher_breakout else "%{customdata[1]}")
+                            + (" | %{customdata[3]}" if show_group_pitcher_breakout and comparison_grouping_enabled else "")
+                            + (f"<br>Avg Velocity: {avg_velocity:.1f} mph" if avg_velocity is not None else "")
+                            + "<br>%{customdata[0]}: %{y:.1f}"
+                            + "<br>Time: %{x:.0f} ms rel BR"
+                            + "<extra></extra>"
+                        ),
+                        showlegend=False,
+                        legendgroup=legendgroup
+                    )
+                )
+
+                if show_energy_signal_iqr_band:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x + x[::-1],
+                            y=q3 + q1[::-1],
+                            fill="toself",
+                            fillcolor=to_rgba(
+                                group_color_map.get(group_label, metric_color)
+                                if use_group_colors_energy else
+                                metric_color,
+                                alpha=0.35
+                            ),
+                            line=dict(width=0),
+                            showlegend=False,
+                            hoverinfo="skip",
+                            legendgroup=legendgroup
+                        )
+                    )
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=[None],
+                        y=[None],
+                        mode="lines",
+                        line=dict(
+                            color=(
+                                group_color_map.get(group_label, metric_color)
+                                if use_group_colors_energy else
+                                metric_color
+                            ),
+                            dash=date_dash_map.get(date, "solid"),
+                            width=4
+                        ),
+                        name=(
+                            f"{group_label} | {metric} | {date} | {pitcher_name}"
+                            if (show_group_pitcher_breakout and comparison_grouping_enabled) else
+                            f"{group_label} | {metric} | {date}"
+                            if comparison_grouping_enabled else
+                            f"{metric} | {date} | {pitcher_name}"
+                            if show_group_pitcher_breakout else
+                            f"{metric} | {date}"
+                        ),
+                        showlegend=True,
+                        legendgroup=legendgroup
+                    )
+                )
+
+    # -------------------------------
+    # Event Lines (with text labels above)
+    # -------------------------------
+    if energy_median_pkh_frame is not None:
+        add_event_iqr_band(fig, knee_event_frames, "gold", show_energy_fp_iqr_band)
+        median_pkh = rel_frame_to_ms(energy_median_pkh_frame)
+        fig.add_vline(x=median_pkh, line_width=3, line_dash="dash", line_color="gold")
+        fig.add_annotation(
+            x=median_pkh,
+            y=1.06,
+            xref="x",
+            yref="paper",
+            text="PKH",
+            showarrow=False,
+            font=dict(color="gold", size=13, family="Arial"),
+            align="center"
+        )
+    elif knee_event_frames:
+        add_event_iqr_band(fig, knee_event_frames, "gold", show_energy_fp_iqr_band)
+        median_knee = rel_frame_to_ms(int(np.median(knee_event_frames)))
+        fig.add_vline(x=median_knee, line_width=3, line_dash="dash", line_color="gold")
+        fig.add_annotation(
+            x=median_knee,
+            y=1.06,
+            xref="x",
+            yref="paper",
+            text="Knee",
+            showarrow=False,
+            font=dict(color="gold", size=13, family="Arial"),
+            align="center"
+        )
+
+    if fp_event_frames:
+        add_event_iqr_band(fig, fp_event_frames, "green", show_energy_fp_iqr_band)
+        median_fp = rel_frame_to_ms(int(np.median(fp_event_frames)))
+        fig.add_vline(x=median_fp, line_width=3, line_dash="dash", line_color="green")
+        fig.add_annotation(
+            x=median_fp,
+            y=1.06,
+            xref="x",
+            yref="paper",
+            text="FP",
+            showarrow=False,
+            font=dict(color="green", size=13, family="Arial"),
+            align="center"
+        )
+
+    if mer_event_frames:
+        add_event_iqr_band(fig, mer_event_frames, "red", show_energy_fp_iqr_band)
+        median_mer = rel_frame_to_ms(int(np.median(mer_event_frames)))
+        fig.add_vline(x=median_mer, line_width=3, line_dash="dash", line_color="red")
+        fig.add_annotation(
+            x=median_mer,
+            y=1.06,
+            xref="x",
+            yref="paper",
+            text="MER",
+            showarrow=False,
+            font=dict(color="red", size=13, family="Arial"),
+            align="center"
+        )
+
+    add_event_iqr_band(fig, [0] * max(len(take_ids), 1), "blue", show_energy_fp_iqr_band)
+    fig.add_vline(x=0, line_width=3, line_dash="dash", line_color="blue")
+    fig.add_annotation(
+        x=0,
+        y=1.06,
+        xref="x",
+        yref="paper",
+        text="BR",
+        showarrow=False,
+        font=dict(color="blue", size=13, family="Arial"),
+        align="center"
+    )
+
+    fig.update_layout(
+        xaxis_title="Time Relative to Ball Release (ms)",
+        yaxis_title="Energy Flow / Segment Power",
+        xaxis_range=[energy_window_start_ms, energy_window_end_ms],
+        height=600,
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.30,
+            xanchor="center",
+            x=0.5,
+            groupclick="togglegroup"
+        ),
+        hoverlabel=dict(
+            namelength=-1,
+            font_size=13
+        )
+    )
+
+    st.plotly_chart(fig, use_container_width=True, key="energy_plot_main_tab")
+
+    defined_energy_metrics = [
+        metric for metric in energy_metrics if metric in energy_definitions
+    ]
+    if defined_energy_metrics:
+        st.markdown("### Energy Flow Definitions")
+        for metric in defined_energy_metrics:
+            metric_info = energy_definitions.get(metric, {})
+            st.markdown(
+                (
+                    f"<div style='font-size:1.15rem; line-height:1.6; margin:0.35rem 0 0.9rem 0;'>"
+                    f"<strong>{metric}:</strong> {metric_info.get('definition', '')}"
+                    f"</div>"
+                ),
+                unsafe_allow_html=True,
+            )
 
 # --------------------------------------------------
 # Footer
