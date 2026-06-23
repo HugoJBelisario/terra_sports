@@ -1,3 +1,6 @@
+import zlib
+import hashlib
+import json
 from pathlib import Path
 
 import streamlit as st
@@ -41,6 +44,7 @@ st.set_page_config(
 # --------------------------------------------------
 KINEMATIC_FPS = 250
 MS_PER_FRAME = 1000 / KINEMATIC_FPS  # 4 ms per frame
+REPORT_METRIC_LOGIC_VERSION = "report_metrics_v2_br_plus4_normalized"
 
 import numpy as np
 import plotly.graph_objects as go
@@ -2956,6 +2960,18 @@ def aggregate_curves(curves_dict, stat="Median"):
     curves_dict: { take_id: { "frame": [...], "value": [...] } }
     Returns aggregated_x, aggregated_y, iqr_low, iqr_high
     """
+    if (
+        len(curves_dict) == 1
+        and any("q1" in d and "q3" in d for d in curves_dict.values())
+    ):
+        curve = next(iter(curves_dict.values()))
+        return (
+            list(curve.get("frame", [])),
+            list(curve.get("value", [])),
+            list(curve.get("q1", [])),
+            list(curve.get("q3", [])),
+        )
+
     all_frames = sorted(set(
         f for d in curves_dict.values() for f in d["frame"]
     ))
@@ -3508,13 +3524,905 @@ def build_shared_dashboard_state():
 
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def get_reference_velocity_bounds(pitcher_names, handedness_filter):
+    """
+    Returns lightweight mound-throw velocity bounds without loading time-series
+    data or calculating arm slot.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            params = []
+            clauses = ["t.pitch_velo IS NOT NULL", "t.throw_type = 'Mound'"]
+            if pitcher_names:
+                clauses.append("a.athlete_name = ANY(%s)")
+                params.append(list(pitcher_names))
+            if handedness_filter in ("R", "L"):
+                clauses.append("a.handedness = %s")
+                params.append(handedness_filter)
+            cur.execute(
+                f"""
+                SELECT MIN(t.pitch_velo), MAX(t.pitch_velo)
+                FROM takes t
+                JOIN athletes a ON a.athlete_id = t.athlete_id
+                WHERE {" AND ".join(clauses)}
+                """,
+                tuple(params),
+            )
+            row = cur.fetchone()
+            return row if row else (None, None)
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_report_reference_take_metadata():
+    """
+    Lightweight take metadata for Report tab filters.
+
+    This intentionally avoids time_series_data joins so dropdowns/sliders can be
+    populated quickly. Arm slot is read from precomputed take_biomech_metadata
+    when that table exists.
+    """
+    ensure_report_filter_indexes()
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.take_biomech_metadata')")
+            metadata_table_exists = cur.fetchone()[0] is not None
+            arm_slot_select = (
+                "bm.arm_slot_deg, bm.arm_slot_bucket"
+                if metadata_table_exists else
+                "NULL::double precision AS arm_slot_deg, NULL::text AS arm_slot_bucket"
+            )
+            arm_slot_join = (
+                "LEFT JOIN take_biomech_metadata bm ON bm.take_id = t.take_id"
+                if metadata_table_exists else
+                ""
+            )
+            cur.execute(f"""
+                SELECT
+                    t.take_id,
+                    t.pitch_velo,
+                    t.take_date,
+                    COALESCE(t.throw_type, '') AS throw_type,
+                    a.athlete_name,
+                    a.handedness,
+                    {arm_slot_select}
+                FROM takes t
+                JOIN athletes a ON a.athlete_id = t.athlete_id
+                {arm_slot_join}
+                WHERE t.pitch_velo IS NOT NULL
+                  AND a.handedness IN ('R', 'L')
+                ORDER BY a.athlete_name, t.take_date, t.take_id
+            """)
+            return [
+                {
+                    "take_id": row[0],
+                    "pitch_velo": float(row[1]) if row[1] is not None else None,
+                    "take_date": row[2],
+                    "take_date_label": row[2].strftime("%Y-%m-%d") if row[2] else "",
+                    "throw_type": row[3],
+                    "athlete_name": row[4],
+                    "handedness": row[5],
+                    "arm_slot_deg": float(row[6]) if row[6] is not None else None,
+                    "arm_slot_bucket": row[7],
+                }
+                for row in cur.fetchall()
+            ]
+    finally:
+        conn.close()
+
+
+def filter_reference_metadata(
+    metadata_rows,
+    pitchers=None,
+    handedness=None,
+    session_dates=None,
+    throw_types=None,
+    velocity_range=None,
+    arm_slot_ranges=None,
+    arm_slot_buckets=None,
+    excluded_take_ids=None,
+):
+    pitchers = set(pitchers or [])
+    session_dates = set(session_dates or [])
+    throw_types = set(throw_types or [])
+    arm_slot_buckets = set(arm_slot_buckets or [])
+    excluded_take_ids = set(excluded_take_ids or [])
+
+    filtered_rows = []
+    for row in metadata_rows:
+        if pitchers and row["athlete_name"] not in pitchers:
+            continue
+        if handedness in ("R", "L") and row["handedness"] != handedness:
+            continue
+        if session_dates and "All Dates" not in session_dates and row["take_date_label"] not in session_dates:
+            continue
+        if throw_types and row["throw_type"] not in throw_types:
+            continue
+        if velocity_range and velocity_range[0] is not None and velocity_range[1] is not None:
+            velocity = row["pitch_velo"]
+            if velocity is None or not (velocity_range[0] <= velocity <= velocity_range[1]):
+                continue
+        if arm_slot_ranges:
+            arm_slot_deg = row.get("arm_slot_deg")
+            if arm_slot_deg is None or not any(minimum <= arm_slot_deg <= maximum for minimum, maximum in arm_slot_ranges):
+                continue
+        if arm_slot_buckets and row.get("arm_slot_bucket") not in arm_slot_buckets:
+            continue
+        if row["take_id"] in excluded_take_ids:
+            continue
+        filtered_rows.append(row)
+    return filtered_rows
+
+
+def metadata_pitchers(metadata_rows):
+    return sorted({
+        row["athlete_name"]
+        for row in metadata_rows
+        if row.get("athlete_name")
+    })
+
+
+def reference_arm_slot_ranges_from_labels(arm_slot_labels, metadata_available=True):
+    if not metadata_available or not arm_slot_labels or "All" in arm_slot_labels:
+        return []
+    return [
+        (minimum, maximum)
+        for label, minimum, maximum in control_group_arm_slot_categories
+        if f"{label} ({minimum}° to {maximum}°)" in arm_slot_labels
+    ]
+
+
+def metadata_velocity_bounds(metadata_rows):
+    velocities = [
+        row["pitch_velo"]
+        for row in metadata_rows
+        if row.get("pitch_velo") is not None
+    ]
+    if not velocities:
+        return None, None
+    return min(velocities), max(velocities)
+
+
+def metadata_session_dates(metadata_rows, pitcher):
+    return sorted({
+        row["take_date_label"]
+        for row in metadata_rows
+        if row["athlete_name"] == pitcher and row["take_date_label"]
+    })
+
+
+def build_take_options_from_metadata(metadata_rows):
+    from collections import defaultdict
+
+    if not metadata_rows:
+        return [], {}
+
+    sorted_rows = sorted(
+        metadata_rows,
+        key=lambda row: (row["athlete_name"], row["take_date"] or "", row["take_id"])
+    )
+
+    date_groups = defaultdict(list)
+    for row in sorted_rows:
+        date_groups[(row["athlete_name"], row["take_date_label"])].append(row)
+
+    options = []
+    label_to_take_id = {}
+    for (pitcher_name, date_label), rows in date_groups.items():
+        for order, row in enumerate(rows, start=1):
+            velo = row["pitch_velo"]
+            velo_text = f"{velo:.1f}" if velo is not None else "N/A"
+            label = f"{pitcher_name} | {date_label} – Pitch {order} ({velo_text} mph)"
+            options.append(label)
+            label_to_take_id[label] = row["take_id"]
+
+    return options, label_to_take_id
+
+
+def ensure_report_filter_indexes():
+    conn = get_connection()
+    try:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_theia_report_takes_filters
+                            ON takes (athlete_id, throw_type, pitch_velo, take_date)
+                        """
+                    )
+                    cur.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_theia_report_athletes_filters
+                            ON athletes (handedness, athlete_name)
+                        """
+                    )
+                    cur.execute("SELECT to_regclass('public.take_biomech_metadata')")
+                    if cur.fetchone()[0] is not None:
+                        cur.execute(
+                            """
+                            CREATE INDEX IF NOT EXISTS idx_theia_take_biomech_metadata_arm_slot
+                                ON take_biomech_metadata (arm_slot_bucket, arm_slot_deg, take_id)
+                            """
+                        )
+        except Exception:
+            conn.rollback()
+    finally:
+        conn.close()
+
+
+def format_report_velocity_range(velocity_range):
+    if not velocity_range or velocity_range[0] is None or velocity_range[1] is None:
+        return "All"
+    return f"{float(velocity_range[0]):.1f} - {float(velocity_range[1]):.1f} mph"
+
+
+def format_report_list_label(values, all_label="All", max_items=4):
+    values = [str(value) for value in (values or []) if value]
+    if not values or "All" in values:
+        return all_label
+    if len(values) <= max_items:
+        return ", ".join(values)
+    return f"{', '.join(values[:max_items])} + {len(values) - max_items} more"
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_pelvis_angular_velocity_x(take_ids, handedness=None):
+    """
+    Returns pelvis angular velocity x_data over frames for given take_ids.
+    """
+    if not take_ids:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = 'PELVIS_ANGULAR_VELOCITY'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+            data = {}
+            for take_id, frame, x in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+            return data
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_pelvis_angular_velocity_y(take_ids, handedness=None):
+    """
+    Returns pelvis angular velocity y_data over frames for given take_ids.
+    """
+    if not take_ids:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.y_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = 'PELVIS_ANGULAR_VELOCITY'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+            data = {}
+            for take_id, frame, y in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(y)
+            return data
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_pelvis_angular_velocity_z(take_ids, handedness=None):
+    """
+    Returns pelvis angular velocity z_data over frames for given take_ids.
+    """
+    if not take_ids:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = 'PELVIS_ANGULAR_VELOCITY'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+            data = {}
+            for take_id, frame, z in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(z)
+            return data
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_torso_angular_velocity_component(take_ids, component, handedness=None):
+    """
+    Returns one torso angular velocity component over frames for given take_ids.
+    """
+    if not take_ids:
+        return {}
+    component_columns = {
+        "x": "x_data",
+        "y": "y_data",
+        "z": "z_data",
+    }
+    column = component_columns.get(component)
+    if column is None:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.{column}
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = 'TORSO_ANGULAR_VELOCITY'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+            data = {}
+            for take_id, frame, value in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(value)
+            return data
+    finally:
+        conn.close()
+
+
+def get_torso_angular_velocity_x(take_ids, handedness=None):
+    return get_torso_angular_velocity_component(take_ids, "x", handedness)
+
+
+def get_torso_angular_velocity_y(take_ids, handedness=None):
+    return get_torso_angular_velocity_component(take_ids, "y", handedness)
+
+
+def get_torso_angular_velocity_z(take_ids, handedness=None):
+    return get_torso_angular_velocity_component(take_ids, "z", handedness)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_torso_pelvis_angular_velocity_component(take_ids, component, handedness=None):
+    """
+    Returns torso-pelvis angular velocity component data.
+    Category: ORIGINAL
+    Segment: TORSO_PELVIS_ANGULAR_VELOCITY
+    """
+    if not take_ids:
+        return {}
+    component_columns = {
+        "x": "x_data",
+        "y": "y_data",
+        "z": "z_data",
+    }
+    column = component_columns.get(component)
+    if column is None:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.{column}
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = 'TORSO_PELVIS_ANGULAR_VELOCITY'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+
+            data = {}
+            for take_id, frame, value in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(value)
+            return data
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_pelvis_angle_components(take_ids):
+    """
+    Returns pelvis angle components from ORIGINAL / PELVIS_ANGLE.
+    """
+    if not take_ids:
+        return {}
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT ts.take_id, ts.frame, ts.x_data, ts.y_data, ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = 'PELVIS_ANGLE'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+            data = {}
+            for take_id, frame, x, y, z in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "x": [], "y": [], "z": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["x"].append(x)
+                data[take_id]["y"].append(y)
+                data[take_id]["z"].append(z)
+            return data
+    finally:
+        conn.close()
+
+
+def get_pelvis_angle_component(take_ids, handedness, component):
+    data = get_pelvis_angle_components(take_ids)
+    return {
+        take_id: {"frame": curve["frame"], "value": curve[component]}
+        for take_id, curve in data.items()
+    }
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_joint_angle_rotation_component(take_ids, segment_name):
+    """
+    Returns JOINT_ANGLES z_data for report rotation convention.
+
+    The report uses the 0-10 style offset:
+      RHP -> z_data + 90
+      LHP -> 90 - z_data
+    """
+    if not take_ids or segment_name not in {"PELVIS", "TORSO"}:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON c.category_id = ts.category_id
+                JOIN segments s ON s.segment_id = ts.segment_id
+                WHERE c.category_name = 'JOINT_ANGLES'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.z_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+            data = {}
+            for take_id, frame, z in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(z)
+            return data
+    finally:
+        conn.close()
+
+
+def normalize_report_rotation_values(values, handedness):
+    return [
+        None if value is None else (90 - value if handedness == "L" else value + 90)
+        for value in values
+    ]
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_hip_angle_components(take_ids, segment_name):
+    """
+    Returns hip angle components from ORIGINAL / LT_HIP_ANGLE or RT_HIP_ANGLE.
+    """
+    if not take_ids:
+        return {}
+    if segment_name not in {"LT_HIP_ANGLE", "RT_HIP_ANGLE"}:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT ts.take_id, ts.frame, ts.x_data, ts.y_data, ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *tuple(take_ids)))
+            data = {}
+            for take_id, frame, x, y, z in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "x": [], "y": [], "z": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["x"].append(x)
+                data[take_id]["y"].append(y)
+                data[take_id]["z"].append(z)
+            return data
+    finally:
+        conn.close()
+
+
+def get_hip_segment_prefix(handedness, hip_role):
+    if hip_role == "back":
+        return "LT" if handedness == "L" else "RT"
+    return "RT" if handedness == "L" else "LT"
+
+
+def normalize_hip_angle_value(value, component, segment_prefix):
+    if value is None:
+        return value
+    if component == "x":
+        # Report convention: positive is hip flexion, negative is hip extension.
+        return -value
+    if component == "y" and segment_prefix == "RT":
+        # Report convention: positive is hip abduction for both left and right hips.
+        return -value
+    if component == "z" and segment_prefix == "RT":
+        # Report convention: positive is hip internal rotation for both left and right hips.
+        return -value
+    return value
+
+
+def get_hip_angle_component(take_ids, handedness, hip_role, component):
+    segment_prefix = get_hip_segment_prefix(handedness, hip_role)
+    segment_name = f"{segment_prefix}_HIP_ANGLE"
+    data = get_hip_angle_components(take_ids, segment_name)
+    return {
+        take_id: {
+            "frame": curve["frame"],
+            "value": [
+                normalize_hip_angle_value(value, component, segment_prefix)
+                for value in curve[component]
+            ],
+        }
+        for take_id, curve in data.items()
+    }
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_hip_angular_velocity_components(take_ids, segment_name):
+    """
+    Returns hip angular velocity components from ORIGINAL / LT_HIP_ANGULAR_VELOCITY or RT_HIP_ANGULAR_VELOCITY.
+    """
+    if not take_ids:
+        return {}
+    if segment_name not in {"LT_HIP_ANGULAR_VELOCITY", "RT_HIP_ANGULAR_VELOCITY"}:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT ts.take_id, ts.frame, ts.x_data, ts.y_data, ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *tuple(take_ids)))
+            data = {}
+            for take_id, frame, x, y, z in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "x": [], "y": [], "z": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["x"].append(x)
+                data[take_id]["y"].append(y)
+                data[take_id]["z"].append(z)
+            return data
+    finally:
+        conn.close()
+
+
+def get_hip_angular_velocity_component(take_ids, handedness, hip_role, component):
+    segment_name = f"{get_hip_segment_prefix(handedness, hip_role)}_HIP_ANGULAR_VELOCITY"
+    data = get_hip_angular_velocity_components(take_ids, segment_name)
+    return {
+        take_id: {"frame": curve["frame"], "value": curve[component]}
+        for take_id, curve in data.items()
+    }
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_lower_extremity_angle_components(take_ids, segment_name):
+    """
+    Returns knee or ankle angle components from ORIGINAL.
+    """
+    if not take_ids:
+        return {}
+    if segment_name not in {"LT_KNEE_ANGLE", "RT_KNEE_ANGLE", "LT_ANKLE_ANGLE", "RT_ANKLE_ANGLE"}:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT ts.take_id, ts.frame, ts.x_data, ts.y_data, ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *tuple(take_ids)))
+            data = {}
+            for take_id, frame, x, y, z in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "x": [], "y": [], "z": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["x"].append(x)
+                data[take_id]["y"].append(y)
+                data[take_id]["z"].append(z)
+            return data
+    finally:
+        conn.close()
+
+
+def get_lower_extremity_angle_component(take_ids, handedness, leg_role, joint, component):
+    side = "LT" if (leg_role == "front") == (handedness == "R") else "RT"
+    segment_name = f"{side}_{joint}_ANGLE"
+    data = get_lower_extremity_angle_components(take_ids, segment_name)
+    return {
+        take_id: {"frame": curve["frame"], "value": curve[component]}
+        for take_id, curve in data.items()
+    }
+
+
+def normalize_identity(value, handedness=None):
+    return value
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_lower_extremity_angular_velocity_components(take_ids, segment_name):
+    """
+    Returns knee or ankle angular velocity components from ORIGINAL.
+    """
+    if not take_ids:
+        return {}
+    if segment_name not in {
+        "LT_KNEE_ANGULAR_VELOCITY",
+        "RT_KNEE_ANGULAR_VELOCITY",
+        "LT_ANKLE_ANGULAR_VELOCITY",
+        "RT_ANKLE_ANGULAR_VELOCITY",
+    }:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT ts.take_id, ts.frame, ts.x_data, ts.y_data, ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *tuple(take_ids)))
+            data = {}
+            for take_id, frame, x, y, z in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "x": [], "y": [], "z": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["x"].append(x)
+                data[take_id]["y"].append(y)
+                data[take_id]["z"].append(z)
+            return data
+    finally:
+        conn.close()
+
+
+def get_lower_extremity_angular_velocity_component(take_ids, handedness, leg_role, joint, component):
+    side = "LT" if (leg_role == "front") == (handedness == "R") else "RT"
+    segment_name = f"{side}_{joint}_ANGULAR_VELOCITY"
+    data = get_lower_extremity_angular_velocity_components(take_ids, segment_name)
+    return {
+        take_id: {"frame": curve["frame"], "value": curve[component]}
+        for take_id, curve in data.items()
+    }
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_torso_pelvis_angle_components(take_ids):
+    """
+    Returns torso-pelvis angle components from ORIGINAL / TORSO_PELVIS_ANGLE.
+    """
+    if not take_ids:
+        return {}
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT ts.take_id, ts.frame, ts.x_data, ts.y_data, ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = 'TORSO_PELVIS_ANGLE'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+            data = {}
+            for take_id, frame, x, y, z in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "x": [], "y": [], "z": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["x"].append(x)
+                data[take_id]["y"].append(y)
+                data[take_id]["z"].append(z)
+            return data
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_hand_cg_velocity_components(take_ids, handedness):
+    """
+    Returns throwing-hand center-of-gravity velocity components.
+    Category: KINETIC_KINEMATIC_CGVel
+    Segments: RHA / LHA
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "RHA" if handedness == "R" else "LHA"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data,
+                    ts.y_data,
+                    ts.z_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'KINETIC_KINEMATIC_CGVel'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            data = {}
+            for take_id, frame, x, y, z in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "x": [], "y": [], "z": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["x"].append(x)
+                data[take_id]["y"].append(y)
+                data[take_id]["z"].append(z)
+            return data
+    finally:
+        conn.close()
+
+
+def get_hand_cg_velocity_component(take_ids, handedness, component):
+    data = get_hand_cg_velocity_components(take_ids, handedness)
+    return {
+        take_id: {"frame": curve["frame"], "value": curve[component]}
+        for take_id, curve in data.items()
+    }
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_center_of_mass_velocity_component(take_ids, component, handedness=None):
+    """
+    Returns Center of Mass velocity component data.
+
+    Category: PROCESSED
+    Segment: CenterOfMass_VELO
+    """
+    if not take_ids:
+        return {}
+    component_columns = {
+        "x": "x_data",
+        "y": "y_data",
+        "z": "z_data",
+    }
+    column = component_columns.get(component)
+    if column is None:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.{column}
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'PROCESSED'
+                  AND s.segment_name = 'CenterOfMass_VELO'
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, tuple(take_ids))
+
+            data = {}
+            for take_id, frame, value in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(value)
+
+            return data
+    finally:
+        conn.close()
+
+
 st.title("Terra Sports Biomechanics Dashboard")
 
 # --------------------------------------------------
 # Tabs
 # --------------------------------------------------
-tab_labels = ["Kinematic Sequence", "Kinematics", "Energy Flow"]
-tab_kinematic, tab_joint, tab_energy = st.tabs(tab_labels)
+tab_labels = ["Kinematic Sequence", "Kinematics", "Energy Flow", "Report"]
+tab_kinematic, tab_joint, tab_energy, tab_report = st.tabs(tab_labels)
 
 # Shared state used across tabs; Kinematic Sequence populates these when data exists.
 take_ids = []
@@ -5781,7 +6689,7 @@ with tab_joint:
                         hovertemplate=(
                             (f"<b>{group_label}</b><br>" if comparison_grouping_enabled else "<b>%{fullData.name}</b><br>")
                             + (f"Avg Velocity: {avg_velocity:.1f} mph<br>" if avg_velocity is not None else "")
-                            + 
+                            +
                             f"{kinematic}: %{{y:.1f}}{get_kinematic_unit(kinematic)}<br>"
                             "Time: %{x:.1f} ms<extra></extra>"
                         ),
@@ -7258,6 +8166,4149 @@ with tab_energy:
                 ),
                 unsafe_allow_html=True,
             )
+
+# --------------------------------------------------
+# Report Tab
+# --------------------------------------------------
+
+
+def get_report_take_rows(athlete_name, session_dates, throw_types=None, velocity_range=None, excluded_take_ids=None):
+    throw_types = throw_types or ["Mound"]
+    excluded_take_ids = excluded_take_ids or []
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            params = [athlete_name, throw_types]
+            date_clause = ""
+            velocity_clause = ""
+            exclusion_clause = ""
+            if session_dates:
+                date_placeholders = ",".join(["%s"] * len(session_dates))
+                date_clause = f"AND t.take_date IN ({date_placeholders})"
+                params.extend(session_dates)
+            if velocity_range and velocity_range[0] is not None and velocity_range[1] is not None:
+                velocity_clause = "AND t.pitch_velo BETWEEN %s AND %s"
+                params.extend(velocity_range)
+            if excluded_take_ids:
+                exclusion_clause = "AND NOT (t.take_id = ANY(%s))"
+                params.append(excluded_take_ids)
+            cur.execute(
+                f"""
+                SELECT
+                    t.take_id,
+                    t.pitch_velo,
+                    t.take_date,
+                    a.athlete_name,
+                    a.handedness,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY a.athlete_name, t.take_date
+                        ORDER BY t.take_id
+                    ) AS pitch_number
+                FROM takes t
+                JOIN athletes a ON a.athlete_id = t.athlete_id
+                WHERE a.athlete_name = %s
+                  AND t.throw_type = ANY(%s)
+                  {date_clause}
+                  {velocity_clause}
+                  {exclusion_clause}
+                  AND t.pitch_velo IS NOT NULL
+                ORDER BY t.take_id
+                """,
+                tuple(params),
+            )
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+
+def build_report_kinematic_summary(report_rows):
+    if not report_rows:
+        return [], {}
+
+    take_ids = [row[0] for row in report_rows]
+    take_velocity = {row[0]: row[1] for row in report_rows}
+    take_handedness = {row[0]: row[4] for row in report_rows}
+    take_ids_by_handedness = {
+        "R": [take_id for take_id in take_ids if take_handedness.get(take_id) == "R"],
+        "L": [take_id for take_id in take_ids if take_handedness.get(take_id) == "L"],
+    }
+
+    def load_by_handedness(loader_fn):
+        merged = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if ids:
+                merged.update(loader_fn(ids, hand))
+        return merged
+
+    cg_data = load_by_handedness(get_hand_cg_velocity)
+    shoulder_er_data = load_by_handedness(get_shoulder_er_angles)
+    br_frames = {}
+    for take_id, d in cg_data.items():
+        valid = [(i, v) for i, v in enumerate(d["x"]) if v is not None]
+        if valid:
+            idx, _ = max(valid, key=lambda item: item[1])
+            br_frames[take_id] = d["frame"][idx] + 4
+
+    shoulder_er_max_frames = {}
+    for take_id, d in shoulder_er_data.items():
+        valid = [(frame, value) for frame, value in zip(d["frame"], d["z"]) if value is not None]
+        if not valid:
+            continue
+
+        if take_handedness.get(take_id) == "R":
+            shoulder_er_max_frames[take_id] = min(valid, key=lambda item: item[1])[0]
+        else:
+            shoulder_er_max_frames[take_id] = max(valid, key=lambda item: item[1])[0]
+
+    foot_plant_frames = {}
+    for hand, ids in take_ids_by_handedness.items():
+        if not ids:
+            continue
+
+        ankle_prox_x_peak_frames = get_peak_ankle_prox_x_velocity(ids, hand)
+        ankle_min_frames = get_ankle_min_frame(ids, hand, ankle_prox_x_peak_frames, shoulder_er_max_frames)
+        ankle_zero_cross_frames = get_foot_plant_frame_zero_cross(
+            ids,
+            hand,
+            ankle_min_frames,
+            shoulder_er_max_frames,
+        )
+        heel_anchor_frames = {
+            take_id: ankle_zero_cross_frames.get(take_id, ankle_min_frames.get(take_id))
+            for take_id in ids
+        }
+        heel_contact_frames = get_lead_heel_contact_frame(
+            ids,
+            hand,
+            ankle_prox_x_peak_frames,
+            shoulder_er_max_frames,
+            heel_anchor_frames,
+        )
+
+        for take_id in ids:
+            candidates = [
+                value
+                for value in [
+                    ankle_zero_cross_frames.get(take_id),
+                    heel_contact_frames.get(take_id),
+                    ankle_min_frames.get(take_id),
+                    ankle_prox_x_peak_frames.get(take_id),
+                ]
+                if value is not None
+            ]
+            if candidates:
+                foot_plant_frames[take_id] = int(max(candidates[:2]) if len(candidates[:2]) == 2 else candidates[0])
+
+    for take_id, fp_frame in list(foot_plant_frames.items()):
+        er_frame = shoulder_er_max_frames.get(take_id)
+        if er_frame is not None and fp_frame > er_frame:
+            foot_plant_frames[take_id] = er_frame
+
+    pelvis_data = get_pelvis_angular_velocity(take_ids)
+    torso_data = get_torso_angular_velocity(take_ids)
+    elbow_data = load_by_handedness(get_elbow_angular_velocity)
+    shoulder_ir_data = load_by_handedness(get_shoulder_ir_velocity)
+
+    segment_sources = {
+        "Pelvis Rotation": (pelvis_data, "z"),
+        "Torso Rotation": (torso_data, "z"),
+        "Elbow Extension": (elbow_data, "x"),
+        "Shoulder Internal Rotation": (shoulder_ir_data, "x"),
+    }
+    curves_by_segment = {segment: {} for segment in segment_sources}
+
+    for segment, (source, axis_key) in segment_sources.items():
+        for take_id, d in source.items():
+            if take_id not in br_frames:
+                continue
+
+            norm_frames = []
+            norm_values = []
+            for frame, value in zip(d["frame"], d[axis_key]):
+                if value is None:
+                    continue
+
+                rel_frame = frame - br_frames[take_id]
+                norm_frames.append(rel_frame_to_ms(rel_frame))
+                normalized_value = value
+                if segment in {"Pelvis Rotation", "Torso Rotation", "Shoulder Internal Rotation"} and take_handedness.get(take_id) == "L":
+                    normalized_value = -normalized_value
+                elif segment == "Elbow Extension":
+                    normalized_value = -normalized_value
+                norm_values.append(normalized_value)
+
+            if norm_frames:
+                curves_by_segment[segment][take_id] = {
+                    "frame": norm_frames,
+                    "value": norm_values,
+                }
+
+    summary_rows = []
+    peak_times = {}
+    fp_event_frames = [
+        foot_plant_frames[take_id] - br_frames[take_id]
+        for take_id in take_ids
+        if take_id in foot_plant_frames and take_id in br_frames
+    ]
+    mer_event_frames = [
+        shoulder_er_max_frames[take_id] - br_frames[take_id]
+        for take_id in take_ids
+        if take_id in shoulder_er_max_frames and take_id in br_frames
+    ]
+
+    median_fp_ms = None
+    if fp_event_frames:
+        median_fp_ms = rel_frame_to_ms(int(np.median(fp_event_frames)))
+
+    for segment in ["Pelvis Rotation", "Torso Rotation", "Elbow Extension", "Shoulder Internal Rotation"]:
+        curves = curves_by_segment.get(segment, {})
+        if not curves:
+            continue
+
+        x, y, q1, q3 = aggregate_curves(curves, "Mean")
+        if not y:
+            continue
+
+        valid_idxs = [i for i, value in enumerate(y) if value is not None and np.isfinite(value)]
+        if segment in {"Pelvis Rotation", "Torso Rotation"} and median_fp_ms is not None:
+            valid_idxs = [i for i in valid_idxs if median_fp_ms <= x[i] <= 0]
+        if not valid_idxs:
+            continue
+
+        peak_idx = max(valid_idxs, key=lambda i: y[i])
+        peak_time = x[peak_idx]
+        peak_times[segment] = peak_time
+
+        reference_time = None
+        if segment == "Pelvis Rotation" and median_fp_ms is not None:
+            reference_time = peak_time - median_fp_ms
+        elif segment == "Torso Rotation" and "Pelvis Rotation" in peak_times:
+            reference_time = peak_time - peak_times["Pelvis Rotation"]
+        elif segment == "Elbow Extension" and "Torso Rotation" in peak_times:
+            reference_time = peak_time - peak_times["Torso Rotation"]
+        elif segment == "Shoulder Internal Rotation" and "Elbow Extension" in peak_times:
+            reference_time = peak_time - peak_times["Elbow Extension"]
+
+        summary_rows.append({
+            "Segment": segment,
+            "Peak (deg/s)": y[peak_idx],
+            "Peak Time (ms rel BR)": peak_time,
+            "Peak Time from Reference (ms)": reference_time,
+            "Average Velocity (mph)": float(np.mean([take_velocity[take_id] for take_id in curves.keys() if take_velocity.get(take_id) is not None])),
+        })
+
+    report_events = {
+        "fp_event_frames": fp_event_frames,
+        "mer_event_frames": mer_event_frames,
+        "take_count": len(take_ids),
+    }
+
+    return summary_rows, curves_by_segment, report_events
+
+
+def get_report_take_rows_by_ids(take_ids):
+    if not take_ids:
+        return []
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(
+                f"""
+                SELECT
+                    t.take_id,
+                    t.pitch_velo,
+                    t.take_date,
+                    a.athlete_name,
+                    a.handedness,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY a.athlete_name, t.take_date
+                        ORDER BY t.take_id
+                    ) AS pitch_number
+                FROM takes t
+                JOIN athletes a ON a.athlete_id = t.athlete_id
+                WHERE t.take_id IN ({placeholders})
+                ORDER BY t.take_id
+                """,
+                tuple(take_ids),
+            )
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_take_report_metric_summaries(take_ids, metric_keys, logic_version=REPORT_METRIC_LOGIC_VERSION):
+    if not take_ids or not metric_keys:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.take_report_metrics')")
+            if cur.fetchone()[0] is None:
+                return {}
+            cur.execute(
+                """
+                SELECT
+                    metric_key,
+                    event_label,
+                    AVG(metric_value)::double precision AS mean_value,
+                    CASE
+                        WHEN COUNT(metric_value) > 1 THEN STDDEV_SAMP(metric_value)::double precision
+                        WHEN COUNT(metric_value) = 1 THEN 0::double precision
+                        ELSE NULL::double precision
+                    END AS sd_value
+                FROM take_report_metrics
+                WHERE take_id = ANY(%s)
+                  AND metric_key = ANY(%s)
+                  AND event_label = ANY(%s)
+                  AND logic_version = %s
+                  AND metric_value IS NOT NULL
+                GROUP BY metric_key, event_label
+                """,
+                (
+                    list(take_ids),
+                    list(metric_keys),
+                    ["FP", "MER", "BR", "Max", "Average"],
+                    logic_version,
+                ),
+            )
+            summaries = {}
+            for metric_key, event_label, mean_value, sd_value in cur.fetchall():
+                summaries.setdefault(metric_key, {})[event_label] = {
+                    "mean": float(mean_value) if mean_value is not None else None,
+                    "std": float(sd_value) if sd_value is not None else None,
+                }
+            return summaries
+    finally:
+        conn.close()
+
+
+def apply_precomputed_metric_summary(report_metric_data, metric_summaries, metric_key):
+    precomputed_metrics = metric_summaries.get(metric_key)
+    if not precomputed_metrics:
+        return report_metric_data
+
+    merged_data = dict(report_metric_data or {})
+    merged_metrics = dict(merged_data.get("metrics", {}))
+    for event_label, values in precomputed_metrics.items():
+        merged_metrics[event_label] = values
+    merged_data["metrics"] = merged_metrics
+    return merged_data
+
+
+def summarize_metric_values(values):
+    clean_values = [float(value) for value in values if value is not None and np.isfinite(value)]
+    return {
+        "mean": float(np.mean(clean_values)) if clean_values else None,
+        "std": float(np.std(clean_values, ddof=1 if len(clean_values) > 1 else 0)) if clean_values else None,
+    }
+
+
+def build_metric_summary_from_take_metrics(take_metrics):
+    metric_values = {}
+    for event_values in (take_metrics or {}).values():
+        for event_label, payload in event_values.items():
+            if isinstance(payload, dict):
+                value = payload.get("value")
+            else:
+                value = payload
+            metric_values.setdefault(event_label, []).append(value)
+    return {
+        event_label: summarize_metric_values(values)
+        for event_label, values in metric_values.items()
+    }
+
+
+def ensure_report_metric_cache_schema(cur):
+    cur.execute(
+        """
+        SELECT format_type(a.atttypid, a.atttypmod)
+        FROM pg_attribute a
+        JOIN pg_class c ON c.oid = a.attrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'takes'
+          AND n.nspname = 'public'
+          AND a.attname = 'take_id'
+          AND NOT a.attisdropped
+        LIMIT 1
+        """
+    )
+    row = cur.fetchone()
+    if not row:
+        return
+    take_id_type = row[0]
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS take_report_metrics (
+            take_id {take_id_type} NOT NULL REFERENCES takes(take_id) ON DELETE CASCADE,
+            metric_key TEXT NOT NULL,
+            metric_label TEXT NOT NULL,
+            metric_group TEXT NOT NULL,
+            event_label TEXT NOT NULL,
+            metric_value DOUBLE PRECISION,
+            source_frame INTEGER,
+            unit TEXT NOT NULL,
+            source_category TEXT,
+            source_segment TEXT,
+            source_axis TEXT,
+            logic_version TEXT NOT NULL DEFAULT '{REPORT_METRIC_LOGIC_VERSION}',
+            computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (take_id, metric_key, event_label, logic_version)
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_take_report_metrics_metric_event
+            ON take_report_metrics (metric_key, event_label)
+        """
+    )
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS take_report_metric_curves (
+            take_id {take_id_type} NOT NULL REFERENCES takes(take_id) ON DELETE CASCADE,
+            metric_key TEXT NOT NULL,
+            time_ms DOUBLE PRECISION NOT NULL,
+            metric_value DOUBLE PRECISION,
+            logic_version TEXT NOT NULL DEFAULT '{REPORT_METRIC_LOGIC_VERSION}',
+            computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (take_id, metric_key, time_ms, logic_version)
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_take_report_metric_curves_metric
+            ON take_report_metric_curves (metric_key, logic_version, take_id)
+        """
+    )
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS take_report_metric_cache_status (
+            take_id {take_id_type} NOT NULL REFERENCES takes(take_id) ON DELETE CASCADE,
+            metric_key TEXT NOT NULL,
+            logic_version TEXT NOT NULL DEFAULT '{REPORT_METRIC_LOGIC_VERSION}',
+            computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (take_id, metric_key, logic_version)
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_take_report_metric_cache_status_metric
+            ON take_report_metric_cache_status (metric_key, logic_version, take_id)
+        """
+    )
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS take_report_events (
+            take_id {take_id_type} NOT NULL REFERENCES takes(take_id) ON DELETE CASCADE,
+            event_label TEXT NOT NULL,
+            source_frame INTEGER,
+            relative_frame INTEGER,
+            relative_ms DOUBLE PRECISION,
+            logic_version TEXT NOT NULL DEFAULT '{REPORT_METRIC_LOGIC_VERSION}',
+            computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (take_id, event_label, logic_version)
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_take_report_events_label
+            ON take_report_events (event_label, logic_version, take_id)
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS report_reference_metric_aggregates (
+            aggregate_hash TEXT NOT NULL,
+            metric_key TEXT NOT NULL,
+            logic_version TEXT NOT NULL,
+            take_count INTEGER NOT NULL,
+            metrics_json JSONB NOT NULL,
+            curve_json JSONB NOT NULL,
+            events_json JSONB NOT NULL,
+            computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (aggregate_hash, metric_key, logic_version)
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_report_reference_metric_aggregates_lookup
+            ON report_reference_metric_aggregates (logic_version, aggregate_hash, metric_key)
+        """
+    )
+
+
+def report_reference_aggregate_hash(take_ids, logic_version=REPORT_METRIC_LOGIC_VERSION):
+    unique_take_ids = sorted({str(take_id) for take_id in take_ids if take_id is not None})
+    payload = json.dumps(
+        {"logic_version": logic_version, "take_ids": unique_take_ids},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def load_report_reference_aggregate_cache(cur, aggregate_hash, metric_keys, logic_version=REPORT_METRIC_LOGIC_VERSION):
+    if not aggregate_hash or not metric_keys:
+        return {}
+    cur.execute("SELECT to_regclass('public.report_reference_metric_aggregates')")
+    if cur.fetchone()[0] is None:
+        return {}
+    cur.execute(
+        """
+        SELECT metric_key, metrics_json, curve_json, events_json
+        FROM report_reference_metric_aggregates
+        WHERE aggregate_hash = %s
+          AND metric_key = ANY(%s)
+          AND logic_version = %s
+        """,
+        (aggregate_hash, list(metric_keys), logic_version),
+    )
+    cached = {}
+    for metric_key, metrics_json, curve_json, events_json in cur.fetchall():
+        cached[metric_key] = {
+            "curves": {"__aggregate__": curve_json} if curve_json and curve_json.get("frame") else {},
+            "events": events_json or {},
+            "metrics": metrics_json or {},
+            "take_metrics": {},
+        }
+    return cached
+
+
+def store_report_reference_aggregate_cache(cur, aggregate_hash, take_count, bundle, metric_keys, logic_version=REPORT_METRIC_LOGIC_VERSION):
+    if not aggregate_hash or not bundle or not metric_keys:
+        return
+    from psycopg2.extras import Json, execute_values
+
+    rows = []
+    for metric_key in metric_keys:
+        metric_bundle = bundle.get(metric_key)
+        if not metric_bundle:
+            continue
+        aggregate_curve = (metric_bundle.get("curves") or {}).get("__aggregate__", {})
+        rows.append((
+            aggregate_hash,
+            metric_key,
+            logic_version,
+            int(take_count),
+            Json(metric_bundle.get("metrics") or {}),
+            Json(aggregate_curve or {}),
+            Json(metric_bundle.get("events") or {}),
+        ))
+    if not rows:
+        return
+    execute_values(
+        cur,
+        """
+        INSERT INTO report_reference_metric_aggregates (
+            aggregate_hash, metric_key, logic_version, take_count,
+            metrics_json, curve_json, events_json, computed_at
+        )
+        VALUES %s
+        ON CONFLICT (aggregate_hash, metric_key, logic_version)
+        DO UPDATE SET
+            take_count = EXCLUDED.take_count,
+            metrics_json = EXCLUDED.metrics_json,
+            curve_json = EXCLUDED.curve_json,
+            events_json = EXCLUDED.events_json,
+            computed_at = NOW()
+        """,
+        rows,
+        template="(%s,%s,%s,%s,%s,%s,%s,NOW())",
+        page_size=250,
+    )
+
+
+def build_event_payload_from_rows(rows):
+    event_frames = {"fp_event_frames": [], "mer_event_frames": [], "pkh_event_frames": []}
+    frames_by_take = {}
+    for take_id, event_label, source_frame, relative_frame, relative_ms in rows:
+        frames_by_take.setdefault(take_id, {})[event_label] = {
+            "source_frame": int(source_frame) if source_frame is not None else None,
+            "relative_frame": int(relative_frame) if relative_frame is not None else None,
+            "relative_ms": float(relative_ms) if relative_ms is not None else None,
+        }
+        if event_label == "FP" and relative_frame is not None:
+            event_frames["fp_event_frames"].append(int(relative_frame))
+        elif event_label == "MER" and relative_frame is not None:
+            event_frames["mer_event_frames"].append(int(relative_frame))
+        elif event_label == "PKH" and relative_frame is not None:
+            event_frames["pkh_event_frames"].append(int(relative_frame))
+    event_frames["events_by_take"] = frames_by_take
+    return event_frames
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_cached_report_events(take_ids, logic_version=REPORT_METRIC_LOGIC_VERSION):
+    take_ids = [take_id for take_id in take_ids if take_id is not None]
+    if not take_ids:
+        return {"fp_event_frames": [], "mer_event_frames": [], "pkh_event_frames": [], "events_by_take": {}}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.take_report_events')")
+            if cur.fetchone()[0] is None:
+                return {"fp_event_frames": [], "mer_event_frames": [], "pkh_event_frames": [], "events_by_take": {}}
+            cur.execute(
+                """
+                SELECT take_id, event_label, source_frame, relative_frame, relative_ms
+                FROM take_report_events
+                WHERE take_id = ANY(%s)
+                  AND logic_version = %s
+                ORDER BY event_label
+                """,
+                (take_ids, logic_version),
+            )
+            return build_event_payload_from_rows(cur.fetchall())
+    finally:
+        conn.close()
+
+
+def cache_report_events_from_metric_data(cur, report_metric_data, logic_version=REPORT_METRIC_LOGIC_VERSION):
+    take_metrics = (report_metric_data or {}).get("take_metrics", {})
+    event_rows = []
+    for take_id, event_values in take_metrics.items():
+        br_payload = event_values.get("BR", {}) if isinstance(event_values, dict) else {}
+        br_frame = br_payload.get("source_frame") if isinstance(br_payload, dict) else None
+        for event_label in ("FP", "MER", "BR", "PKH"):
+            payload = event_values.get(event_label, {}) if isinstance(event_values, dict) else {}
+            if not isinstance(payload, dict):
+                continue
+            source_frame = payload.get("source_frame")
+            if source_frame is None:
+                continue
+            relative_frame = int(source_frame) - int(br_frame) if br_frame is not None else None
+            relative_ms = rel_frame_to_ms(relative_frame) if relative_frame is not None else None
+            event_rows.append((
+                take_id,
+                event_label,
+                int(source_frame),
+                int(relative_frame) if relative_frame is not None else None,
+                float(relative_ms) if relative_ms is not None else None,
+                logic_version,
+            ))
+    if not event_rows:
+        return
+    from psycopg2.extras import execute_values
+    execute_values(
+        cur,
+        """
+        INSERT INTO take_report_events (
+            take_id, event_label, source_frame, relative_frame,
+            relative_ms, logic_version, computed_at
+        )
+        VALUES %s
+        ON CONFLICT (take_id, event_label, logic_version)
+        DO UPDATE SET
+            source_frame = EXCLUDED.source_frame,
+            relative_frame = EXCLUDED.relative_frame,
+            relative_ms = EXCLUDED.relative_ms,
+            computed_at = NOW()
+        """,
+        event_rows,
+        template="(%s,%s,%s,%s,%s,%s,NOW())",
+        page_size=1000,
+    )
+
+
+def get_report_event_frame_maps(take_ids):
+    cached_events = get_cached_report_events(take_ids)
+    events_by_take = cached_events.get("events_by_take", {})
+
+    def frame_map(event_label):
+        out = {}
+        for take_id, events in events_by_take.items():
+            payload = events.get(event_label, {})
+            source_frame = payload.get("source_frame") if isinstance(payload, dict) else None
+            if source_frame is not None:
+                out[take_id] = int(source_frame)
+        return out
+
+    return {
+        "FP": frame_map("FP"),
+        "MER": frame_map("MER"),
+        "BR": frame_map("BR"),
+        "PKH": frame_map("PKH"),
+        "events": cached_events,
+    }
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_cached_report_metric_data(take_ids, metric_key, logic_version=REPORT_METRIC_LOGIC_VERSION):
+    take_ids = [take_id for take_id in take_ids if take_id is not None]
+    if not take_ids or not metric_key:
+        return None
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.take_report_metric_cache_status')")
+            if cur.fetchone()[0] is None:
+                return None
+            cur.execute(
+                """
+                SELECT COUNT(DISTINCT take_id)::int
+                FROM take_report_metric_cache_status
+                WHERE take_id = ANY(%s)
+                  AND metric_key = %s
+                  AND logic_version = %s
+                """,
+                (take_ids, metric_key, logic_version),
+            )
+            processed_count = cur.fetchone()[0] or 0
+            if processed_count != len(set(take_ids)):
+                return None
+
+            cur.execute("SELECT to_regclass('public.take_report_metrics')")
+            if cur.fetchone()[0] is None:
+                return None
+            cur.execute(
+                """
+                SELECT
+                    event_label,
+                    AVG(metric_value)::double precision AS mean_value,
+                    CASE
+                        WHEN COUNT(metric_value) > 1 THEN STDDEV_SAMP(metric_value)::double precision
+                        WHEN COUNT(metric_value) = 1 THEN 0::double precision
+                        ELSE NULL::double precision
+                    END AS sd_value
+                FROM take_report_metrics
+                WHERE take_id = ANY(%s)
+                  AND metric_key = %s
+                  AND logic_version = %s
+                  AND metric_value IS NOT NULL
+                GROUP BY event_label
+                ORDER BY event_label
+                """,
+                (take_ids, metric_key, logic_version),
+            )
+            metrics = {
+                event_label: {
+                    "mean": float(mean_value) if mean_value is not None else None,
+                    "std": float(sd_value) if sd_value is not None else None,
+                }
+                for event_label, mean_value, sd_value in cur.fetchall()
+            }
+
+            curves = {}
+            cur.execute("SELECT to_regclass('public.take_report_metric_curves')")
+            if cur.fetchone()[0] is not None:
+                cur.execute(
+                    """
+                    SELECT
+                        time_ms,
+                        AVG(metric_value)::double precision AS mean_value,
+                        percentile_cont(0.25) WITHIN GROUP (ORDER BY metric_value)::double precision AS q1_value,
+                        percentile_cont(0.75) WITHIN GROUP (ORDER BY metric_value)::double precision AS q3_value
+                    FROM take_report_metric_curves
+                    WHERE take_id = ANY(%s)
+                      AND metric_key = %s
+                      AND logic_version = %s
+                      AND metric_value IS NOT NULL
+                    GROUP BY time_ms
+                    ORDER BY time_ms
+                    """,
+                    (take_ids, metric_key, logic_version),
+                )
+                aggregate_curve = {"frame": [], "value": [], "q1": [], "q3": []}
+                for time_ms, mean_value, q1_value, q3_value in cur.fetchall():
+                    aggregate_curve["frame"].append(float(time_ms))
+                    aggregate_curve["value"].append(float(mean_value) if mean_value is not None else None)
+                    aggregate_curve["q1"].append(float(q1_value) if q1_value is not None else None)
+                    aggregate_curve["q3"].append(float(q3_value) if q3_value is not None else None)
+                if aggregate_curve["frame"]:
+                    curves["__aggregate__"] = aggregate_curve
+
+            cached_events = get_cached_report_events(take_ids, logic_version)
+            fp_event_frames = list(cached_events.get("fp_event_frames", []))
+            mer_event_frames = list(cached_events.get("mer_event_frames", []))
+            if not fp_event_frames or not mer_event_frames:
+                take_metrics = {}
+                cur.execute(
+                    """
+                    SELECT take_id, event_label, metric_value, source_frame
+                    FROM take_report_metrics
+                    WHERE take_id = ANY(%s)
+                      AND metric_key = %s
+                      AND logic_version = %s
+                    ORDER BY take_id, event_label
+                    """,
+                    (take_ids, metric_key, logic_version),
+                )
+                for take_id, event_label, metric_value, source_frame in cur.fetchall():
+                    take_metrics.setdefault(take_id, {})[event_label] = {
+                        "value": float(metric_value) if metric_value is not None else None,
+                        "source_frame": int(source_frame) if source_frame is not None else None,
+                    }
+                fallback_fp_event_frames = []
+                fallback_mer_event_frames = []
+                for event_values in take_metrics.values():
+                    br_frame = event_values.get("BR", {}).get("source_frame")
+                    fp_frame = event_values.get("FP", {}).get("source_frame")
+                    mer_frame = event_values.get("MER", {}).get("source_frame")
+                    if br_frame is not None and fp_frame is not None:
+                        fallback_fp_event_frames.append(fp_frame - br_frame)
+                    if br_frame is not None and mer_frame is not None:
+                        fallback_mer_event_frames.append(mer_frame - br_frame)
+                if not fp_event_frames:
+                    fp_event_frames = fallback_fp_event_frames
+                if not mer_event_frames:
+                    mer_event_frames = fallback_mer_event_frames
+
+            return {
+                "curves": curves,
+                "events": {
+                    "fp_event_frames": fp_event_frames,
+                    "mer_event_frames": mer_event_frames,
+                    "pkh_event_frames": cached_events.get("pkh_event_frames", []),
+                    "events_by_take": cached_events.get("events_by_take", {}),
+                },
+                "metrics": metrics,
+                "take_metrics": {},
+            }
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_cached_report_metric_bundle(take_ids, metric_keys, logic_version=REPORT_METRIC_LOGIC_VERSION):
+    take_ids = sorted({take_id for take_id in take_ids if take_id is not None})
+    metric_keys = [metric_key for metric_key in metric_keys if metric_key]
+    if not take_ids or not metric_keys:
+        return {}
+
+    unique_take_count = len(take_ids)
+    aggregate_hash = report_reference_aggregate_hash(take_ids, logic_version)
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            ensure_report_metric_cache_schema(cur)
+            conn.commit()
+            for table_name in (
+                "take_report_metric_cache_status",
+                "take_report_metrics",
+                "take_report_metric_curves",
+            ):
+                cur.execute(f"SELECT to_regclass('public.{table_name}')")
+                if cur.fetchone()[0] is None:
+                    return {}
+
+            cur.execute(
+                """
+                SELECT metric_key, COUNT(DISTINCT take_id)::int
+                FROM take_report_metric_cache_status
+                WHERE take_id = ANY(%s)
+                  AND metric_key = ANY(%s)
+                  AND logic_version = %s
+                GROUP BY metric_key
+                """,
+                (take_ids, metric_keys, logic_version),
+            )
+            complete_metric_keys = {
+                metric_key
+                for metric_key, processed_count in cur.fetchall()
+                if processed_count == unique_take_count
+            }
+            if not complete_metric_keys:
+                return {}
+
+            cached_bundle = load_report_reference_aggregate_cache(
+                cur,
+                aggregate_hash,
+                complete_metric_keys,
+                logic_version,
+            )
+            missing_metric_keys = sorted(complete_metric_keys - set(cached_bundle.keys()))
+            if not missing_metric_keys:
+                return cached_bundle
+
+            cached_events = get_cached_report_events(take_ids, logic_version)
+            shared_events = {
+                "fp_event_frames": list(cached_events.get("fp_event_frames", [])),
+                "mer_event_frames": list(cached_events.get("mer_event_frames", [])),
+                "pkh_event_frames": list(cached_events.get("pkh_event_frames", [])),
+                "events_by_take": cached_events.get("events_by_take", {}),
+            }
+            bundle = dict(cached_bundle)
+            bundle.update({
+                metric_key: {
+                    "curves": {},
+                    "events": shared_events,
+                    "metrics": {},
+                    "take_metrics": {},
+                }
+                for metric_key in missing_metric_keys
+            })
+
+            cur.execute(
+                """
+                SELECT
+                    metric_key,
+                    event_label,
+                    AVG(metric_value)::double precision AS mean_value,
+                    CASE
+                        WHEN COUNT(metric_value) > 1 THEN STDDEV_SAMP(metric_value)::double precision
+                        WHEN COUNT(metric_value) = 1 THEN 0::double precision
+                        ELSE NULL::double precision
+                    END AS sd_value
+                FROM take_report_metrics
+                WHERE take_id = ANY(%s)
+                  AND metric_key = ANY(%s)
+                  AND logic_version = %s
+                  AND metric_value IS NOT NULL
+                GROUP BY metric_key, event_label
+                ORDER BY metric_key, event_label
+                """,
+                (take_ids, missing_metric_keys, logic_version),
+            )
+            for metric_key, event_label, mean_value, sd_value in cur.fetchall():
+                bundle[metric_key]["metrics"][event_label] = {
+                    "mean": float(mean_value) if mean_value is not None else None,
+                    "std": float(sd_value) if sd_value is not None else None,
+                }
+
+            cur.execute(
+                """
+                SELECT
+                    metric_key,
+                    time_ms,
+                    AVG(metric_value)::double precision AS mean_value,
+                    percentile_cont(0.25) WITHIN GROUP (ORDER BY metric_value)::double precision AS q1_value,
+                    percentile_cont(0.75) WITHIN GROUP (ORDER BY metric_value)::double precision AS q3_value
+                FROM take_report_metric_curves
+                WHERE take_id = ANY(%s)
+                  AND metric_key = ANY(%s)
+                  AND logic_version = %s
+                  AND metric_value IS NOT NULL
+                GROUP BY metric_key, time_ms
+                ORDER BY metric_key, time_ms
+                """,
+                (take_ids, missing_metric_keys, logic_version),
+            )
+            for metric_key, time_ms, mean_value, q1_value, q3_value in cur.fetchall():
+                aggregate_curve = bundle[metric_key]["curves"].setdefault(
+                    "__aggregate__",
+                    {"frame": [], "value": [], "q1": [], "q3": []},
+                )
+                aggregate_curve["frame"].append(float(time_ms))
+                aggregate_curve["value"].append(float(mean_value) if mean_value is not None else None)
+                aggregate_curve["q1"].append(float(q1_value) if q1_value is not None else None)
+                aggregate_curve["q3"].append(float(q3_value) if q3_value is not None else None)
+
+            store_report_reference_aggregate_cache(
+                cur,
+                aggregate_hash,
+                unique_take_count,
+                bundle,
+                missing_metric_keys,
+                logic_version,
+            )
+            conn.commit()
+            return bundle
+    finally:
+        conn.close()
+
+
+def cache_report_metric_data(report_rows, metric_key, metric_label, metric_group, unit, source_category, source_segment, source_axis, report_metric_data, logic_version=REPORT_METRIC_LOGIC_VERSION):
+    if not report_rows or not metric_key or not report_metric_data:
+        return
+    take_ids = [row[0] for row in report_rows]
+    take_metrics = report_metric_data.get("take_metrics", {})
+    curves = report_metric_data.get("curves", {})
+
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                ensure_report_metric_cache_schema(cur)
+                cur.execute("SELECT to_regclass('public.take_report_metric_cache_status')")
+                if cur.fetchone()[0] is None:
+                    return
+                cache_report_events_from_metric_data(cur, report_metric_data, logic_version)
+                metric_rows = []
+                for take_id, event_values in take_metrics.items():
+                    for event_label, payload in event_values.items():
+                        value = payload.get("value") if isinstance(payload, dict) else payload
+                        source_frame = payload.get("source_frame") if isinstance(payload, dict) else None
+                        metric_rows.append((
+                            take_id,
+                            metric_key,
+                            metric_label,
+                            metric_group,
+                            event_label,
+                            float(value) if value is not None and np.isfinite(value) else None,
+                            int(source_frame) if source_frame is not None else None,
+                            unit,
+                            source_category,
+                            source_segment,
+                            source_axis,
+                            logic_version,
+                        ))
+                if metric_rows:
+                    from psycopg2.extras import execute_values
+                    execute_values(
+                        cur,
+                        """
+                        INSERT INTO take_report_metrics (
+                            take_id, metric_key, metric_label, metric_group, event_label,
+                            metric_value, source_frame, unit, source_category, source_segment,
+                            source_axis, logic_version, computed_at
+                        )
+                        VALUES %s
+                        ON CONFLICT (take_id, metric_key, event_label, logic_version)
+                        DO UPDATE SET
+                            metric_label = EXCLUDED.metric_label,
+                            metric_group = EXCLUDED.metric_group,
+                            metric_value = EXCLUDED.metric_value,
+                            source_frame = EXCLUDED.source_frame,
+                            unit = EXCLUDED.unit,
+                            source_category = EXCLUDED.source_category,
+                            source_segment = EXCLUDED.source_segment,
+                            source_axis = EXCLUDED.source_axis,
+                            computed_at = NOW()
+                        """,
+                        metric_rows,
+                        template="(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())",
+                        page_size=1000,
+                    )
+
+                curve_rows = []
+                for take_id, curve in curves.items():
+                    for time_ms, value in zip(curve.get("frame", []), curve.get("value", [])):
+                        if value is None or not np.isfinite(value):
+                            continue
+                        curve_rows.append((take_id, metric_key, float(time_ms), float(value), logic_version))
+                if curve_rows:
+                    cur.execute(
+                        """
+                        DELETE FROM take_report_metric_curves
+                        WHERE take_id = ANY(%s)
+                          AND metric_key = %s
+                          AND logic_version = %s
+                        """,
+                        (take_ids, metric_key, logic_version),
+                    )
+                    from psycopg2.extras import execute_values
+                    execute_values(
+                        cur,
+                        """
+                        INSERT INTO take_report_metric_curves (
+                            take_id, metric_key, time_ms, metric_value, logic_version, computed_at
+                        )
+                        VALUES %s
+                        ON CONFLICT (take_id, metric_key, time_ms, logic_version)
+                        DO UPDATE SET
+                            metric_value = EXCLUDED.metric_value,
+                            computed_at = NOW()
+                        """,
+                        curve_rows,
+                        template="(%s,%s,%s,%s,%s,NOW())",
+                        page_size=5000,
+                    )
+
+                status_rows = [(take_id, metric_key, logic_version) for take_id in set(take_ids)]
+                if status_rows:
+                    from psycopg2.extras import execute_values
+                    execute_values(
+                        cur,
+                        """
+                        INSERT INTO take_report_metric_cache_status (
+                            take_id, metric_key, logic_version, computed_at
+                        )
+                        VALUES %s
+                        ON CONFLICT (take_id, metric_key, logic_version)
+                        DO UPDATE SET computed_at = NOW()
+                        """,
+                        status_rows,
+                        template="(%s,%s,%s,NOW())",
+                        page_size=1000,
+                    )
+    finally:
+        conn.close()
+
+
+def build_report_arm_metric_data(report_rows, loader_fn, max_selector=None, max_window="fp_to_br"):
+    if not report_rows:
+        return {"curves": {}, "events": {}, "metrics": {}}
+
+    take_ids = [row[0] for row in report_rows]
+    take_handedness = {row[0]: row[4] for row in report_rows}
+    take_ids_by_handedness = {
+        "R": [take_id for take_id in take_ids if take_handedness.get(take_id) == "R"],
+        "L": [take_id for take_id in take_ids if take_handedness.get(take_id) == "L"],
+    }
+
+    def load_by_handedness(loader_fn):
+        merged = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if ids:
+                merged.update(loader_fn(ids, hand))
+        return merged
+
+    metric_data = load_by_handedness(loader_fn)
+    event_maps = get_report_event_frame_maps(take_ids)
+    br_frames = event_maps["BR"]
+    mer_frames = event_maps["MER"]
+    fp_frames = event_maps["FP"]
+    pkh_frames = event_maps["PKH"]
+
+    if any(take_id not in br_frames or take_id not in mer_frames or take_id not in fp_frames for take_id in take_ids):
+        cg_data = load_by_handedness(get_hand_cg_velocity)
+        shoulder_er_data = load_by_handedness(get_shoulder_er_angles)
+        br_frames = {}
+        for take_id, d in cg_data.items():
+            valid = [(i, value) for i, value in enumerate(d["x"]) if value is not None]
+            if valid:
+                idx, _ = max(valid, key=lambda item: item[1])
+                br_frames[take_id] = d["frame"][idx] + 4
+
+        mer_frames = {}
+        for take_id, d in shoulder_er_data.items():
+            valid = [(frame, value) for frame, value in zip(d["frame"], d["z"]) if value is not None]
+            if valid:
+                mer_frames[take_id] = (
+                    min(valid, key=lambda item: item[1])[0]
+                    if take_handedness.get(take_id) == "R"
+                    else max(valid, key=lambda item: item[1])[0]
+                )
+
+        fp_frames = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if not ids:
+                continue
+            ankle_peak_frames = get_peak_ankle_prox_x_velocity(ids, hand)
+            ankle_min_frames = get_ankle_min_frame(ids, hand, ankle_peak_frames, mer_frames)
+            ankle_zero_frames = get_foot_plant_frame_zero_cross(ids, hand, ankle_min_frames, mer_frames)
+            heel_anchor_frames = {
+                take_id: ankle_zero_frames.get(take_id, ankle_min_frames.get(take_id))
+                for take_id in ids
+            }
+            heel_frames = get_lead_heel_contact_frame(ids, hand, ankle_peak_frames, mer_frames, heel_anchor_frames)
+            for take_id in ids:
+                candidates = [
+                    value
+                    for value in [
+                        ankle_zero_frames.get(take_id),
+                        heel_frames.get(take_id),
+                        ankle_min_frames.get(take_id),
+                        ankle_peak_frames.get(take_id),
+                    ]
+                    if value is not None
+                ]
+                if candidates:
+                    fp_frames[take_id] = int(max(candidates[:2]) if len(candidates[:2]) == 2 else candidates[0])
+        for take_id, fp_frame in list(fp_frames.items()):
+            if take_id in mer_frames and fp_frame > mer_frames[take_id]:
+                fp_frames[take_id] = mer_frames[take_id]
+
+        pkh_frames = {}
+        if max_window == "pkh_to_br":
+            for hand, ids in take_ids_by_handedness.items():
+                if ids:
+                    pkh_frames.update(get_peak_glove_knee_pre_br(ids, hand, br_frames))
+
+    def value_near_frame(curve, frame):
+        candidates = [
+            (abs(curve_frame - frame), value, curve_frame)
+            for curve_frame, value in zip(curve.get("frame", []), curve.get("value", []))
+            if value is not None
+        ]
+        if not candidates:
+            return None, None
+        _distance, value, actual_frame = min(candidates, key=lambda item: item[0])
+        return value, actual_frame
+
+    curves = {}
+    metric_values = {"FP": [], "MER": [], "BR": [], "Max": []}
+    take_metrics = {}
+    for take_id, curve in metric_data.items():
+        br_frame = br_frames.get(take_id)
+        if br_frame is None:
+            continue
+        normalized = {
+            "frame": [
+                rel_frame_to_ms(frame - br_frame)
+                for frame, value in zip(curve["frame"], curve["value"])
+                if value is not None and np.isfinite(value)
+            ],
+            "value": [
+                value
+                for value in curve["value"]
+                if value is not None and np.isfinite(value)
+            ],
+        }
+        curves[take_id] = normalized
+        event_frame_map = {"FP": fp_frames.get(take_id), "MER": mer_frames.get(take_id), "BR": br_frame}
+        for event_label, event_frame in event_frame_map.items():
+            if event_frame is not None:
+                value, actual_frame = value_near_frame(curve, event_frame)
+                if value is not None:
+                    metric_values[event_label].append(value)
+                    take_metrics.setdefault(take_id, {})[event_label] = {
+                        "value": float(value),
+                        "source_frame": int(actual_frame if actual_frame is not None else event_frame),
+                    }
+        fp_frame = fp_frames.get(take_id)
+        if max_window == "pre_br":
+            finite_frames = [
+                frame
+                for frame, value in zip(curve["frame"], curve["value"])
+                if value is not None and np.isfinite(value) and frame <= br_frame
+            ]
+            window_start = min(finite_frames) if finite_frames else br_frame - ms_to_rel_frame(200)
+            window_end = br_frame
+        elif max_window == "pkh_to_br":
+            window_start = pkh_frames.get(take_id)
+            if window_start is None:
+                window_start = fp_frame if fp_frame is not None else br_frame - ms_to_rel_frame(200)
+            window_end = br_frame
+        else:
+            window_start = fp_frame if fp_frame is not None else br_frame - ms_to_rel_frame(200)
+            window_end = mer_frames.get(take_id) if max_window == "fp_to_mer" else br_frame
+        if window_end is None:
+            window_end = br_frame
+        valid_samples = [
+            (frame, value)
+            for frame, value in zip(curve["frame"], curve["value"])
+            if value is not None
+            and np.isfinite(value)
+            and window_start <= frame <= window_end
+        ]
+        if valid_samples:
+            valid_values = [value for _frame, value in valid_samples]
+            max_value = max_selector(valid_values) if max_selector else max(valid_values)
+            max_frame, _raw_value = min(
+                valid_samples,
+                key=lambda item: abs(float(item[1]) - float(max_value)),
+            )
+            metric_values["Max"].append(max_value)
+            take_metrics.setdefault(take_id, {})["Max"] = {
+                "value": float(max_value),
+                "source_frame": int(max_frame),
+            }
+
+    metrics = {}
+    for label, values in metric_values.items():
+        metrics[label] = {
+            "mean": float(np.mean(values)) if values else None,
+            "std": float(np.std(values, ddof=1 if len(values) > 1 else 0)) if values else None,
+        }
+    return {
+        "curves": curves,
+        "events": {
+            "fp_event_frames": [fp_frames[take_id] - br_frames[take_id] for take_id in fp_frames if take_id in br_frames],
+            "mer_event_frames": [mer_frames[take_id] - br_frames[take_id] for take_id in mer_frames if take_id in br_frames],
+        },
+        "metrics": metrics,
+        "take_metrics": take_metrics,
+    }
+
+
+def build_report_elbow_flexion_data(report_rows):
+    return build_report_arm_metric_data(report_rows, get_elbow_flexion_angle)
+
+
+def build_report_shoulder_abduction_data(report_rows):
+    return build_report_arm_metric_data(report_rows, get_shoulder_abduction_angle)
+
+
+def build_report_shoulder_horizontal_abduction_data(report_rows):
+    return build_report_arm_metric_data(report_rows, get_shoulder_horizontal_abduction_angle)
+
+
+def build_report_shoulder_rotation_data(report_rows):
+    data = build_report_arm_metric_data(report_rows, get_shoulder_er_angle)
+    metrics = dict(data.get("metrics", {}))
+    if "MER" in metrics:
+        metrics["Max"] = dict(metrics["MER"])
+        data["metrics"] = metrics
+    return data
+
+
+def build_report_pelvis_component_data(report_rows, component):
+    if component == "z":
+        return build_report_arm_metric_data(
+            report_rows,
+            lambda take_ids, handedness: {
+                take_id: {
+                    "frame": curve["frame"],
+                    "value": normalize_report_rotation_values(curve["value"], handedness),
+                }
+                for take_id, curve in get_joint_angle_rotation_component(take_ids, "PELVIS").items()
+            },
+        )
+    return build_report_arm_metric_data(
+        report_rows,
+        lambda take_ids, handedness: {
+            take_id: {
+                "frame": curve["frame"],
+                "value": normalize_pelvis_torso_component_values(curve["value"], component, handedness),
+            }
+            for take_id, curve in get_pelvis_angle_component(take_ids, handedness, component).items()
+        },
+        max_window="fp_to_mer" if component == "x" else "fp_to_br",
+    )
+
+
+def normalize_pelvis_torso_component_values(values, component, handedness):
+    normalized_values = []
+    for value in values:
+        if value is None:
+            normalized_values.append(value)
+        elif component == "x":
+            # Theia x tilt is negative into forward tilt; report positive means forward tilt.
+            normalized_values.append(-value)
+        elif component == "y" and handedness == "R":
+            # Report positive lateral tilt means glove-side tilt for both RHP and LHP.
+            normalized_values.append(-value)
+        else:
+            normalized_values.append(value)
+    return normalized_values
+
+
+def build_report_torso_component_data(report_rows, component):
+    if component == "z":
+        return build_report_arm_metric_data(
+            report_rows,
+            lambda take_ids, handedness: {
+                take_id: {
+                    "frame": curve["frame"],
+                    "value": normalize_report_rotation_values(curve["value"], handedness),
+                }
+                for take_id, curve in get_joint_angle_rotation_component(take_ids, "TORSO").items()
+            },
+            max_selector=lambda values: np.nanmin(values),
+        )
+    return build_report_arm_metric_data(
+        report_rows,
+        lambda take_ids, handedness: {
+            take_id: {
+                "frame": curve["frame"],
+                "value": normalize_pelvis_torso_component_values(curve[component], component, handedness),
+            }
+            for take_id, curve in get_torso_angle_components(take_ids).items()
+        },
+    )
+
+
+def build_report_torso_pelvis_component_data(report_rows, component):
+    return build_report_arm_metric_data(
+        report_rows,
+        lambda take_ids, handedness: {
+            take_id: {
+                "frame": curve["frame"],
+                "value": (
+                    normalize_pelvis_torso_component_values(curve[component], component, handedness)
+                    if component in ("x", "y") else
+                    [
+                        normalize_torso_pelvis_rotation_value(value, handedness)
+                        for value in curve[component]
+                    ]
+                    if component == "z" else curve[component]
+                ),
+            }
+            for take_id, curve in get_torso_pelvis_angle_components(take_ids).items()
+        },
+    )
+
+
+def build_report_hip_component_data(report_rows, hip_role, component):
+    max_window = "pkh_to_br" if hip_role == "lead" and component == "x" else "pre_br" if component in ("x", "y", "z") else "fp_to_br"
+    max_selector = (lambda values: abs(float(np.nanmin(values)))) if hip_role == "lead" and component == "x" else None
+    return build_report_arm_metric_data(
+        report_rows,
+        lambda take_ids, handedness: get_hip_angle_component(take_ids, handedness, hip_role, component),
+        max_selector=max_selector,
+        max_window=max_window,
+    )
+
+
+def build_report_cg_velocity_data(report_rows, component):
+    def load_cg_component(take_ids, handedness):
+        data = get_center_of_mass_velocity_component(take_ids, component, handedness)
+        if component != "y":
+            return data
+        return {
+            take_id: {
+                "frame": curve["frame"],
+                "value": [
+                    -value if handedness == "R" and value is not None else value
+                    for value in curve["value"]
+                ],
+            }
+            for take_id, curve in data.items()
+        }
+
+    if component == "z":
+        max_selector = lambda values: abs(float(np.nanmin(values)))
+    else:
+        max_selector = lambda values: float(np.nanmax(values))
+
+    return build_report_arm_metric_data(
+        report_rows,
+        load_cg_component,
+        max_selector=max_selector,
+        max_window="pre_br",
+    )
+
+
+def build_report_lower_extremity_component_data(report_rows, leg_role, joint, component):
+    return build_report_arm_metric_data(
+        report_rows,
+        lambda take_ids, handedness: get_lower_extremity_angle_component(take_ids, handedness, leg_role, joint, component),
+        max_window="pre_br" if component == "x" else "fp_to_br",
+    )
+
+
+def build_report_lower_extremity_velocity_data(report_rows, leg_role, joint, component):
+    if component == "x":
+        return build_report_pelvis_velocity_window_data(
+            report_rows,
+            lambda take_ids, handedness: get_lower_extremity_angular_velocity_component(take_ids, handedness, leg_role, joint, component),
+            lambda values, handedness: np.nanmin(values),
+            window_frames=50,
+            component="x",
+            peak_before_br_sign="negative",
+            normalizer_fn=normalize_identity,
+        )
+    return build_report_arm_velocity_data(
+        report_rows,
+        lambda take_ids, handedness: get_lower_extremity_angular_velocity_component(take_ids, handedness, leg_role, joint, component),
+        peak_mode="absolute",
+    )
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_stride_foot_positions(take_ids, handedness, fp_frames, knee_peak_frames):
+    """
+    Returns lead-foot positions used for stride metrics.
+
+    Mirrors pitcher_query.sql: KINETIC_KINEMATIC_CGPos / LFT or RFT, using
+    the lead foot at FP and the same foot at the pre-BR knee peak frame.
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "LFT" if handedness == "R" else "RFT"
+    needed_frames = {
+        take_id: {frame for frame in (fp_frames.get(take_id), knee_peak_frames.get(take_id)) if frame is not None}
+        for take_id in take_ids
+    }
+    needed_frames = {take_id: frames for take_id, frames in needed_frames.items() if frames}
+    if not needed_frames:
+        return {}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data,
+                    ts.y_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'KINETIC_KINEMATIC_CGPos'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *tuple(take_ids)))
+
+            positions = {}
+            for take_id, frame, x, y in cur.fetchall():
+                if frame not in needed_frames.get(take_id, set()):
+                    continue
+                positions.setdefault(take_id, {})[int(frame)] = (x, y)
+
+            out = {}
+            for take_id in take_ids:
+                fp_frame = fp_frames.get(take_id)
+                trail_frame = knee_peak_frames.get(take_id)
+                lead_pos = positions.get(take_id, {}).get(fp_frame)
+                trail_pos = positions.get(take_id, {}).get(trail_frame)
+                if lead_pos is None or trail_pos is None:
+                    continue
+                out[take_id] = {
+                    "lead_foot_x": lead_pos[0],
+                    "lead_foot_y": lead_pos[1],
+                    "trail_foot_x": trail_pos[0],
+                    "trail_foot_y": trail_pos[1],
+                }
+            return out
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_take_heights(take_ids):
+    if not take_ids:
+        return {}
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT take_id, height
+                FROM takes
+                WHERE take_id IN ({placeholders})
+            """, tuple(take_ids))
+            return {take_id: height for take_id, height in cur.fetchall()}
+    finally:
+        conn.close()
+
+
+def summarize_values(values):
+    clean_values = [float(value) for value in values if value is not None and np.isfinite(value)]
+    return {
+        "mean": float(np.mean(clean_values)) if clean_values else None,
+        "std": float(np.std(clean_values, ddof=1 if len(clean_values) > 1 else 0)) if clean_values else None,
+    }
+
+
+def build_report_stride_data(report_rows):
+    if not report_rows:
+        return {"metrics": {}}
+
+    take_ids = [row[0] for row in report_rows]
+    take_handedness = {row[0]: row[4] for row in report_rows}
+    take_ids_by_handedness = {
+        hand: [take_id for take_id in take_ids if take_handedness.get(take_id) == hand]
+        for hand in ("R", "L")
+    }
+
+    def load_by_handedness(loader_fn):
+        merged = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if ids:
+                merged.update(loader_fn(ids, hand))
+        return merged
+
+    event_maps = get_report_event_frame_maps(take_ids)
+    br_frames = event_maps["BR"]
+    mer_frames = event_maps["MER"]
+    fp_frames = event_maps["FP"]
+    knee_peak_frames = event_maps["PKH"]
+
+    if any(take_id not in br_frames or take_id not in mer_frames or take_id not in fp_frames or take_id not in knee_peak_frames for take_id in take_ids):
+        cg_data = load_by_handedness(get_hand_cg_velocity)
+        br_frames = {}
+        for take_id, curve in cg_data.items():
+            valid = [(idx, value) for idx, value in enumerate(curve["x"]) if value is not None]
+            if valid:
+                idx, _ = max(valid, key=lambda item: item[1])
+                br_frames[take_id] = curve["frame"][idx] + 4
+
+        shoulder_er_data = load_by_handedness(get_shoulder_er_angles)
+        mer_frames = {}
+        for take_id, curve in shoulder_er_data.items():
+            valid = [(frame, value) for frame, value in zip(curve["frame"], curve["z"]) if value is not None]
+            if valid:
+                mer_frames[take_id] = (
+                    min(valid, key=lambda item: item[1])[0]
+                    if take_handedness.get(take_id) == "R"
+                    else max(valid, key=lambda item: item[1])[0]
+                )
+
+        fp_frames = {}
+        knee_peak_frames = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if not ids:
+                continue
+            hand_knee_peak_frames = get_peak_glove_knee_pre_br(ids, hand, br_frames)
+            knee_peak_frames.update(hand_knee_peak_frames)
+            ankle_peak_frames = get_peak_ankle_prox_x_velocity(ids, hand)
+            ankle_min_frames = get_ankle_min_frame(ids, hand, ankle_peak_frames, mer_frames)
+            ankle_zero_frames = get_foot_plant_frame_zero_cross(ids, hand, ankle_min_frames, mer_frames)
+            for take_id in ids:
+                candidates = [
+                    value
+                    for value in [
+                        ankle_zero_frames.get(take_id),
+                        ankle_min_frames.get(take_id),
+                        ankle_peak_frames.get(take_id),
+                    ]
+                    if value is not None
+                ]
+                if candidates:
+                    fp_frames[take_id] = int(candidates[0])
+
+    heights = get_take_heights(take_ids)
+    stride_values = {
+        "stride_length_in": [],
+        "stride_length_pct_height": [],
+        "stride_angle_deg": [],
+    }
+    take_athlete = {row[0]: row[3] for row in report_rows}
+    take_session_date = {row[0]: row[2] for row in report_rows}
+    stride_values_by_athlete_session = {}
+    for hand, ids in take_ids_by_handedness.items():
+        if not ids:
+            continue
+        positions = get_stride_foot_positions(ids, hand, fp_frames, knee_peak_frames)
+        for take_id, pos in positions.items():
+            if any(pos.get(key) is None for key in ("lead_foot_x", "trail_foot_x", "lead_foot_y", "trail_foot_y")):
+                continue
+            dx = float(pos["lead_foot_x"]) - float(pos["trail_foot_x"])
+            dy = float(pos["lead_foot_y"]) - float(pos["trail_foot_y"])
+            stride_length_in = dx * 39.37
+            stride_angle = float(np.degrees(np.arctan2(abs(dy), dx))) if dx else None
+            height = heights.get(take_id)
+            stride_pct_height = (
+                (stride_length_in / float(height) * 100)
+                if height not in (None, 0)
+                else None
+            )
+            athlete_name = take_athlete.get(take_id)
+            values_for_take = {
+                "stride_length_in": stride_length_in,
+                "stride_length_pct_height": stride_pct_height,
+                "stride_angle_deg": stride_angle,
+            }
+            for label, value in values_for_take.items():
+                stride_values[label].append(value)
+                session_key = (athlete_name, take_session_date.get(take_id))
+                if session_key[0] is not None:
+                    stride_values_by_athlete_session.setdefault(
+                        session_key,
+                        {
+                            "stride_length_in": [],
+                            "stride_length_pct_height": [],
+                            "stride_angle_deg": [],
+                        },
+                    )[label].append(value)
+
+    metrics = {}
+    for label, values in stride_values.items():
+        summary = summarize_values(values)
+        athlete_session_sds = [
+            summarize_values(session_values[label]).get("std")
+            for session_values in stride_values_by_athlete_session.values()
+        ]
+        athlete_session_sds = [value for value in athlete_session_sds if value is not None and np.isfinite(value)]
+        if athlete_session_sds:
+            summary["std"] = float(np.mean(athlete_session_sds))
+        metrics[label] = summary
+
+    return {"metrics": metrics}
+
+
+def normalize_hip_flexion_extension_velocity(value, handedness):
+    if value is None:
+        return value
+    # Report convention: positive is hip flexion, negative is hip extension.
+    return -value
+
+
+def make_hip_abduction_adduction_velocity_normalizer(hip_role):
+    def normalize(value, handedness):
+        if value is None:
+            return value
+        segment_prefix = get_hip_segment_prefix(handedness, hip_role)
+        return -value if segment_prefix == "RT" else value
+
+    return normalize
+
+
+def make_hip_internal_external_rotation_velocity_normalizer(hip_role):
+    def normalize(value, handedness):
+        if value is None:
+            return value
+        segment_prefix = get_hip_segment_prefix(handedness, hip_role)
+        return -value if segment_prefix == "RT" else value
+
+    return normalize
+
+
+def build_report_hip_velocity_data(report_rows, hip_role, component, peak_direction=None):
+    if component == "x":
+        if peak_direction == "extension":
+            return build_report_pelvis_velocity_window_data(
+                report_rows,
+                lambda take_ids, handedness: get_hip_angular_velocity_component(take_ids, handedness, hip_role, component),
+                lambda values, handedness: np.nanmin(values),
+                window_frames=50,
+                component="x",
+                peak_before_br_sign="negative",
+                normalizer_fn=normalize_hip_flexion_extension_velocity,
+                peak_window="pkh_to_br",
+            )
+        return build_report_pelvis_velocity_window_data(
+            report_rows,
+            lambda take_ids, handedness: get_hip_angular_velocity_component(take_ids, handedness, hip_role, component),
+            lambda values, handedness: np.nanmax(values),
+            window_frames=50,
+            component="x",
+            peak_before_br_sign="positive",
+            normalizer_fn=normalize_hip_flexion_extension_velocity,
+            peak_window="pkh_to_br",
+        )
+    if component == "y":
+        return build_report_pelvis_velocity_window_data(
+            report_rows,
+            lambda take_ids, handedness: get_hip_angular_velocity_component(take_ids, handedness, hip_role, component),
+            lambda values, handedness: np.nanmin(values),
+            window_frames=50,
+            component="y",
+            peak_before_br_sign="negative",
+            normalizer_fn=make_hip_abduction_adduction_velocity_normalizer(hip_role),
+        )
+    if component == "z":
+        normalizer = make_hip_internal_external_rotation_velocity_normalizer(hip_role)
+        if peak_direction == "external":
+            return build_report_pelvis_velocity_window_data(
+                report_rows,
+                lambda take_ids, handedness: get_hip_angular_velocity_component(take_ids, handedness, hip_role, component),
+                lambda values, handedness: np.nanmin(values),
+                window_frames=50,
+                component="z",
+                peak_before_br_sign="negative",
+                normalizer_fn=normalizer,
+            )
+        if peak_direction == "internal":
+            return build_report_pelvis_velocity_window_data(
+                report_rows,
+                lambda take_ids, handedness: get_hip_angular_velocity_component(take_ids, handedness, hip_role, component),
+                lambda values, handedness: np.nanmax(values),
+                window_frames=50,
+                component="z",
+                peak_before_br_sign="positive",
+                normalizer_fn=normalizer,
+            )
+        return build_report_pelvis_velocity_window_data(
+            report_rows,
+            lambda take_ids, handedness: get_hip_angular_velocity_component(take_ids, handedness, hip_role, component),
+            lambda values, handedness: values[int(np.nanargmax(np.abs(values)))],
+            window_frames=50,
+            component="z",
+            normalizer_fn=normalizer,
+        )
+    selectors = {
+    }
+    return build_report_pelvis_velocity_window_data(
+        report_rows,
+        lambda take_ids, handedness: get_hip_angular_velocity_component(take_ids, handedness, hip_role, component),
+        selectors[component],
+    )
+
+
+def get_shoulder_horizontal_abduction_velocity(take_ids, handedness):
+    """
+    Returns throwing-side shoulder RTA angular velocity x_data.
+
+    This matches the 0-10 report's source for Max Scap Retraction Velocity:
+      RHP -> RT_SHOULDER_RTA_ANGULAR_VELOCITY
+      LHP -> LT_SHOULDER_RTA_ANGULAR_VELOCITY
+      Category -> ORIGINAL
+      Axis -> x_data
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "RT_SHOULDER_RTA_ANGULAR_VELOCITY" if handedness == "R" else "LT_SHOULDER_RTA_ANGULAR_VELOCITY"
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.x_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            data = {}
+            for take_id, frame, x in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+            return data
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_original_shoulder_horizontal_angle(take_ids, handedness):
+    """
+    Raw shoulder angle x_data used only to locate max scap retraction.
+
+    Mirrors 0-10 report logic:
+      RHP -> RT_SHOULDER_ANGLE
+      LHP -> LT_SHOULDER_ANGLE
+      Category -> ORIGINAL
+      Axis -> x_data
+    """
+    if not take_ids or handedness not in ("R", "L"):
+        return {}
+
+    segment_name = "RT_SHOULDER_ANGLE" if handedness == "R" else "LT_SHOULDER_ANGLE"
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(take_ids))
+            cur.execute(f"""
+                SELECT
+                    ts.take_id,
+                    ts.frame,
+                    ts.x_data
+                FROM time_series_data ts
+                JOIN categories c ON ts.category_id = c.category_id
+                JOIN segments s ON ts.segment_id = s.segment_id
+                WHERE c.category_name = 'ORIGINAL'
+                  AND s.segment_name = %s
+                  AND ts.take_id IN ({placeholders})
+                  AND ts.x_data IS NOT NULL
+                ORDER BY ts.take_id, ts.frame
+            """, (segment_name, *take_ids))
+
+            data = {}
+            for take_id, frame, x in cur.fetchall():
+                data.setdefault(take_id, {"frame": [], "value": []})
+                data[take_id]["frame"].append(frame)
+                data[take_id]["value"].append(x)
+            return data
+    finally:
+        conn.close()
+
+
+def build_report_arm_velocity_data(report_rows, loader_fn, value_key="value", invert_for_all=False, invert_left=False, peak_mode="max"):
+    if not report_rows:
+        return {"curves": {}, "events": {}, "metrics": {}}
+    take_ids = [row[0] for row in report_rows]
+    take_handedness = {row[0]: row[4] for row in report_rows}
+    take_ids_by_handedness = {
+        hand: [take_id for take_id in take_ids if take_handedness.get(take_id) == hand]
+        for hand in ("R", "L")
+    }
+    raw_data = {}
+    for hand, ids in take_ids_by_handedness.items():
+        if ids:
+            raw_data.update(loader_fn(ids, hand))
+    event_maps = get_report_event_frame_maps(take_ids)
+    br_frames = event_maps["BR"]
+    if any(take_id not in br_frames for take_id in take_ids):
+        cg_data = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if ids:
+                cg_data.update(get_hand_cg_velocity(ids, hand))
+        br_frames = {}
+        for take_id, curve in cg_data.items():
+            valid = [(i, value) for i, value in enumerate(curve["x"]) if value is not None]
+            if valid:
+                idx, _ = max(valid, key=lambda item: item[1])
+                br_frames[take_id] = curve["frame"][idx] + 4
+    curves = {}
+    peaks = []
+    take_metrics = {}
+    for take_id, curve in raw_data.items():
+        if take_id not in br_frames:
+            continue
+        normalized_frames = []
+        normalized_values = []
+        normalized_samples = []
+        for frame, value in zip(curve.get("frame", []), curve.get(value_key, [])):
+            if value is None or not np.isfinite(value):
+                continue
+            normalized = -value if invert_for_all or (invert_left and take_handedness.get(take_id) == "L") else value
+            normalized_frames.append(rel_frame_to_ms(frame - br_frames[take_id]))
+            normalized_values.append(normalized)
+            normalized_samples.append((frame, normalized))
+        if normalized_values:
+            curves[take_id] = {"frame": normalized_frames, "value": normalized_values}
+            if peak_mode == "external":
+                peak_value = abs(min(normalized_values))
+                peak_frame, _ = min(normalized_samples, key=lambda item: item[1])
+            elif peak_mode == "absolute":
+                peak_frame, peak_raw_value = max(normalized_samples, key=lambda item: abs(item[1]))
+                peak_value = abs(peak_raw_value)
+            else:
+                peak_frame, peak_value = max(normalized_samples, key=lambda item: item[1])
+            peaks.append(float(peak_value))
+            take_metrics.setdefault(take_id, {})["Max"] = {
+                "value": float(peak_value),
+                "source_frame": int(peak_frame),
+            }
+    return {
+        "curves": curves,
+        "events": event_maps.get("events", {}),
+        "metrics": {
+            "Max": {
+                "mean": float(np.mean(peaks)) if peaks else None,
+                "std": float(np.std(peaks, ddof=1 if len(peaks) > 1 else 0)) if peaks else None,
+            }
+        },
+        "take_metrics": take_metrics,
+    }
+
+
+def build_report_shoulder_horizontal_abduction_velocity_data(report_rows):
+    if not report_rows:
+        return {"curves": {}, "events": {}, "metrics": {}}
+
+    take_ids = [row[0] for row in report_rows]
+    take_handedness = {row[0]: row[4] for row in report_rows}
+    take_ids_by_handedness = {
+        hand: [take_id for take_id in take_ids if take_handedness.get(take_id) == hand]
+        for hand in ("R", "L")
+    }
+
+    def load_by_handedness(loader_fn):
+        merged = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if ids:
+                merged.update(loader_fn(ids, hand))
+        return merged
+
+    velocity_data = load_by_handedness(get_shoulder_horizontal_abduction_velocity)
+    raw_angle_data = load_by_handedness(get_original_shoulder_horizontal_angle)
+
+    event_maps = get_report_event_frame_maps(take_ids)
+    br_frames = event_maps["BR"]
+    mer_frames = event_maps["MER"]
+    fp_frames = event_maps["FP"]
+
+    if any(take_id not in br_frames or take_id not in mer_frames or take_id not in fp_frames for take_id in take_ids):
+        cg_data = load_by_handedness(get_hand_cg_velocity)
+        shoulder_er_data = load_by_handedness(get_shoulder_er_angles)
+        br_frames = {}
+        for take_id, curve in cg_data.items():
+            valid = [(idx, value) for idx, value in enumerate(curve.get("x", [])) if value is not None]
+            if valid:
+                idx, _ = max(valid, key=lambda item: item[1])
+                br_frames[take_id] = curve["frame"][idx] + 4
+
+        mer_frames = {}
+        for take_id, curve in shoulder_er_data.items():
+            valid = [(frame, value) for frame, value in zip(curve.get("frame", []), curve.get("z", [])) if value is not None]
+            if valid:
+                mer_frames[take_id] = (
+                    min(valid, key=lambda item: item[1])[0]
+                    if take_handedness.get(take_id) == "R"
+                    else max(valid, key=lambda item: item[1])[0]
+                )
+
+        fp_frames = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if not ids:
+                continue
+            ankle_peak_frames = get_peak_ankle_prox_x_velocity(ids, hand)
+            ankle_min_frames = get_ankle_min_frame(ids, hand, ankle_peak_frames, mer_frames)
+            ankle_zero_frames = get_foot_plant_frame_zero_cross(ids, hand, ankle_min_frames, mer_frames)
+            heel_anchor_frames = {
+                take_id: ankle_zero_frames.get(take_id, ankle_min_frames.get(take_id))
+                for take_id in ids
+            }
+            heel_frames = get_lead_heel_contact_frame(ids, hand, ankle_peak_frames, mer_frames, heel_anchor_frames)
+            for take_id in ids:
+                candidates = [
+                    value
+                    for value in [
+                        ankle_zero_frames.get(take_id),
+                        heel_frames.get(take_id),
+                        ankle_min_frames.get(take_id),
+                        ankle_peak_frames.get(take_id),
+                    ]
+                    if value is not None
+                ]
+                if candidates:
+                    fp_frames[take_id] = int(max(candidates[:2]) if len(candidates[:2]) == 2 else candidates[0])
+        for take_id, fp_frame in list(fp_frames.items()):
+            if take_id in mer_frames and fp_frame > mer_frames[take_id]:
+                fp_frames[take_id] = mer_frames[take_id]
+
+    curves = {}
+    peaks = []
+    take_metrics = {}
+    for take_id, velocity_curve in velocity_data.items():
+        br_frame = br_frames.get(take_id)
+        if br_frame is None:
+            continue
+
+        valid_velocity = [
+            (int(frame), float(value))
+            for frame, value in zip(velocity_curve.get("frame", []), velocity_curve.get("value", []))
+            if value is not None and np.isfinite(value)
+        ]
+        if valid_velocity:
+            curves[take_id] = {
+                "frame": [rel_frame_to_ms(frame - br_frame) for frame, _ in valid_velocity],
+                "value": [value for _, value in valid_velocity],
+            }
+
+        mer_frame = mer_frames.get(take_id)
+        angle_curve = raw_angle_data.get(take_id, {})
+        valid_angle = [
+            (int(frame), float(value))
+            for frame, value in zip(angle_curve.get("frame", []), angle_curve.get("value", []))
+            if value is not None and np.isfinite(value)
+        ]
+        if mer_frame is None or not valid_angle or not valid_velocity:
+            continue
+
+        scap_window = [(frame, value) for frame, value in valid_angle if mer_frame - 50 <= frame <= mer_frame]
+        if not scap_window:
+            continue
+        max_scap_frame, _ = (
+            min(scap_window, key=lambda item: item[1])
+            if take_handedness.get(take_id) == "R"
+            else max(scap_window, key=lambda item: item[1])
+        )
+
+        preceding_angles = [(frame, value) for frame, value in valid_angle if frame <= max_scap_frame]
+        start_frame = None
+        if take_handedness.get(take_id) == "R":
+            for (prev_frame, prev_value), (curr_frame, curr_value) in zip(preceding_angles, preceding_angles[1:]):
+                if prev_value > 0 and curr_value <= 0:
+                    start_frame = curr_frame
+        else:
+            for (prev_frame, prev_value), (curr_frame, curr_value) in zip(preceding_angles, preceding_angles[1:]):
+                if prev_value < 0 and curr_value >= 0:
+                    start_frame = curr_frame
+        if start_frame is None and preceding_angles:
+            start_frame, _ = min(preceding_angles, key=lambda item: abs(item[1]))
+        if start_frame is None:
+            continue
+
+        velocity_window = [
+            (frame, value)
+            for frame, value in valid_velocity
+            if start_frame <= frame <= max_scap_frame
+        ]
+        if velocity_window:
+            peak_frame, peak_raw_value = max(velocity_window, key=lambda item: item[1])
+            peak_value = abs(float(peak_raw_value))
+            peaks.append(peak_value)
+            take_metrics.setdefault(take_id, {})["Max"] = {
+                "value": peak_value,
+                "source_frame": int(peak_frame),
+            }
+
+    return {
+        "curves": curves,
+        "events": {
+            "fp_event_frames": [fp_frames[take_id] - br_frames[take_id] for take_id in fp_frames if take_id in br_frames],
+            "mer_event_frames": [mer_frames[take_id] - br_frames[take_id] for take_id in mer_frames if take_id in br_frames],
+        },
+        "metrics": {
+            "Max": {
+                "mean": float(np.mean(peaks)) if peaks else None,
+                "std": float(np.std(peaks, ddof=1 if len(peaks) > 1 else 0)) if peaks else None,
+            }
+        },
+        "take_metrics": take_metrics,
+    }
+
+
+def normalize_pelvis_velocity_value(value, component, handedness):
+    if value is None:
+        return value
+    if component == "x":
+        # Match position convention: positive is forward tilt velocity.
+        return -value
+    if component == "y" and handedness == "R":
+        # Match position convention: positive is glove-side lateral tilt velocity.
+        return -value
+    if component == "z" and handedness == "L":
+        # Match rotation convention: RHP z + 90, LHP 90 - z.
+        return -value
+    return value
+
+
+def normalize_torso_pelvis_rotation_value(value, handedness):
+    if value is None:
+        return value
+    # Positive torso-pelvis rotation means hip-shoulder separation for both handedness.
+    return -value if handedness == "R" else value
+
+
+def build_report_pelvis_velocity_window_data(report_rows, loader_fn, peak_selector, window_frames=40, component=None, peak_before_br_sign=None, normalizer_fn=None, peak_window=None):
+    if not report_rows:
+        return {"curves": {}, "events": {}, "metrics": {}}
+
+    take_ids = [row[0] for row in report_rows]
+    take_handedness = {row[0]: row[4] for row in report_rows}
+    take_ids_by_handedness = {
+        hand: [take_id for take_id in take_ids if take_handedness.get(take_id) == hand]
+        for hand in ("R", "L")
+    }
+
+    def load_by_handedness(loader_fn):
+        merged = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if ids:
+                merged.update(loader_fn(ids, hand))
+        return merged
+
+    pelvis_velocity_data = load_by_handedness(loader_fn)
+
+    event_maps = get_report_event_frame_maps(take_ids)
+    br_frames = event_maps["BR"]
+    mer_frames = event_maps["MER"]
+    fp_frames = event_maps["FP"]
+    pkh_frames = event_maps["PKH"]
+
+    if any(take_id not in br_frames or take_id not in mer_frames or take_id not in fp_frames for take_id in take_ids):
+        cg_data = load_by_handedness(get_hand_cg_velocity)
+        shoulder_er_data = load_by_handedness(get_shoulder_er_angles)
+        br_frames = {}
+        for take_id, curve in cg_data.items():
+            valid = [(idx, value) for idx, value in enumerate(curve["x"]) if value is not None]
+            if valid:
+                idx, _ = max(valid, key=lambda item: item[1])
+                br_frames[take_id] = curve["frame"][idx] + 4
+
+        mer_frames = {}
+        for take_id, curve in shoulder_er_data.items():
+            valid = [(frame, value) for frame, value in zip(curve["frame"], curve["z"]) if value is not None]
+            if valid:
+                mer_frames[take_id] = (
+                    min(valid, key=lambda item: item[1])[0]
+                    if take_handedness.get(take_id) == "R"
+                    else max(valid, key=lambda item: item[1])[0]
+                )
+
+        fp_frames = {}
+        for hand, ids in take_ids_by_handedness.items():
+            if not ids:
+                continue
+            ankle_peak_frames = get_peak_ankle_prox_x_velocity(ids, hand)
+            ankle_min_frames = get_ankle_min_frame(ids, hand, ankle_peak_frames, mer_frames)
+            ankle_zero_frames = get_foot_plant_frame_zero_cross(ids, hand, ankle_min_frames, mer_frames)
+            heel_anchor_frames = {
+                take_id: ankle_zero_frames.get(take_id, ankle_min_frames.get(take_id))
+                for take_id in ids
+            }
+            heel_frames = get_lead_heel_contact_frame(ids, hand, ankle_peak_frames, mer_frames, heel_anchor_frames)
+            for take_id in ids:
+                candidates = [
+                    value
+                    for value in [
+                        ankle_zero_frames.get(take_id),
+                        heel_frames.get(take_id),
+                        ankle_min_frames.get(take_id),
+                        ankle_peak_frames.get(take_id),
+                    ]
+                    if value is not None
+                ]
+                if candidates:
+                    fp_frames[take_id] = int(max(candidates[:2]) if len(candidates[:2]) == 2 else candidates[0])
+        for take_id, fp_frame in list(fp_frames.items()):
+            if take_id in mer_frames and fp_frame > mer_frames[take_id]:
+                fp_frames[take_id] = mer_frames[take_id]
+
+        pkh_frames = {}
+        if peak_window == "pkh_to_br":
+            for hand, ids in take_ids_by_handedness.items():
+                if ids:
+                    pkh_frames.update(get_peak_glove_knee_pre_br(ids, hand, br_frames))
+
+    curves = {}
+    peak_values = []
+    take_metrics = {}
+    for take_id, curve in pelvis_velocity_data.items():
+        br_frame = br_frames.get(take_id)
+        if br_frame is None:
+            continue
+
+        valid_samples = [
+            (
+                frame,
+                float(normalizer_fn(value, take_handedness.get(take_id)))
+                if normalizer_fn else
+                float(normalize_pelvis_velocity_value(value, component, take_handedness.get(take_id)))
+                if component else
+                float(value)
+            )
+            for frame, value in zip(curve.get("frame", []), curve.get("value", []))
+            if value is not None and np.isfinite(value)
+        ]
+        if not valid_samples:
+            continue
+
+        curves[take_id] = {
+            "frame": [rel_frame_to_ms(frame - br_frame) for frame, _ in valid_samples],
+            "value": [value for _, value in valid_samples],
+        }
+
+        fp_frame = fp_frames.get(take_id)
+        if peak_before_br_sign:
+            if peak_window == "pkh_to_br":
+                window_start = pkh_frames.get(take_id)
+                if window_start is None:
+                    window_start = fp_frame if fp_frame is not None else br_frame - (window_frames * 2)
+            else:
+                window_start = fp_frame - window_frames if fp_frame is not None else br_frame - (window_frames * 2)
+            windowed_samples = [
+                (frame, value)
+                for frame, value in valid_samples
+                if window_start <= frame <= br_frame
+                and ((peak_before_br_sign == "positive" and value > 0) or (peak_before_br_sign == "negative" and value < 0))
+            ]
+        else:
+            windowed_samples = [
+                (frame, value)
+                for frame, value in valid_samples
+                if fp_frame is not None and fp_frame - window_frames <= frame <= fp_frame + window_frames
+            ]
+        if not windowed_samples:
+            windowed_samples = [
+                (frame, value)
+                for frame, value in valid_samples
+                if frame <= br_frame
+                and (
+                    not peak_before_br_sign
+                    or (peak_before_br_sign == "positive" and value > 0)
+                    or (peak_before_br_sign == "negative" and value < 0)
+                )
+            ]
+        if not windowed_samples:
+            continue
+        windowed_values = [value for _frame, value in windowed_samples]
+        peak_value = abs(float(peak_selector(np.asarray(windowed_values, dtype=float), take_handedness.get(take_id))))
+        peak_frame, _raw_value = min(
+            windowed_samples,
+            key=lambda item: abs(abs(float(item[1])) - peak_value),
+        )
+        peak_values.append(peak_value)
+        take_metrics.setdefault(take_id, {})["Max"] = {
+            "value": peak_value,
+            "source_frame": int(peak_frame),
+        }
+
+    return {
+        "curves": curves,
+        "events": {
+            "fp_event_frames": [fp_frames[take_id] - br_frames[take_id] for take_id in fp_frames if take_id in br_frames],
+            "mer_event_frames": [mer_frames[take_id] - br_frames[take_id] for take_id in mer_frames if take_id in br_frames],
+        },
+        "metrics": {
+            "Max": {
+                "mean": float(np.mean(peak_values)) if peak_values else None,
+                "std": float(np.std(peak_values, ddof=1 if len(peak_values) > 1 else 0)) if peak_values else None,
+            }
+        },
+        "take_metrics": take_metrics,
+    }
+
+
+def build_report_pelvis_forward_tilt_velocity_data(report_rows):
+    return build_report_pelvis_velocity_window_data(
+        report_rows,
+        get_pelvis_angular_velocity_x,
+        lambda values, handedness: np.nanmax(values),
+        component="x",
+        peak_before_br_sign="positive",
+    )
+
+
+def build_report_pelvis_lateral_tilt_velocity_data(report_rows):
+    return build_report_pelvis_velocity_window_data(
+        report_rows,
+        get_pelvis_angular_velocity_y,
+        lambda values, handedness: np.nanmax(values),
+        component="y",
+        peak_before_br_sign="positive",
+    )
+
+
+def build_report_pelvis_rotation_velocity_data(report_rows):
+    return build_report_pelvis_velocity_window_data(
+        report_rows,
+        get_pelvis_angular_velocity_z,
+        lambda values, handedness: np.nanmax(values),
+        component="z",
+        peak_before_br_sign="positive",
+    )
+
+
+def build_report_torso_forward_tilt_velocity_data(report_rows):
+    return build_report_pelvis_velocity_window_data(
+        report_rows,
+        get_torso_angular_velocity_x,
+        lambda values, handedness: np.nanmax(values),
+        window_frames=50,
+        component="x",
+        peak_before_br_sign="positive",
+    )
+
+
+def build_report_torso_backward_tilt_velocity_data(report_rows):
+    return build_report_pelvis_velocity_window_data(
+        report_rows,
+        get_torso_angular_velocity_x,
+        lambda values, handedness: np.nanmin(values),
+        window_frames=50,
+        component="x",
+        peak_before_br_sign="negative",
+    )
+
+
+def build_report_torso_lateral_tilt_velocity_data(report_rows):
+    return build_report_pelvis_velocity_window_data(
+        report_rows,
+        get_torso_angular_velocity_y,
+        lambda values, handedness: np.nanmax(values),
+        window_frames=50,
+        component="y",
+        peak_before_br_sign="positive",
+    )
+
+
+def build_report_torso_rotation_velocity_data(report_rows):
+    return build_report_pelvis_velocity_window_data(
+        report_rows,
+        get_torso_angular_velocity_z,
+        lambda values, handedness: np.nanmax(values),
+        window_frames=50,
+        component="z",
+        peak_before_br_sign="positive",
+    )
+
+
+def build_report_torso_pelvis_velocity_data(report_rows, component, peak_direction=None):
+    if component == "x":
+        if peak_direction == "extension":
+            return build_report_pelvis_velocity_window_data(
+                report_rows,
+                lambda take_ids, handedness: get_torso_pelvis_angular_velocity_component(take_ids, component, handedness),
+                lambda values, handedness: np.nanmin(values),
+                window_frames=50,
+                component="x",
+                peak_before_br_sign="negative",
+            )
+        return build_report_pelvis_velocity_window_data(
+            report_rows,
+            lambda take_ids, handedness: get_torso_pelvis_angular_velocity_component(take_ids, component, handedness),
+            lambda values, handedness: np.nanmax(values),
+            window_frames=50,
+            component="x",
+            peak_before_br_sign="positive",
+        )
+    if component == "y":
+        if peak_direction == "arm_side":
+            return build_report_pelvis_velocity_window_data(
+                report_rows,
+                lambda take_ids, handedness: get_torso_pelvis_angular_velocity_component(take_ids, component, handedness),
+                lambda values, handedness: np.nanmin(values),
+                window_frames=50,
+                component="y",
+                peak_before_br_sign="negative",
+            )
+        return build_report_pelvis_velocity_window_data(
+            report_rows,
+            lambda take_ids, handedness: get_torso_pelvis_angular_velocity_component(take_ids, component, handedness),
+            lambda values, handedness: np.nanmax(values),
+            window_frames=50,
+            component="y",
+            peak_before_br_sign="positive",
+        )
+    if component == "z":
+        return build_report_pelvis_velocity_window_data(
+            report_rows,
+            lambda take_ids, handedness: get_torso_pelvis_angular_velocity_component(take_ids, component, handedness),
+            lambda values, handedness: np.nanmax(values),
+            window_frames=50,
+            component="z",
+            peak_before_br_sign="positive",
+            normalizer_fn=normalize_torso_pelvis_rotation_value,
+        )
+    selectors = {}
+    return build_report_pelvis_velocity_window_data(
+        report_rows,
+        lambda take_ids, handedness: get_torso_pelvis_angular_velocity_component(take_ids, component, handedness),
+        selectors[component],
+    )
+
+
+def report_metric_spec(metric_key, label, group, unit, builder_fn, athlete_key=None, reference_key=None, source_category=None, source_segment=None, source_axis=None):
+    base_key = metric_key
+    return {
+        "metric_key": metric_key,
+        "label": label,
+        "group": group,
+        "unit": unit,
+        "builder": builder_fn,
+        "athlete_key": athlete_key or f"athlete_{base_key}",
+        "reference_key": reference_key or f"reference_{base_key}",
+        "source_category": source_category,
+        "source_segment": source_segment,
+        "source_axis": source_axis,
+    }
+
+
+def get_report_metric_specs():
+    return [
+        report_metric_spec("elbow_flexion", "Elbow Flexion", "Throwing Arm Kinematics", "deg", build_report_elbow_flexion_data, athlete_key="athlete", reference_key="reference"),
+        report_metric_spec("shoulder_abduction", "Shoulder Abduction", "Throwing Arm Kinematics", "deg", build_report_shoulder_abduction_data),
+        report_metric_spec("shoulder_horizontal_abduction", "Shoulder Horizontal Abduction", "Throwing Arm Kinematics", "deg", build_report_shoulder_horizontal_abduction_data),
+        report_metric_spec("shoulder_rotation", "Shoulder Rotation", "Throwing Arm Kinematics", "deg", build_report_shoulder_rotation_data),
+        report_metric_spec("elbow_extension_velocity", "Elbow Extension Angular Velocity", "Throwing Arm Kinematics", "deg/s", lambda rows: build_report_arm_velocity_data(rows, get_elbow_angular_velocity, value_key="x", invert_for_all=True)),
+        report_metric_spec("shoulder_external_rotation_velocity", "Shoulder External Rotation Angular Velocity", "Throwing Arm Kinematics", "deg/s", lambda rows: build_report_arm_velocity_data(rows, get_shoulder_ir_velocity, value_key="x", invert_left=True, peak_mode="external")),
+        report_metric_spec("shoulder_internal_rotation_velocity", "Shoulder Internal Rotation Angular Velocity", "Throwing Arm Kinematics", "deg/s", lambda rows: build_report_arm_velocity_data(rows, get_shoulder_ir_velocity, value_key="x", invert_left=True)),
+        report_metric_spec("shoulder_horizontal_abduction_velocity", "Shoulder Horizontal Abduction Angular Velocity", "Throwing Arm Kinematics", "deg/s", build_report_shoulder_horizontal_abduction_velocity_data),
+        report_metric_spec("pelvis_forward_tilt", "Pelvis Forward Tilt", "Pelvis & Torso Kinematics", "deg", lambda rows: build_report_pelvis_component_data(rows, "x")),
+        report_metric_spec("pelvis_lateral_tilt", "Pelvis Lateral Tilt", "Pelvis & Torso Kinematics", "deg", lambda rows: build_report_pelvis_component_data(rows, "y")),
+        report_metric_spec("pelvis_rotation", "Pelvis Rotation", "Pelvis & Torso Kinematics", "deg", lambda rows: build_report_pelvis_component_data(rows, "z")),
+        report_metric_spec("torso_forward_tilt", "Torso Forward Tilt", "Pelvis & Torso Kinematics", "deg", lambda rows: build_report_torso_component_data(rows, "x")),
+        report_metric_spec("torso_lateral_tilt", "Torso Lateral Tilt", "Pelvis & Torso Kinematics", "deg", lambda rows: build_report_torso_component_data(rows, "y")),
+        report_metric_spec("torso_rotation", "Torso Rotation", "Pelvis & Torso Kinematics", "deg", lambda rows: build_report_torso_component_data(rows, "z")),
+        report_metric_spec("torso_pelvis_forward_tilt", "Torso-Pelvis Flexion/Extension", "Torso-Pelvis Kinematics", "deg", lambda rows: build_report_torso_pelvis_component_data(rows, "x")),
+        report_metric_spec("torso_pelvis_lateral_tilt", "Torso-Pelvis Lateral Flexion", "Torso-Pelvis Kinematics", "deg", lambda rows: build_report_torso_pelvis_component_data(rows, "y")),
+        report_metric_spec("torso_pelvis_rotation", "Torso-Pelvis Rotation", "Torso-Pelvis Kinematics", "deg", lambda rows: build_report_torso_pelvis_component_data(rows, "z")),
+        report_metric_spec("torso_pelvis_flexion_velocity", "Torso-Pelvis Flexion Angular Velocity", "Torso-Pelvis Kinematics", "deg/s", lambda rows: build_report_torso_pelvis_velocity_data(rows, "x", peak_direction="flexion")),
+        report_metric_spec("torso_pelvis_extension_velocity", "Torso-Pelvis Extension Angular Velocity", "Torso-Pelvis Kinematics", "deg/s", lambda rows: build_report_torso_pelvis_velocity_data(rows, "x", peak_direction="extension")),
+        report_metric_spec("torso_pelvis_glove_side_lateral_flexion_velocity", "Torso-Pelvis Glove-Side Lateral Flexion Angular Velocity", "Torso-Pelvis Kinematics", "deg/s", lambda rows: build_report_torso_pelvis_velocity_data(rows, "y", peak_direction="glove_side")),
+        report_metric_spec("torso_pelvis_arm_side_lateral_flexion_velocity", "Torso-Pelvis Arm-Side Lateral Flexion Angular Velocity", "Torso-Pelvis Kinematics", "deg/s", lambda rows: build_report_torso_pelvis_velocity_data(rows, "y", peak_direction="arm_side")),
+        report_metric_spec("torso_pelvis_separation_velocity", "Torso-Pelvis Separation Angular Velocity", "Torso-Pelvis Kinematics", "deg/s", lambda rows: build_report_torso_pelvis_velocity_data(rows, "z")),
+        report_metric_spec("back_hip_forward_tilt", "Back Hip Flexion/Extension", "Hips Kinematics", "deg", lambda rows: build_report_hip_component_data(rows, "back", "x")),
+        report_metric_spec("back_hip_lateral_tilt", "Back Hip Ab/Adduction", "Hips Kinematics", "deg", lambda rows: build_report_hip_component_data(rows, "back", "y")),
+        report_metric_spec("back_hip_rotation", "Back Hip Rotation", "Hips Kinematics", "deg", lambda rows: build_report_hip_component_data(rows, "back", "z")),
+        report_metric_spec("lead_hip_forward_tilt", "Lead Hip Flexion/Extension", "Hips Kinematics", "deg", lambda rows: build_report_hip_component_data(rows, "lead", "x")),
+        report_metric_spec("lead_hip_lateral_tilt", "Lead Hip Ab/Adduction", "Hips Kinematics", "deg", lambda rows: build_report_hip_component_data(rows, "lead", "y")),
+        report_metric_spec("lead_hip_rotation", "Lead Hip Rotation", "Hips Kinematics", "deg", lambda rows: build_report_hip_component_data(rows, "lead", "z")),
+        report_metric_spec("cg_velocity_x", "COG Anterior/Posterior Velocity", "COG Velocity", "m/s", lambda rows: build_report_cg_velocity_data(rows, "x")),
+        report_metric_spec("cg_velocity_y", "COG Medial/Lateral Velocity", "COG Velocity", "m/s", lambda rows: build_report_cg_velocity_data(rows, "y")),
+        report_metric_spec("cg_velocity_z", "COG Vertical Velocity", "COG Velocity", "m/s", lambda rows: build_report_cg_velocity_data(rows, "z")),
+        report_metric_spec("back_knee_flexion_extension", "Back Knee Flexion/Extension", "Lower Extremity Kinematics", "deg", lambda rows: build_report_lower_extremity_component_data(rows, "back", "KNEE", "x")),
+        report_metric_spec("back_ankle_flexion_extension", "Back Ankle Flexion/Extension", "Lower Extremity Kinematics", "deg", lambda rows: build_report_lower_extremity_component_data(rows, "back", "ANKLE", "x")),
+        report_metric_spec("front_knee_flexion_extension", "Front Knee Flexion/Extension", "Lower Extremity Kinematics", "deg", lambda rows: build_report_lower_extremity_component_data(rows, "front", "KNEE", "x")),
+        report_metric_spec("front_ankle_flexion_extension", "Front Ankle Flexion/Extension", "Lower Extremity Kinematics", "deg", lambda rows: build_report_lower_extremity_component_data(rows, "front", "ANKLE", "x")),
+        report_metric_spec("back_ankle_eversion_inversion", "Back Ankle Eversion/Inversion", "Lower Extremity Kinematics", "deg", lambda rows: build_report_lower_extremity_component_data(rows, "back", "ANKLE", "y")),
+        report_metric_spec("back_knee_flexion_extension_velocity", "Back Knee Extension Angular Velocity", "Lower Extremity Kinematics", "deg/s", lambda rows: build_report_lower_extremity_velocity_data(rows, "back", "KNEE", "x")),
+        report_metric_spec("back_ankle_flexion_extension_velocity", "Back Ankle Plantarflexion Angular Velocity", "Lower Extremity Kinematics", "deg/s", lambda rows: build_report_lower_extremity_velocity_data(rows, "back", "ANKLE", "x")),
+        report_metric_spec("front_knee_flexion_extension_velocity", "Front Knee Extension Angular Velocity", "Lower Extremity Kinematics", "deg/s", lambda rows: build_report_lower_extremity_velocity_data(rows, "front", "KNEE", "x")),
+        report_metric_spec("front_ankle_flexion_extension_velocity", "Front Ankle Plantarflexion Angular Velocity", "Lower Extremity Kinematics", "deg/s", lambda rows: build_report_lower_extremity_velocity_data(rows, "front", "ANKLE", "x")),
+        report_metric_spec("back_ankle_eversion_inversion_velocity", "Back Ankle Ev/Inv Angular Velocity", "Lower Extremity Kinematics", "deg/s", lambda rows: build_report_lower_extremity_velocity_data(rows, "back", "ANKLE", "y")),
+        report_metric_spec("back_hip_flexion_velocity", "Back Hip Flexion Angular Velocity", "Hips Kinematics", "deg/s", lambda rows: build_report_hip_velocity_data(rows, "back", "x", peak_direction="flexion")),
+        report_metric_spec("back_hip_extension_velocity", "Back Hip Extension Angular Velocity", "Hips Kinematics", "deg/s", lambda rows: build_report_hip_velocity_data(rows, "back", "x", peak_direction="extension")),
+        report_metric_spec("back_hip_lateral_tilt_velocity", "Back Hip Adduction Angular Velocity", "Hips Kinematics", "deg/s", lambda rows: build_report_hip_velocity_data(rows, "back", "y")),
+        report_metric_spec("back_hip_external_rotation_velocity", "Back Hip External Rotation Angular Velocity", "Hips Kinematics", "deg/s", lambda rows: build_report_hip_velocity_data(rows, "back", "z", peak_direction="external")),
+        report_metric_spec("back_hip_internal_rotation_velocity", "Back Hip Internal Rotation Angular Velocity", "Hips Kinematics", "deg/s", lambda rows: build_report_hip_velocity_data(rows, "back", "z", peak_direction="internal")),
+        report_metric_spec("lead_hip_extension_velocity", "Lead Hip Extension Angular Velocity", "Hips Kinematics", "deg/s", lambda rows: build_report_hip_velocity_data(rows, "lead", "x", peak_direction="extension")),
+        report_metric_spec("lead_hip_lateral_tilt_velocity", "Lead Hip Adduction Angular Velocity", "Hips Kinematics", "deg/s", lambda rows: build_report_hip_velocity_data(rows, "lead", "y")),
+        report_metric_spec("lead_hip_internal_rotation_velocity", "Lead Hip Internal Rotation Angular Velocity", "Hips Kinematics", "deg/s", lambda rows: build_report_hip_velocity_data(rows, "lead", "z", peak_direction="internal")),
+        report_metric_spec("pelvis_forward_tilt_velocity", "Pelvis Forward Tilt Angular Velocity", "Pelvis & Torso Kinematics", "deg/s", build_report_pelvis_forward_tilt_velocity_data),
+        report_metric_spec("pelvis_lateral_tilt_velocity", "Pelvis Lateral Tilt Angular Velocity", "Pelvis & Torso Kinematics", "deg/s", build_report_pelvis_lateral_tilt_velocity_data),
+        report_metric_spec("pelvis_rotation_velocity", "Pelvis Rotation Angular Velocity", "Pelvis & Torso Kinematics", "deg/s", build_report_pelvis_rotation_velocity_data),
+        report_metric_spec("torso_forward_tilt_velocity", "Torso Forward Tilt Angular Velocity", "Pelvis & Torso Kinematics", "deg/s", build_report_torso_forward_tilt_velocity_data),
+        report_metric_spec("torso_backward_tilt_velocity", "Torso Backward Tilt Angular Velocity", "Pelvis & Torso Kinematics", "deg/s", build_report_torso_backward_tilt_velocity_data),
+        report_metric_spec("torso_lateral_tilt_velocity", "Torso Lateral Tilt Angular Velocity", "Pelvis & Torso Kinematics", "deg/s", build_report_torso_lateral_tilt_velocity_data),
+        report_metric_spec("torso_rotation_velocity", "Torso Rotation Angular Velocity", "Pelvis & Torso Kinematics", "deg/s", build_report_torso_rotation_velocity_data),
+    ]
+
+
+def load_or_build_report_metric(report_rows, spec):
+    take_ids = [row[0] for row in report_rows]
+    cached_data = get_cached_report_metric_data(take_ids, spec["metric_key"])
+    if cached_data is not None:
+        return cached_data
+
+    metric_data = spec["builder"](report_rows)
+    cache_report_metric_data(
+        report_rows,
+        spec["metric_key"],
+        spec["label"],
+        spec["group"],
+        spec["unit"],
+        spec.get("source_category"),
+        spec.get("source_segment"),
+        spec.get("source_axis"),
+        metric_data,
+    )
+    return metric_data
+
+
+def build_report_arm_kinematics(report_rows, reference_report_rows):
+    arm_kinematics = {}
+    specs = get_report_metric_specs()
+    metric_keys = [spec["metric_key"] for spec in specs]
+    athlete_take_ids = [row[0] for row in report_rows]
+    reference_take_ids = [row[0] for row in reference_report_rows]
+    athlete_bundle = get_cached_report_metric_bundle(athlete_take_ids, metric_keys)
+    reference_bundle = get_cached_report_metric_bundle(reference_take_ids, metric_keys)
+    for spec in specs:
+        metric_key = spec["metric_key"]
+        arm_kinematics[spec["athlete_key"]] = (
+            athlete_bundle.get(metric_key)
+            or load_or_build_report_metric(report_rows, spec)
+        )
+        arm_kinematics[spec["reference_key"]] = (
+            reference_bundle.get(metric_key)
+            or load_or_build_report_metric(reference_report_rows, spec)
+        )
+    arm_kinematics["athlete_stride"] = build_report_stride_data(report_rows)
+    arm_kinematics["reference_stride"] = build_report_stride_data(reference_report_rows)
+    return arm_kinematics
+
+
+def build_report_pdf(athlete_name, session_date, summary_rows, curves_by_segment, report_events, arm_kinematics=None, report_context=None, selected_sections=None):
+    page_width, page_height = 792, 612
+    margin = 36
+    ops = []
+    report_context = report_context or {}
+    logo_image = None
+
+    try:
+        from PIL import Image
+
+        logo_path = ASSETS_DIR / "theia_logo_pdf.png"
+        if not logo_path.exists():
+            logo_path = ASSETS_DIR / "theia_favicon.png"
+        if not logo_path.exists():
+            logo_path = ASSETS_DIR / "favicon.png"
+        if logo_path.exists():
+            with Image.open(logo_path) as img:
+                img = img.convert("RGBA")
+                background = Image.new("RGBA", img.size, (255, 255, 255, 255))
+                background.alpha_composite(img)
+                rgb_img = background.convert("RGB")
+                logo_image = {
+                    "width": rgb_img.width,
+                    "height": rgb_img.height,
+                    "data": zlib.compress(rgb_img.tobytes()),
+                }
+    except Exception:
+        logo_image = None
+
+    def rgb(hex_value):
+        hex_value = hex_value.lstrip("#")
+        return tuple(int(hex_value[i:i + 2], 16) / 255 for i in (0, 2, 4))
+
+    def esc(value):
+        return str(value).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    def text(x, y, value, size=10, bold=False, color="#111827"):
+        r, g, b = rgb(color)
+        font = "F2" if bold else "F1"
+        ops.append(f"{r:.4f} {g:.4f} {b:.4f} rg")
+        ops.append(f"BT /{font} {size} Tf {x:.2f} {y:.2f} Td ({esc(value)}) Tj ET")
+
+    def text_centered(x, y, width, value, size=10, bold=False, color="#111827"):
+        estimated_width = len(str(value)) * size * (0.56 if bold else 0.50)
+        text(x + (width - estimated_width) / 2, y, value, size=size, bold=bold, color=color)
+
+    def text_rotated(x, y, value, size=10, bold=False, color="#111827", angle=90):
+        r, g, b = rgb(color)
+        font = "F2" if bold else "F1"
+        radians = np.deg2rad(angle)
+        cos_a = np.cos(radians)
+        sin_a = np.sin(radians)
+        ops.append(f"{r:.4f} {g:.4f} {b:.4f} rg")
+        ops.append(
+            f"q {cos_a:.4f} {sin_a:.4f} {-sin_a:.4f} {cos_a:.4f} {x:.2f} {y:.2f} cm "
+            f"BT /{font} {size} Tf 0 0 Td ({esc(value)}) Tj ET Q"
+        )
+
+    def image(name, x, y, width, height):
+        ops.append(f"q {width:.2f} 0 0 {height:.2f} {x:.2f} {y:.2f} cm /{name} Do Q")
+
+    def line(x1, y1, x2, y2, color="#111827", width=0.75):
+        r, g, b = rgb(color)
+        ops.append(f"{r:.4f} {g:.4f} {b:.4f} RG")
+        ops.append(f"{width:.2f} w {x1:.2f} {y1:.2f} m {x2:.2f} {y2:.2f} l S")
+
+    def dashed_line(x1, y1, x2, y2, color="#111827", width=0.75, pattern="3 3"):
+        r, g, b = rgb(color)
+        ops.append(f"{r:.4f} {g:.4f} {b:.4f} RG")
+        ops.append(f"[{pattern}] 0 d {width:.2f} w {x1:.2f} {y1:.2f} m {x2:.2f} {y2:.2f} l S [] 0 d")
+
+    def rect(x, y, width, height, stroke="#D1D5DB", fill=None, line_width=0.75):
+        if fill:
+            r, g, b = rgb(fill)
+            ops.append(f"{r:.4f} {g:.4f} {b:.4f} rg")
+            ops.append(f"{x:.2f} {y:.2f} {width:.2f} {height:.2f} re f")
+        r, g, b = rgb(stroke)
+        ops.append(f"{r:.4f} {g:.4f} {b:.4f} RG")
+        ops.append(f"{line_width:.2f} w {x:.2f} {y:.2f} {width:.2f} {height:.2f} re S")
+
+    def circle(cx, cy, radius, stroke="#D1D5DB", fill=None, line_width=0.75):
+        kappa = 0.5522847498
+        c = radius * kappa
+        parts = []
+        if fill:
+            r, g, b = rgb(fill)
+            parts.append(f"{r:.4f} {g:.4f} {b:.4f} rg")
+        r, g, b = rgb(stroke)
+        parts.append(f"{r:.4f} {g:.4f} {b:.4f} RG")
+        parts.append(f"{line_width:.2f} w")
+        parts.append(f"{cx + radius:.2f} {cy:.2f} m")
+        parts.append(f"{cx + radius:.2f} {cy + c:.2f} {cx + c:.2f} {cy + radius:.2f} {cx:.2f} {cy + radius:.2f} c")
+        parts.append(f"{cx - c:.2f} {cy + radius:.2f} {cx - radius:.2f} {cy + c:.2f} {cx - radius:.2f} {cy:.2f} c")
+        parts.append(f"{cx - radius:.2f} {cy - c:.2f} {cx - c:.2f} {cy - radius:.2f} {cx:.2f} {cy - radius:.2f} c")
+        parts.append(f"{cx + c:.2f} {cy - radius:.2f} {cx + radius:.2f} {cy - c:.2f} {cx + radius:.2f} {cy:.2f} c")
+        parts.append("B" if fill else "S")
+        ops.append("\n".join(parts))
+
+    def poly(points, stroke=None, fill=None, line_width=0.75):
+        if len(points) < 3:
+            return
+        parts = []
+        if fill:
+            r, g, b = rgb(fill)
+            parts.append(f"{r:.4f} {g:.4f} {b:.4f} rg")
+        if stroke:
+            r, g, b = rgb(stroke)
+            parts.append(f"{r:.4f} {g:.4f} {b:.4f} RG")
+            parts.append(f"{line_width:.2f} w")
+        parts.append(f"{points[0][0]:.2f} {points[0][1]:.2f} m")
+        for x, y in points[1:]:
+            parts.append(f"{x:.2f} {y:.2f} l")
+        parts.append("h")
+        parts.append("B" if stroke and fill else "f" if fill else "S")
+        ops.append("\n".join(parts))
+
+    def path(points, color="#111827", width=1.5):
+        if len(points) < 2:
+            return
+        r, g, b = rgb(color)
+        parts = [f"{r:.4f} {g:.4f} {b:.4f} RG", f"{width:.2f} w"]
+        parts.append(f"{points[0][0]:.2f} {points[0][1]:.2f} m")
+        for x, y in points[1:]:
+            parts.append(f"{x:.2f} {y:.2f} l")
+        parts.append("S")
+        ops.append("\n".join(parts))
+
+    def arrow(x1, y1, x2, y2, color="#111827", width=1.5, head_size=6.0):
+        line(x1, y1, x2, y2, color=color, width=width)
+        angle = np.arctan2(y2 - y1, x2 - x1)
+        for delta in (np.pi * 0.78, -np.pi * 0.78):
+            hx = x2 + head_size * np.cos(angle + delta)
+            hy = y2 + head_size * np.sin(angle + delta)
+            line(x2, y2, hx, hy, color=color, width=width)
+
+    def draw_detail(label, value, x, y, width):
+        text(x, y + 16, label.upper(), 7.5, bold=True, color="#64748B")
+        text(x, y, value or "N/A", 13, bold=True, color="#111827")
+        line(x, y - 10, x + width, y - 10, color="#E5E7EB", width=0.6)
+
+    pdf_palette = {
+        "arm_primary": ("#6D5DF6", "#E9E7FF"),
+        "arm_secondary": ("#A855F7", "#F3E8FF"),
+        "arm_tertiary": ("#0E9FAD", "#CCFBF1"),
+        "arm_rotation": ("#D9468C", "#FCE7F3"),
+        "pelvis_primary": ("#2563EB", "#DBEAFE"),
+        "pelvis_secondary": ("#3B82F6", "#DBEAFE"),
+        "pelvis_rotation": ("#0F766E", "#CCFBF1"),
+        "torso_primary": ("#EA580C", "#FED7AA"),
+        "torso_secondary": ("#F97316", "#FFEDD5"),
+        "torso_rotation": ("#B45309", "#FEF3C7"),
+        "torso_pelvis_primary": ("#7C3AED", "#DDD6FE"),
+        "torso_pelvis_secondary": ("#C2410C", "#FFEDD5"),
+        "torso_pelvis_rotation": ("#0891B2", "#CFFAFE"),
+        "hip_back": ("#15803D", "#DCFCE7"),
+        "hip_lead": ("#0D9488", "#CCFBF1"),
+        "hip_rotation": ("#2563EB", "#DBEAFE"),
+        "lower_back": ("#64748B", "#E2E8F0"),
+        "lower_front": ("#475569", "#E2E8F0"),
+        "lower_ankle": ("#0F766E", "#CCFBF1"),
+        "cog": ("#334155", "#E2E8F0"),
+        "cog_secondary": ("#64748B", "#E2E8F0"),
+        "cog_vertical": ("#0891B2", "#CFFAFE"),
+        "stride_primary": ("#334155", "#E2E8F0"),
+        "stride_secondary": ("#0F766E", "#CCFBF1"),
+        "stride_tertiary": ("#0891B2", "#CFFAFE"),
+    }
+
+    def palette_color(name):
+        return pdf_palette[name][0]
+
+    def palette_fill(name):
+        return pdf_palette[name][1]
+
+    logo_size = 137
+    if logo_image:
+        logo_height = logo_size * (logo_image["height"] / logo_image["width"])
+        image("ImLogo", page_width - margin - logo_size, page_height - margin - logo_height - 4, logo_size, logo_height)
+    text(margin, page_height - 78, athlete_name, 34, bold=True, color="#111827")
+    text(margin, page_height - 114, "Pitching Motion Capture Report", 22, bold=True, color="#111827")
+    line(margin, page_height - 140, page_width - margin, page_height - 140, color="#111827", width=2.0)
+
+    left_x = margin
+    right_x = page_width / 2 + 18
+    detail_width = page_width / 2 - margin - 42
+    text(left_x, page_height - 194, "Report Selection", 17, bold=True, color="#111827")
+    draw_detail("Session Date", session_date, left_x, page_height - 238, detail_width)
+    draw_detail("Velocity Range", report_context.get("velocity_range_label", "All"), left_x, page_height - 302, detail_width)
+
+    text(right_x, page_height - 194, "Reference Group", 17, bold=True, color="#111827")
+    draw_detail("Athletes", report_context.get("reference_athletes_label", "All"), right_x, page_height - 238, detail_width)
+    draw_detail("Handedness", report_context.get("reference_handedness_label", "All"), right_x, page_height - 302, detail_width)
+    draw_detail("Velocity Range", report_context.get("reference_velocity_range_label", "All"), right_x, page_height - 366, detail_width)
+    draw_detail("Arm Slot", report_context.get("reference_arm_slot_label", "All"), right_x, page_height - 430, detail_width)
+    cover_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Kinematic Sequence", 28, bold=True, color="#111827")
+
+    chart_left = margin
+    chart_bottom = 230
+    chart_width = page_width - (margin * 2)
+    chart_height = 285
+    plot_left = chart_left + 52
+    plot_right = chart_left + chart_width - 22
+    plot_bottom = chart_bottom + 39
+    plot_top = chart_bottom + chart_height - 28
+
+    fp_event_frames = report_events.get("fp_event_frames", [])
+    mer_event_frames = report_events.get("mer_event_frames", [])
+    take_count = report_events.get("take_count", 0)
+    window_start_frame = int(np.median(fp_event_frames)) - ms_to_rel_frame(100) if fp_event_frames else -ms_to_rel_frame(100)
+    x_min = rel_frame_to_ms(window_start_frame)
+    x_max = rel_frame_to_ms(ms_to_rel_frame(150))
+
+    color_map = {
+        "Pelvis Rotation": "#1F77B4",
+        "Torso Rotation": "#FF7F0E",
+        "Elbow Extension": "#2CA02C",
+        "Shoulder Internal Rotation": "#D62728",
+    }
+    band_color_map = {
+        "Pelvis Rotation": "#DBEAFE",
+        "Torso Rotation": "#FED7AA",
+        "Elbow Extension": "#DCFCE7",
+        "Shoulder Internal Rotation": "#FEE2E2",
+    }
+
+    grouped_by_segment = {}
+    for segment, curves in curves_by_segment.items():
+        if curves:
+            x_vals, y_vals, q1_vals, q3_vals = aggregate_curves(curves, "Mean")
+            grouped_by_segment[segment] = {
+                "frame": x_vals,
+                "value": y_vals,
+                "q1": q1_vals,
+                "q3": q3_vals,
+            }
+    visible_values = [
+        value
+        for grouped in grouped_by_segment.values()
+        for time_ms, value in zip(grouped["frame"], grouped["value"])
+        if value is not None and np.isfinite(value) and x_min <= time_ms <= x_max
+    ]
+    y_min = min(visible_values) if visible_values else 0
+    y_max = max(visible_values) if visible_values else 1
+    y_span = max(y_max - y_min, 1)
+    y_min -= 0.10 * y_span
+    y_max += 0.35 * y_span
+
+    def sx(value):
+        return plot_left + ((value - x_min) / (x_max - x_min)) * (plot_right - plot_left)
+
+    def sy(value):
+        return plot_bottom + ((value - y_min) / (y_max - y_min)) * (plot_top - plot_bottom)
+
+    median_fp_ms = rel_frame_to_ms(int(np.median(fp_event_frames))) if fp_event_frames else None
+
+    def peak_index_for_pdf(segment, grouped):
+        valid_idxs = [
+            i
+            for i, (time_ms, value) in enumerate(zip(grouped["frame"], grouped["value"]))
+            if value is not None and np.isfinite(value) and x_min <= time_ms <= x_max
+        ]
+        if segment in {"Pelvis Rotation", "Torso Rotation"} and median_fp_ms is not None:
+            valid_idxs = [
+                i
+                for i in valid_idxs
+                if median_fp_ms <= grouped["frame"][i] <= 0
+            ]
+        if not valid_idxs:
+            return None
+        return max(valid_idxs, key=lambda i: grouped["value"][i])
+
+    tick_start = int(np.ceil(x_min / 100) * 100)
+    tick_end = int(np.floor(x_max / 100) * 100)
+    for tick in range(tick_start, tick_end + 1, 100):
+        x = sx(tick)
+        line(x, plot_bottom, x, plot_top, color="#F3F4F6", width=0.35)
+        text(x - 10, plot_bottom - 11, tick, 7, color="#4B5563")
+
+    y_tick_step = 1000
+    y_tick_start = np.ceil(y_min / y_tick_step) * y_tick_step
+    y_tick_end = np.floor(y_max / y_tick_step) * y_tick_step
+    y_ticks = np.arange(y_tick_start, y_tick_end + (y_tick_step * 0.5), y_tick_step)
+    for tick in y_ticks:
+        y = sy(tick)
+        if abs(tick) > 1e-9 and plot_bottom < y < plot_top:
+            line(plot_left, y, plot_right, y, color="#F3F4F6", width=0.35)
+        text(plot_left - 30, y - 2, f"{tick:.0f}°/s", 7, color="#4B5563")
+
+    def draw_event(label, event_frames, color, band_fill):
+        if not event_frames:
+            return
+        q1 = rel_frame_to_ms(int(np.percentile(event_frames, 25)))
+        q3 = rel_frame_to_ms(int(np.percentile(event_frames, 75)))
+        median_value = rel_frame_to_ms(int(np.median(event_frames)))
+        if q1 != q3:
+            left = max(x_min, q1)
+            right = min(x_max, q3)
+            if left < right:
+                rect(sx(left), plot_bottom, sx(right) - sx(left), plot_top - plot_bottom, stroke=band_fill, fill=band_fill, line_width=0.1)
+        if x_min <= median_value <= x_max:
+            x = sx(median_value)
+            line(x, plot_bottom, x, plot_top, color=color, width=1.2)
+            text(x + 3, plot_top - 9, label, 7, bold=True, color=color)
+
+    draw_event("FP", fp_event_frames, "#16A34A", "#DCFCE7")
+    draw_event("MER", mer_event_frames, "#DC2626", "#FEE2E2")
+    draw_event("BR", [0] * max(take_count, 1), "#2563EB", "#DBEAFE")
+
+    peak_arrows = []
+    for segment in ["Pelvis Rotation", "Torso Rotation", "Elbow Extension", "Shoulder Internal Rotation"]:
+        grouped = grouped_by_segment.get(segment)
+        if not grouped:
+            continue
+        upper = []
+        lower = []
+        line_points = []
+        for time_ms, mean_value, q1, q3 in zip(grouped["frame"], grouped["value"], grouped["q1"], grouped["q3"]):
+            if time_ms < x_min or time_ms > x_max or mean_value is None:
+                continue
+            line_points.append((sx(time_ms), sy(mean_value)))
+            if q1 is not None and q3 is not None and np.isfinite(q1) and np.isfinite(q3):
+                upper.append((sx(time_ms), sy(q3)))
+                lower.append((sx(time_ms), sy(q1)))
+        if upper and lower:
+            poly(upper + lower[::-1], fill=band_color_map[segment])
+        path(line_points, color=color_map[segment], width=1.8)
+        peak_idx = peak_index_for_pdf(segment, grouped)
+        if peak_idx is not None:
+            peak_x = grouped["frame"][peak_idx]
+            peak_y = grouped["value"][peak_idx]
+            px = sx(peak_x)
+            py = sy(peak_y)
+            arrow_start_y = min(plot_top - 4, py + 22)
+            if arrow_start_y - py < 12:
+                arrow_start_y = min(plot_top - 2, py + 14)
+            peak_arrows.append((px, arrow_start_y, px, py + 2, color_map[segment]))
+
+    if y_min < 0 < y_max:
+        zero_y = sy(0)
+        dashed_line(plot_left, zero_y, plot_right, zero_y, color="#111111", width=0.55, pattern="2 2")
+
+    for x1, y1, x2, y2, color in peak_arrows:
+        arrow(x1, y1, x2, y2, color=color, width=1.4, head_size=5.5)
+
+    rect(plot_left, plot_bottom, plot_right - plot_left, plot_top - plot_bottom, stroke="#111111", fill=None, line_width=1.0)
+
+    legend_label_map = {
+        "Pelvis Rotation": "Pelvis Rotation",
+        "Torso Rotation": "Torso Rotation",
+        "Elbow Extension": "Elbow Extension",
+        "Shoulder Internal Rotation": "Shoulder Rotation",
+    }
+    legend_width = 122
+    legend_height = 54
+    legend_x = plot_right - legend_width - 8
+    legend_y = plot_top - legend_height - 7
+    rect(legend_x, legend_y, legend_width, legend_height, stroke="#D1D5DB", fill="#FFFFFF", line_width=0.75)
+    for index, segment in enumerate(["Pelvis Rotation", "Torso Rotation", "Elbow Extension", "Shoulder Internal Rotation"]):
+        y = legend_y + legend_height - 12 - (index * 11)
+        line(legend_x + 8, y + 4, legend_x + 25, y + 4, color=color_map[segment], width=2)
+        text(legend_x + 32, y, legend_label_map[segment], 7)
+    rect(plot_left + 6, plot_bottom + 6, 135, 12, stroke="#FFFFFF", fill="#FFFFFF", line_width=0.1)
+    text(plot_left + 10, plot_bottom + 9, "Bands show interquartile range across throws", 6.2, color="#64748B")
+    text((plot_left + plot_right) / 2 - 65, plot_bottom - 27, "Time Relative to Ball Release (ms)", 8, bold=True, color="#111111")
+    text_rotated(chart_left + 6, (plot_bottom + plot_top) / 2 - 42, "Angular Velocity (deg/s)", 8, bold=True, color="#111111", angle=90)
+
+    summary_by_segment = {row["Segment"]: row for row in summary_rows}
+
+    table_x = margin
+    table_y = 90
+    table_height = 112
+    table_width = page_width - (margin * 2)
+    gap = 8
+    segment_order = ["Pelvis Rotation", "Torso Rotation", "Elbow Extension", "Shoulder Internal Rotation"]
+    segment_width = (table_width - (gap * (len(segment_order) - 1))) / len(segment_order)
+    reference_labels = {
+        "Pelvis Rotation": "Timing from FP",
+        "Torso Rotation": "Timing from Pelvis",
+        "Elbow Extension": "Timing from Torso",
+        "Shoulder Internal Rotation": "Timing from Elbow",
+    }
+    segment_title_labels = {
+        "Pelvis Rotation": "Pelvis Rotation",
+        "Torso Rotation": "Torso Rotation",
+        "Elbow Extension": "Elbow Extension",
+        "Shoulder Internal Rotation": "Shoulder Rotation",
+    }
+
+    def segment_peak_std(segment):
+        peak_values = []
+        curves = curves_by_segment.get(segment, {})
+        for curve in curves.values():
+            valid_idxs = [
+                i
+                for i, (time_ms, value) in enumerate(zip(curve.get("frame", []), curve.get("value", [])))
+                if value is not None and np.isfinite(value) and x_min <= time_ms <= x_max
+            ]
+            if segment in {"Pelvis Rotation", "Torso Rotation"} and median_fp_ms is not None:
+                valid_idxs = [
+                    i
+                    for i in valid_idxs
+                    if median_fp_ms <= curve["frame"][i] <= 0
+                ]
+            if valid_idxs:
+                peak_values.append(max(curve["value"][i] for i in valid_idxs))
+        if not peak_values:
+            return None
+        return float(np.std(peak_values, ddof=1 if len(peak_values) > 1 else 0))
+
+    cursor_x = table_x
+    for segment in segment_order:
+        row = summary_by_segment.get(segment, {})
+        peak = row.get("Peak (deg/s)")
+        reference_time = row.get("Peak Time from Reference (ms)")
+        if reference_time is None or (isinstance(reference_time, float) and pd.isna(reference_time)):
+            reference_time = row.get("Peak Time (ms rel BR)")
+        peak_value = "" if peak is None or pd.isna(peak) else f"{peak:.0f}°/s"
+        if reference_time is None or pd.isna(reference_time):
+            timing_value = ""
+        else:
+            timing_ms = int(round(reference_time))
+            timing_value = f"{timing_ms} ms" if timing_ms < 0 else f"{abs(timing_ms)} ms"
+        std_dev = segment_peak_std(segment)
+        std_value = "" if std_dev is None or pd.isna(std_dev) else f"± {std_dev:.0f}°/s"
+        segment_color = color_map[segment]
+        segment_fill = band_color_map[segment]
+
+        rect(cursor_x, table_y, segment_width, table_height, stroke="#E5E7EB", fill="#FFFFFF", line_width=0.75)
+        rect(cursor_x, table_y + table_height - 7, segment_width, 7, stroke=segment_color, fill=segment_color, line_width=0.1)
+        rect(cursor_x, table_y + table_height - 34, segment_width, 27, stroke=segment_fill, fill=segment_fill, line_width=0.1)
+        text_centered(cursor_x, table_y + table_height - 25, segment_width, segment_title_labels[segment], 12, bold=True, color=segment_color)
+
+        peak_label_y = table_y + 60
+        peak_value_y = table_y + 40
+        detail_label_y = table_y + 21
+        detail_value_y = table_y + 7
+        detail_width = (segment_width - 12) / 2
+        timing_x = cursor_x + 6
+        std_x = timing_x + detail_width + 12
+
+        line(cursor_x + 12, table_y + 35, cursor_x + segment_width - 12, table_y + 35, color="#E5E7EB", width=0.6)
+        text_centered(cursor_x, peak_label_y, segment_width, "Peak", 8.5, bold=True, color="#64748B")
+        text_centered(cursor_x, peak_value_y, segment_width, peak_value, 16, bold=True, color="#111827")
+        text_centered(timing_x, detail_label_y, detail_width, reference_labels[segment], 7.8, bold=True, color="#64748B")
+        text_centered(std_x, detail_label_y, detail_width, "Std Dev", 7.8, bold=True, color="#64748B")
+        text_centered(timing_x, detail_value_y, detail_width, timing_value, 11.5, bold=True, color="#111827")
+        text_centered(std_x, detail_value_y, detail_width, std_value, 11.5, bold=True, color="#111827")
+
+        cursor_x += segment_width + gap
+
+    first_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Throwing Arm Kinematics", 28, bold=True, color="#111827")
+    arm_kinematics = arm_kinematics or {}
+    arm_metric_labels = [
+        ("Athlete", "mean"),
+        ("Ref Group", "ref_mean"),
+        ("SD ±", "std"),
+        ("Ref SD ±", "ref_std"),
+    ]
+
+    def draw_arm_metric_row(title, athlete_data, reference_data, row_y, color):
+        rect(margin, row_y + 7, 4, 20, stroke=color, fill=color, line_width=0.1)
+        text(margin + 10, row_y + 14, title, 10, bold=True, color=color)
+        table_x = margin + 132
+        table_width = page_width - margin - table_x
+        event_width = table_width / 4
+        athlete_metrics = athlete_data.get("metrics", {})
+        reference_metrics = reference_data.get("metrics", {})
+        for card_index, event_label in enumerate(["FP", "MER", "BR", "Max"]):
+            event_x = table_x + (card_index * event_width)
+            athlete_event = athlete_metrics.get(event_label, {})
+            reference_event = reference_metrics.get(event_label, {})
+            values = {
+                "mean": athlete_event.get("mean"),
+                "ref_mean": reference_event.get("mean"),
+                "std": athlete_event.get("std"),
+                "ref_std": reference_event.get("std"),
+            }
+            cell_width = event_width / 4
+            for metric_index, (_, value_key) in enumerate(arm_metric_labels):
+                cell_x = event_x + (metric_index * cell_width)
+                metric_value = values[value_key]
+                value_text = "" if metric_value is None or pd.isna(metric_value) else f"{metric_value:.1f}°"
+                text_centered(cell_x, row_y + 14, cell_width, value_text, 7.7, bold=True, color="#111827")
+        line(margin + 10, row_y, page_width - margin - 10, row_y, color="#E5E7EB", width=0.55)
+
+    def draw_arm_metric_plot(title, athlete_data, reference_data, chart_x, chart_y, color, fill, unit="deg", chart_width=346, chart_height=140, title_size=12, peak_marker=None):
+        plot_left = chart_x + 43
+        plot_right = chart_x + chart_width - 12
+        plot_bottom = chart_y + 36
+        plot_top = chart_y + chart_height - 25
+        text(chart_x, chart_y + chart_height + 8, title, title_size, bold=True, color="#111827")
+        athlete_curves = athlete_data.get("curves", {})
+        reference_curves = reference_data.get("curves", {})
+        athlete_x, athlete_y, _, _ = aggregate_curves(athlete_curves, "Mean") if athlete_curves else ([], [], [], [])
+        ref_x, _, ref_q1, ref_q3 = aggregate_curves(reference_curves, "Mean") if reference_curves else ([], [], [], [])
+        fp_events = athlete_data.get("events", {}).get("fp_event_frames", []) or report_events.get("fp_event_frames", [])
+        mer_events = athlete_data.get("events", {}).get("mer_event_frames", []) or report_events.get("mer_event_frames", [])
+        x_min = rel_frame_to_ms(int(np.median(fp_events)) - ms_to_rel_frame(100)) if fp_events else -200
+        x_max = rel_frame_to_ms(ms_to_rel_frame(150))
+        visible_values = [
+            value
+            for frames, values in [(athlete_x, athlete_y), (ref_x, ref_q1), (ref_x, ref_q3)]
+            for time_ms, value in zip(frames, values)
+            if value is not None and np.isfinite(value) and x_min <= time_ms <= x_max
+        ]
+        y_min = min(visible_values) if visible_values else 0
+        y_max = max(visible_values) if visible_values else 1
+        y_span = max(y_max - y_min, 1)
+        y_min -= 0.12 * y_span
+        y_max += 0.18 * y_span
+
+        def px(value):
+            return plot_left + ((value - x_min) / (x_max - x_min)) * (plot_right - plot_left)
+
+        def py(value):
+            return plot_bottom + ((value - y_min) / (y_max - y_min)) * (plot_top - plot_bottom)
+
+        for tick in range(int(np.ceil(x_min / 100) * 100), int(np.floor(x_max / 100) * 100) + 1, 100):
+            x = px(tick)
+            line(x, plot_bottom, x, plot_top, color="#F3F4F6", width=0.35)
+            text(x - 9, plot_bottom - 11, tick, 6.2, color="#4B5563")
+        for tick in np.linspace(y_min, y_max, 5):
+            y = py(tick)
+            line(plot_left, y, plot_right, y, color="#F3F4F6", width=0.35)
+            tick_suffix = "°/s" if unit == "deg/s" else "°"
+            text(plot_left - 30, y - 2, f"{tick:.0f}{tick_suffix}", 6.2, color="#4B5563")
+        ref_upper = [(px(t), py(q3)) for t, q3 in zip(ref_x, ref_q3) if q3 is not None and x_min <= t <= x_max]
+        ref_lower = [(px(t), py(q1)) for t, q1 in zip(ref_x, ref_q1) if q1 is not None and x_min <= t <= x_max]
+        if ref_upper and ref_lower:
+            poly(ref_upper + ref_lower[::-1], fill=fill)
+        athlete_line = [(px(t), py(v)) for t, v in zip(athlete_x, athlete_y) if v is not None and x_min <= t <= x_max]
+        path(athlete_line, color=color, width=1.8)
+        marker_target = None
+        if peak_marker and athlete_x and athlete_y:
+            mer_ms = rel_frame_to_ms(int(np.median(mer_events))) if mer_events else None
+            marker_candidates = [
+                (time_ms, value)
+                for time_ms, value in zip(athlete_x, athlete_y)
+                if value is not None and np.isfinite(value) and x_min <= time_ms <= x_max
+            ]
+            if peak_marker == "min_before_mer" and mer_ms is not None:
+                marker_candidates = [(time_ms, value) for time_ms, value in marker_candidates if time_ms <= mer_ms]
+                if marker_candidates:
+                    marker_target = min(marker_candidates, key=lambda item: item[1])
+            elif peak_marker == "max":
+                if marker_candidates:
+                    marker_target = max(marker_candidates, key=lambda item: item[1])
+        for label, frames, event_color in [("FP", fp_events, "#16A34A"), ("MER", mer_events, "#DC2626"), ("BR", [0], "#2563EB")]:
+            if frames:
+                event_ms = rel_frame_to_ms(int(np.median(frames)))
+                if x_min <= event_ms <= x_max:
+                    event_x = px(event_ms)
+                    line(event_x, plot_bottom, event_x, plot_top, color=event_color, width=1.0)
+                    text(event_x + 2, plot_top - 8, label, 6.2, bold=True, color=event_color)
+        rect(plot_left, plot_bottom, plot_right - plot_left, plot_top - plot_bottom, stroke="#111111", fill=None, line_width=0.9)
+        if marker_target:
+            marker_x = px(marker_target[0])
+            marker_y = py(marker_target[1])
+            arrow_start_y = min(plot_top - 5, marker_y + 24)
+            if arrow_start_y <= marker_y + 6:
+                arrow_start_y = max(plot_bottom + 5, marker_y - 24)
+            arrow(marker_x, arrow_start_y, marker_x, marker_y, color=color, width=1.25, head_size=4.5)
+        text((plot_left + plot_right) / 2 - 46, plot_bottom - 23, "Time Relative to Ball Release (ms)", 6, bold=True, color="#111111")
+        y_axis_label = "Angular Velocity (deg/s)" if unit == "deg/s" else "Velocity (m/s)" if unit == "m/s" else "Position (deg)"
+        text_rotated(chart_x + 7, (plot_bottom + plot_top) / 2 - 24, y_axis_label, 6, bold=True, color="#111111", angle=90)
+
+    athlete_elbow = arm_kinematics.get("athlete", {})
+    reference_elbow = arm_kinematics.get("reference", {})
+    athlete_shoulder = arm_kinematics.get("athlete_shoulder_abduction", {})
+    reference_shoulder = arm_kinematics.get("reference_shoulder_abduction", {})
+    athlete_horizontal = arm_kinematics.get("athlete_shoulder_horizontal_abduction", {})
+    reference_horizontal = arm_kinematics.get("reference_shoulder_horizontal_abduction", {})
+    athlete_rotation = arm_kinematics.get("athlete_shoulder_rotation", {})
+    reference_rotation = arm_kinematics.get("reference_shoulder_rotation", {})
+    shared_table_x = margin + 132
+    shared_table_width = page_width - margin - shared_table_x
+    shared_event_width = shared_table_width / 4
+    header_y = 502
+    header_height = 36
+    rect(margin, header_y, page_width - (margin * 2), header_height, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for event_index, event_label in enumerate(["FP", "MER", "BR", "Max"]):
+        event_x = shared_table_x + (event_index * shared_event_width)
+        if event_index:
+            line(event_x, 362, event_x, header_y + header_height, color="#E5E7EB", width=0.6)
+        text_centered(event_x, header_y + 24, shared_event_width, event_label, 10, bold=True, color="#111827")
+        sub_width = shared_event_width / 4
+        for metric_index, (metric_label, _) in enumerate(arm_metric_labels):
+            text_centered(event_x + (metric_index * sub_width), header_y + 8, sub_width, metric_label, 6.2, bold=True, color="#64748B")
+    draw_arm_metric_row("Elbow Flexion", athlete_elbow, reference_elbow, 467, palette_color("arm_primary"))
+    draw_arm_metric_row("Shoulder Abduction", athlete_shoulder, reference_shoulder, 432, palette_color("arm_secondary"))
+    draw_arm_metric_row("Shoulder Horizontal Abd.", athlete_horizontal, reference_horizontal, 397, palette_color("arm_tertiary"))
+    draw_arm_metric_row("Shoulder Rotation", athlete_rotation, reference_rotation, 362, palette_color("arm_rotation"))
+    draw_arm_metric_plot("Elbow Flexion", athlete_elbow, reference_elbow, margin, 180, palette_color("arm_primary"), palette_fill("arm_primary"))
+    draw_arm_metric_plot("Shoulder Abduction", athlete_shoulder, reference_shoulder, 410, 180, palette_color("arm_secondary"), palette_fill("arm_secondary"))
+    draw_arm_metric_plot("Shoulder Horizontal Abd.", athlete_horizontal, reference_horizontal, margin, 26, palette_color("arm_tertiary"), palette_fill("arm_tertiary"))
+    draw_arm_metric_plot("Shoulder Rotation", athlete_rotation, reference_rotation, 410, 26, palette_color("arm_rotation"), palette_fill("arm_rotation"))
+
+    second_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Throwing Arm Kinematics", 28, bold=True, color="#111827")
+    velocity_rows = [
+        ("Elbow Extension Angular Velocity", "athlete_elbow_extension_velocity", "reference_elbow_extension_velocity", palette_color("arm_primary")),
+        ("Shoulder External Rotation Angular Velocity", "athlete_shoulder_external_rotation_velocity", "reference_shoulder_external_rotation_velocity", palette_color("arm_secondary")),
+        ("Shoulder Internal Rotation Angular Velocity", "athlete_shoulder_internal_rotation_velocity", "reference_shoulder_internal_rotation_velocity", palette_color("arm_rotation")),
+        ("Shoulder Horizontal Abduction Angular Velocity", "athlete_shoulder_horizontal_abduction_velocity", "reference_shoulder_horizontal_abduction_velocity", palette_color("arm_tertiary")),
+    ]
+    velocity_table_x = margin
+    velocity_table_y = 360
+    velocity_table_width = page_width - (margin * 2)
+    velocity_name_width = 220
+    velocity_value_width = (velocity_table_width - velocity_name_width) / 4
+    rect(velocity_table_x, velocity_table_y + 140, velocity_table_width, 30, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for index, header in enumerate(["Average Max", "SD ±", "Ref Group Average Max", "Ref Group SD ±"]):
+        text_centered(velocity_table_x + velocity_name_width + (index * velocity_value_width), velocity_table_y + 151, velocity_value_width, header, 8.8, bold=True, color="#64748B")
+    for row_index, (label, athlete_key, reference_key, color) in enumerate(velocity_rows):
+        row_y = velocity_table_y + 105 - (row_index * 35)
+        athlete_data = arm_kinematics.get(athlete_key, {})
+        reference_data = arm_kinematics.get(reference_key, {})
+        athlete_max = athlete_data.get("metrics", {}).get("Max", {})
+        reference_max = reference_data.get("metrics", {}).get("Max", {})
+        values = [athlete_max.get("mean"), athlete_max.get("std"), reference_max.get("mean"), reference_max.get("std")]
+        rect(velocity_table_x, row_y + 7, 4, 20, stroke=color, fill=color, line_width=0.1)
+        text(velocity_table_x + 10, row_y + 14, label, 9.3, bold=True, color=color)
+        for value_index, value in enumerate(values):
+            value_text = "" if value is None or pd.isna(value) else f"{value:.0f}°/s"
+            text_centered(velocity_table_x + velocity_name_width + (value_index * velocity_value_width), row_y + 14, velocity_value_width, value_text, 9, bold=True, color="#111827")
+        line(velocity_table_x + 10, row_y, velocity_table_x + velocity_table_width - 10, row_y, color="#E5E7EB", width=0.55)
+    velocity_plot_specs = [
+        ("Elbow Ext. Angular Velocity", "athlete_elbow_extension_velocity", "reference_elbow_extension_velocity", margin, 188, palette_color("arm_primary"), palette_fill("arm_primary"), None),
+        ("Shoulder ER Angular Velocity", "athlete_shoulder_external_rotation_velocity", "reference_shoulder_external_rotation_velocity", 410, 188, palette_color("arm_secondary"), palette_fill("arm_secondary"), "min_before_mer"),
+        ("Shoulder IR Angular Velocity", "athlete_shoulder_internal_rotation_velocity", "reference_shoulder_internal_rotation_velocity", margin, 34, palette_color("arm_rotation"), palette_fill("arm_rotation"), "max"),
+        ("Shoulder Horiz. Abd. Angular Velocity", "athlete_shoulder_horizontal_abduction_velocity", "reference_shoulder_horizontal_abduction_velocity", 410, 34, palette_color("arm_tertiary"), palette_fill("arm_tertiary"), None),
+    ]
+    for title, athlete_key, reference_key, chart_x, chart_y, color, fill, peak_marker in velocity_plot_specs:
+        draw_arm_metric_plot(title, arm_kinematics.get(athlete_key, {}), arm_kinematics.get(reference_key, {}), chart_x, chart_y, color, fill, unit="deg/s", peak_marker=peak_marker)
+    third_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Pelvis & Torso Kinematics", 28, bold=True, color="#111827")
+    pelvis_rows = [
+        ("Pelvis Forward Tilt", "athlete_pelvis_forward_tilt", "reference_pelvis_forward_tilt", palette_color("pelvis_primary")),
+        ("Pelvis Lateral Tilt", "athlete_pelvis_lateral_tilt", "reference_pelvis_lateral_tilt", palette_color("pelvis_secondary")),
+        ("Pelvis Rotation", "athlete_pelvis_rotation", "reference_pelvis_rotation", palette_color("pelvis_rotation")),
+    ]
+    pelvis_table_x = margin
+    pelvis_table_y = 408
+    pelvis_table_width = page_width - (margin * 2)
+    pelvis_name_width = 150
+    pelvis_event_width = (pelvis_table_width - pelvis_name_width) / 4
+    rect(pelvis_table_x, pelvis_table_y + 105, pelvis_table_width, 36, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for event_index, event_label in enumerate(["FP", "MER", "BR", "Max"]):
+        event_x = pelvis_table_x + pelvis_name_width + (event_index * pelvis_event_width)
+        text_centered(event_x, pelvis_table_y + 129, pelvis_event_width, event_label, 10, bold=True, color="#111827")
+        sub_width = pelvis_event_width / 4
+        for metric_index, (metric_label, _) in enumerate(arm_metric_labels):
+            text_centered(event_x + (metric_index * sub_width), pelvis_table_y + 112, sub_width, metric_label, 6, bold=True, color="#64748B")
+    def draw_pelvis_torso_rows(rows, first_row_y, unit="°"):
+      for row_index, (label, athlete_key, reference_key, color) in enumerate(rows):
+        row_y = first_row_y - (row_index * 32)
+        athlete_data = arm_kinematics.get(athlete_key, {})
+        reference_data = arm_kinematics.get(reference_key, {})
+        rect(pelvis_table_x, row_y + 7, 4, 20, stroke=color, fill=color, line_width=0.1)
+        text(pelvis_table_x + 10, row_y + 14, label, 9.5, bold=True, color=color)
+        for event_index, event_label in enumerate(["FP", "MER", "BR", "Max"]):
+            event_x = pelvis_table_x + pelvis_name_width + (event_index * pelvis_event_width)
+            athlete_event = athlete_data.get("metrics", {}).get(event_label, {})
+            reference_event = reference_data.get("metrics", {}).get(event_label, {})
+            values = [athlete_event.get("mean"), reference_event.get("mean"), athlete_event.get("std"), reference_event.get("std")]
+            cell_width = pelvis_event_width / 4
+            for value_index, value in enumerate(values):
+                value_text = "" if value is None or pd.isna(value) else f"{value:.1f}{unit}"
+                text_centered(event_x + (value_index * cell_width), row_y + 14, cell_width, value_text, 7.6, bold=True, color="#111827")
+        line(pelvis_table_x + 10, row_y, pelvis_table_x + pelvis_table_width - 10, row_y, color="#E5E7EB", width=0.55)
+
+    draw_pelvis_torso_rows(pelvis_rows, pelvis_table_y + 70)
+
+    def draw_pelvis_plot(title, athlete_key, reference_key, chart_x, chart_y, color, fill, unit="deg", chart_width=238, chart_height=130, title_size=10.5):
+        plot_left = chart_x + 36
+        plot_right = chart_x + chart_width - 9
+        plot_bottom = chart_y + 32
+        plot_top = chart_y + chart_height - 23
+        text(chart_x, chart_y + chart_height + 7, title, title_size, bold=True, color="#111827")
+        athlete_data = arm_kinematics.get(athlete_key, {})
+        reference_data = arm_kinematics.get(reference_key, {})
+        athlete_curves = athlete_data.get("curves", {})
+        reference_curves = reference_data.get("curves", {})
+        athlete_x, athlete_y, _, _ = aggregate_curves(athlete_curves, "Mean") if athlete_curves else ([], [], [], [])
+        ref_x, _, ref_q1, ref_q3 = aggregate_curves(reference_curves, "Mean") if reference_curves else ([], [], [], [])
+        fp_events = athlete_data.get("events", {}).get("fp_event_frames", []) or report_events.get("fp_event_frames", [])
+        mer_events = athlete_data.get("events", {}).get("mer_event_frames", []) or report_events.get("mer_event_frames", [])
+        x_min = rel_frame_to_ms(int(np.median(fp_events)) - ms_to_rel_frame(100)) if fp_events else -200
+        x_max = rel_frame_to_ms(ms_to_rel_frame(150))
+        visible_values = [
+            value for frames, values in [(athlete_x, athlete_y), (ref_x, ref_q1), (ref_x, ref_q3)]
+            for time_ms, value in zip(frames, values)
+            if value is not None and np.isfinite(value) and x_min <= time_ms <= x_max
+        ]
+        y_min = min(visible_values) if visible_values else 0
+        y_max = max(visible_values) if visible_values else 1
+        y_span = max(y_max - y_min, 1)
+        y_min -= 0.12 * y_span
+        y_max += 0.18 * y_span
+        px = lambda value: plot_left + ((value - x_min) / (x_max - x_min)) * (plot_right - plot_left)
+        py = lambda value: plot_bottom + ((value - y_min) / (y_max - y_min)) * (plot_top - plot_bottom)
+        for tick in range(int(np.ceil(x_min / 100) * 100), int(np.floor(x_max / 100) * 100) + 1, 100):
+            x = px(tick)
+            line(x, plot_bottom, x, plot_top, color="#F3F4F6", width=0.35)
+            text(x - 8, plot_bottom - 10, tick, 5.8, color="#4B5563")
+        for tick in np.linspace(y_min, y_max, 5):
+            y = py(tick)
+            line(plot_left, y, plot_right, y, color="#F3F4F6", width=0.35)
+            tick_text = f"{tick:.1f}" if unit == "m/s" else f"{tick:.0f}°"
+            text(plot_left - 25, y - 2, tick_text, 5.8, color="#4B5563")
+        ref_upper = [(px(t), py(v)) for t, v in zip(ref_x, ref_q3) if v is not None and x_min <= t <= x_max]
+        ref_lower = [(px(t), py(v)) for t, v in zip(ref_x, ref_q1) if v is not None and x_min <= t <= x_max]
+        if ref_upper and ref_lower:
+            poly(ref_upper + ref_lower[::-1], fill=fill)
+        path([(px(t), py(v)) for t, v in zip(athlete_x, athlete_y) if v is not None and x_min <= t <= x_max], color=color, width=1.8)
+        for label, frames, event_color in [("FP", fp_events, "#16A34A"), ("MER", mer_events, "#DC2626"), ("BR", [0], "#2563EB")]:
+            if frames:
+                event_ms = rel_frame_to_ms(int(np.median(frames)))
+                if x_min <= event_ms <= x_max:
+                    event_x = px(event_ms)
+                    line(event_x, plot_bottom, event_x, plot_top, color=event_color, width=0.9)
+                    text(event_x + 2, plot_top - 8, label, 5.8, bold=True, color=event_color)
+        rect(plot_left, plot_bottom, plot_right - plot_left, plot_top - plot_bottom, stroke="#111111", fill=None, line_width=0.85)
+        text((plot_left + plot_right) / 2 - 39, plot_bottom - 22, "Time Relative to BR (ms)", 5.8, bold=True, color="#111111")
+        y_axis_label = "Velocity (m/s)" if unit == "m/s" else "Position (deg)"
+        text_rotated(chart_x + 6, (plot_bottom + plot_top) / 2 - 20, y_axis_label, 5.8, bold=True, color="#111111", angle=90)
+
+    torso_rows = [
+        ("Torso Forward Tilt", "athlete_torso_forward_tilt", "reference_torso_forward_tilt", palette_color("torso_primary")),
+        ("Torso Lateral Tilt", "athlete_torso_lateral_tilt", "reference_torso_lateral_tilt", palette_color("torso_secondary")),
+        ("Torso Rotation", "athlete_torso_rotation", "reference_torso_rotation", palette_color("torso_rotation")),
+    ]
+    draw_pelvis_torso_rows(torso_rows, 366)
+    draw_pelvis_plot("Pelvis Forward Tilt", "athlete_pelvis_forward_tilt", "reference_pelvis_forward_tilt", margin, 142, palette_color("pelvis_primary"), palette_fill("pelvis_primary"))
+    draw_pelvis_plot("Pelvis Lateral Tilt", "athlete_pelvis_lateral_tilt", "reference_pelvis_lateral_tilt", 278, 142, palette_color("pelvis_secondary"), palette_fill("pelvis_secondary"))
+    draw_pelvis_plot("Pelvis Rotation", "athlete_pelvis_rotation", "reference_pelvis_rotation", 520, 142, palette_color("pelvis_rotation"), palette_fill("pelvis_rotation"))
+    draw_pelvis_plot("Torso Forward Tilt", "athlete_torso_forward_tilt", "reference_torso_forward_tilt", margin, 3, palette_color("torso_primary"), palette_fill("torso_primary"))
+    draw_pelvis_plot("Torso Lateral Tilt", "athlete_torso_lateral_tilt", "reference_torso_lateral_tilt", 278, 3, palette_color("torso_secondary"), palette_fill("torso_secondary"))
+    draw_pelvis_plot("Torso Rotation", "athlete_torso_rotation", "reference_torso_rotation", 520, 3, palette_color("torso_rotation"), palette_fill("torso_rotation"))
+    fourth_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Torso-Pelvis Kinematics", 28, bold=True, color="#111827")
+    torso_pelvis_rows = [
+        ("Torso-Pelvis Flex/Ext", "athlete_torso_pelvis_forward_tilt", "reference_torso_pelvis_forward_tilt", palette_color("torso_pelvis_primary")),
+        ("Torso-Pelvis Lateral Flexion", "athlete_torso_pelvis_lateral_tilt", "reference_torso_pelvis_lateral_tilt", palette_color("torso_pelvis_secondary")),
+        ("Torso-Pelvis Rotation", "athlete_torso_pelvis_rotation", "reference_torso_pelvis_rotation", palette_color("torso_pelvis_rotation")),
+    ]
+    torso_pelvis_table_y = 408
+    rect(margin, torso_pelvis_table_y + 105, page_width - (margin * 2), 36, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for event_index, event_label in enumerate(["FP", "MER", "BR", "Max"]):
+        event_x = margin + pelvis_name_width + (event_index * pelvis_event_width)
+        text_centered(event_x, torso_pelvis_table_y + 129, pelvis_event_width, event_label, 10, bold=True, color="#111827")
+        sub_width = pelvis_event_width / 4
+        for metric_index, (metric_label, _) in enumerate(arm_metric_labels):
+            text_centered(event_x + (metric_index * sub_width), torso_pelvis_table_y + 112, sub_width, metric_label, 6, bold=True, color="#64748B")
+    draw_pelvis_torso_rows(torso_pelvis_rows, torso_pelvis_table_y + 70)
+    wide_three_plot_args = {"chart_width": 346, "chart_height": 125, "title_size": 9.6}
+    centered_wide_plot_x = (page_width - 346) / 2
+    draw_pelvis_plot("Flex/Ext", "athlete_torso_pelvis_forward_tilt", "reference_torso_pelvis_forward_tilt", margin, 215, palette_color("torso_pelvis_primary"), palette_fill("torso_pelvis_primary"), **wide_three_plot_args)
+    draw_pelvis_plot("Lateral Flexion", "athlete_torso_pelvis_lateral_tilt", "reference_torso_pelvis_lateral_tilt", 410, 215, palette_color("torso_pelvis_secondary"), palette_fill("torso_pelvis_secondary"), **wide_three_plot_args)
+    draw_pelvis_plot("Rotation", "athlete_torso_pelvis_rotation", "reference_torso_pelvis_rotation", centered_wide_plot_x, 55, palette_color("torso_pelvis_rotation"), palette_fill("torso_pelvis_rotation"), **wide_three_plot_args)
+    fifth_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Torso-Pelvis Kinematics", 28, bold=True, color="#111827")
+    torso_pelvis_velocity_rows = [
+        ("Torso-Pelvis Flex/Ext Angular Velocity", "athlete_torso_pelvis_flexion_velocity", "reference_torso_pelvis_flexion_velocity", palette_color("torso_pelvis_primary")),
+        ("Torso-Pelvis Lateral Flexion Angular Velocity", "athlete_torso_pelvis_glove_side_lateral_flexion_velocity", "reference_torso_pelvis_glove_side_lateral_flexion_velocity", palette_color("torso_pelvis_secondary")),
+        ("Torso-Pelvis Rotation Angular Velocity", "athlete_torso_pelvis_separation_velocity", "reference_torso_pelvis_separation_velocity", palette_color("torso_pelvis_rotation")),
+    ]
+    tpv_table_y = 360
+    tpv_name_width = 245
+    tpv_value_width = (page_width - (margin * 2) - tpv_name_width) / 4
+    rect(margin, tpv_table_y + 140, page_width - (margin * 2), 30, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for index, header in enumerate(["Average Max", "SD ±", "Ref Group Average Max", "Ref Group SD ±"]):
+        text_centered(margin + tpv_name_width + (index * tpv_value_width), tpv_table_y + 151, tpv_value_width, header, 8.4, bold=True, color="#64748B")
+    for row_index, (label, athlete_key, reference_key, color) in enumerate(torso_pelvis_velocity_rows):
+        row_y = tpv_table_y + 105 - (row_index * 35)
+        athlete_max = arm_kinematics.get(athlete_key, {}).get("metrics", {}).get("Max", {})
+        reference_max = arm_kinematics.get(reference_key, {}).get("metrics", {}).get("Max", {})
+        values = [athlete_max.get("mean"), athlete_max.get("std"), reference_max.get("mean"), reference_max.get("std")]
+        rect(margin, row_y + 7, 4, 20, stroke=color, fill=color, line_width=0.1)
+        text(margin + 10, row_y + 14, label, 9, bold=True, color=color)
+        for value_index, value in enumerate(values):
+            value_text = "" if value is None or pd.isna(value) else f"{value:.0f}°/s"
+            text_centered(margin + tpv_name_width + (value_index * tpv_value_width), row_y + 14, tpv_value_width, value_text, 9, bold=True, color="#111827")
+        line(margin + 10, row_y, page_width - margin - 10, row_y, color="#E5E7EB", width=0.55)
+    torso_pelvis_velocity_plot_args = {"unit": "deg/s", "chart_width": 346, "chart_height": 125, "title_size": 9.6}
+    centered_wide_plot_x = (page_width - 346) / 2
+    draw_arm_metric_plot("Torso-Pelvis Flex/Ext Angular Velocity", arm_kinematics.get("athlete_torso_pelvis_flexion_velocity", {}), arm_kinematics.get("reference_torso_pelvis_flexion_velocity", {}), margin, 215, palette_color("torso_pelvis_primary"), palette_fill("torso_pelvis_primary"), **torso_pelvis_velocity_plot_args)
+    draw_arm_metric_plot("Lateral Flexion Angular Velocity", arm_kinematics.get("athlete_torso_pelvis_glove_side_lateral_flexion_velocity", {}), arm_kinematics.get("reference_torso_pelvis_glove_side_lateral_flexion_velocity", {}), 410, 215, palette_color("torso_pelvis_secondary"), palette_fill("torso_pelvis_secondary"), **torso_pelvis_velocity_plot_args)
+    draw_arm_metric_plot("Rotation Angular Velocity", arm_kinematics.get("athlete_torso_pelvis_separation_velocity", {}), arm_kinematics.get("reference_torso_pelvis_separation_velocity", {}), centered_wide_plot_x, 55, palette_color("torso_pelvis_rotation"), palette_fill("torso_pelvis_rotation"), **torso_pelvis_velocity_plot_args)
+    torso_pelvis_velocity_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Hips Kinematics", 28, bold=True, color="#111827")
+    hip_rows = [
+        ("Back Hip Flexion/Extension", "athlete_back_hip_forward_tilt", "reference_back_hip_forward_tilt", palette_color("hip_back")),
+        ("Back Hip Ab/Adduction", "athlete_back_hip_lateral_tilt", "reference_back_hip_lateral_tilt", palette_color("hip_lead")),
+        ("Back Hip Rotation", "athlete_back_hip_rotation", "reference_back_hip_rotation", palette_color("hip_rotation")),
+        ("Lead Hip Flexion/Extension", "athlete_lead_hip_forward_tilt", "reference_lead_hip_forward_tilt", palette_color("hip_back")),
+        ("Lead Hip Ab/Adduction", "athlete_lead_hip_lateral_tilt", "reference_lead_hip_lateral_tilt", palette_color("hip_lead")),
+        ("Lead Hip Rotation", "athlete_lead_hip_rotation", "reference_lead_hip_rotation", palette_color("hip_rotation")),
+    ]
+    hip_table_y = 408
+    rect(margin, hip_table_y + 105, page_width - (margin * 2), 36, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for event_index, event_label in enumerate(["FP", "MER", "BR", "Max"]):
+        event_x = margin + pelvis_name_width + (event_index * pelvis_event_width)
+        text_centered(event_x, hip_table_y + 129, pelvis_event_width, event_label, 10, bold=True, color="#111827")
+        sub_width = pelvis_event_width / 4
+        for metric_index, (metric_label, _) in enumerate(arm_metric_labels):
+            text_centered(event_x + (metric_index * sub_width), hip_table_y + 112, sub_width, metric_label, 6, bold=True, color="#64748B")
+    draw_pelvis_torso_rows(hip_rows, hip_table_y + 70)
+    draw_pelvis_plot("Back Hip Flex/Ext", "athlete_back_hip_forward_tilt", "reference_back_hip_forward_tilt", margin, 142, palette_color("hip_back"), palette_fill("hip_back"))
+    draw_pelvis_plot("Back Hip Ab/Adduction", "athlete_back_hip_lateral_tilt", "reference_back_hip_lateral_tilt", 278, 142, palette_color("hip_lead"), palette_fill("hip_lead"))
+    draw_pelvis_plot("Back Hip Rotation", "athlete_back_hip_rotation", "reference_back_hip_rotation", 520, 142, palette_color("hip_rotation"), palette_fill("hip_rotation"))
+    draw_pelvis_plot("Lead Hip Flex/Ext", "athlete_lead_hip_forward_tilt", "reference_lead_hip_forward_tilt", margin, 3, palette_color("hip_back"), palette_fill("hip_back"))
+    draw_pelvis_plot("Lead Hip Ab/Adduction", "athlete_lead_hip_lateral_tilt", "reference_lead_hip_lateral_tilt", 278, 3, palette_color("hip_lead"), palette_fill("hip_lead"))
+    draw_pelvis_plot("Lead Hip Rotation", "athlete_lead_hip_rotation", "reference_lead_hip_rotation", 520, 3, palette_color("hip_rotation"), palette_fill("hip_rotation"))
+    sixth_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Center of Gravity", 28, bold=True, color="#111827")
+    cg_velocity_rows = [
+        ("Anterior/Posterior", "athlete_cg_velocity_x", "reference_cg_velocity_x", palette_color("cog")),
+        ("Medial/Lateral", "athlete_cg_velocity_y", "reference_cg_velocity_y", palette_color("cog_secondary")),
+        ("Vertical", "athlete_cg_velocity_z", "reference_cg_velocity_z", palette_color("cog_vertical")),
+    ]
+    cg_table_y = 408
+    rect(margin, cg_table_y + 105, page_width - (margin * 2), 36, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for event_index, event_label in enumerate(["FP", "MER", "BR", "Max"]):
+        event_x = margin + pelvis_name_width + (event_index * pelvis_event_width)
+        text_centered(event_x, cg_table_y + 129, pelvis_event_width, event_label, 10, bold=True, color="#111827")
+        sub_width = pelvis_event_width / 4
+        for metric_index, (metric_label, _) in enumerate(arm_metric_labels):
+            text_centered(event_x + (metric_index * sub_width), cg_table_y + 112, sub_width, metric_label, 6, bold=True, color="#64748B")
+    draw_pelvis_torso_rows(cg_velocity_rows, cg_table_y + 70, unit=" m/s")
+    cog_plot_args = {"unit": "m/s", "chart_width": 346, "chart_height": 125, "title_size": 9.6}
+    centered_cog_plot_x = (page_width - 346) / 2
+    draw_pelvis_plot("Anterior/Posterior", "athlete_cg_velocity_x", "reference_cg_velocity_x", margin, 215, palette_color("cog"), palette_fill("cog"), **cog_plot_args)
+    draw_pelvis_plot("Medial/Lateral", "athlete_cg_velocity_y", "reference_cg_velocity_y", 410, 215, palette_color("cog_secondary"), palette_fill("cog_secondary"), **cog_plot_args)
+    draw_pelvis_plot("Vertical", "athlete_cg_velocity_z", "reference_cg_velocity_z", centered_cog_plot_x, 55, palette_color("cog_vertical"), palette_fill("cog_vertical"), **cog_plot_args)
+    seventh_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Stride", 28, bold=True, color="#111827")
+    stride_rows = [
+        ("Stride Angle", "stride_angle_deg", "°", palette_color("stride_primary")),
+        ("Stride Length", "stride_length_in", " in", palette_color("stride_secondary")),
+        ("Stride Length / Height", "stride_length_pct_height", "%", palette_color("stride_tertiary")),
+    ]
+    stride_athlete = arm_kinematics.get("athlete_stride", {})
+    stride_reference = arm_kinematics.get("reference_stride", {})
+    stride_table_x = margin
+    stride_table_y = 330
+    stride_table_width = page_width - (margin * 2)
+    stride_name_width = 230
+    stride_value_width = (stride_table_width - stride_name_width) / 4
+    rect(stride_table_x, stride_table_y + 140, stride_table_width, 30, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for index, header in enumerate(["Average", "SD ±", "Ref Group Average", "Ref Group SD ±"]):
+        text_centered(stride_table_x + stride_name_width + (index * stride_value_width), stride_table_y + 151, stride_value_width, header, 8.8, bold=True, color="#64748B")
+    for row_index, (label, key, unit, color) in enumerate(stride_rows):
+        row_y = stride_table_y + 105 - (row_index * 34)
+        athlete_metric = stride_athlete.get("metrics", {}).get(key, {})
+        reference_metric = stride_reference.get("metrics", {}).get(key, {})
+        values = [
+            athlete_metric.get("mean"),
+            athlete_metric.get("std"),
+            reference_metric.get("mean"),
+            reference_metric.get("std"),
+        ]
+        rect(stride_table_x, row_y + 7, 4, 20, stroke=color, fill=color, line_width=0.1)
+        text(stride_table_x + 10, row_y + 14, label, 9.8, bold=True, color=color)
+        for value_index, value in enumerate(values):
+            value_text = "" if value is None or pd.isna(value) else f"{value:.1f}{unit}"
+            text_centered(stride_table_x + stride_name_width + (value_index * stride_value_width), row_y + 14, stride_value_width, value_text, 9.5, bold=True, color="#111827")
+        line(stride_table_x + 10, row_y, stride_table_x + stride_table_width - 10, row_y, color="#E5E7EB", width=0.55)
+    stride_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Lower Extremity Kinematics", 28, bold=True, color="#111827")
+    lower_extremity_rows = [
+        ("Back Knee Flexion/Extension", "athlete_back_knee_flexion_extension", "reference_back_knee_flexion_extension", palette_color("lower_back")),
+        ("Back Ankle Dorsi/Plantarflexion", "athlete_back_ankle_flexion_extension", "reference_back_ankle_flexion_extension", palette_color("lower_ankle")),
+        ("Front Knee Flexion/Extension", "athlete_front_knee_flexion_extension", "reference_front_knee_flexion_extension", palette_color("lower_front")),
+        ("Front Ankle Dorsi/Plantarflexion", "athlete_front_ankle_flexion_extension", "reference_front_ankle_flexion_extension", palette_color("arm_rotation")),
+        ("Back Ankle Eversion/Inversion", "athlete_back_ankle_eversion_inversion", "reference_back_ankle_eversion_inversion", palette_color("hip_lead")),
+    ]
+    lower_table_y = 408
+    rect(margin, lower_table_y + 105, page_width - (margin * 2), 36, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for event_index, event_label in enumerate(["FP", "MER", "BR", "Max"]):
+        event_x = margin + pelvis_name_width + (event_index * pelvis_event_width)
+        text_centered(event_x, lower_table_y + 129, pelvis_event_width, event_label, 10, bold=True, color="#111827")
+        sub_width = pelvis_event_width / 4
+        for metric_index, (metric_label, _) in enumerate(arm_metric_labels):
+            text_centered(event_x + (metric_index * sub_width), lower_table_y + 112, sub_width, metric_label, 6, bold=True, color="#64748B")
+    draw_pelvis_torso_rows(lower_extremity_rows, lower_table_y + 70)
+    draw_pelvis_plot("Back Knee Flex/Ext", "athlete_back_knee_flexion_extension", "reference_back_knee_flexion_extension", margin, 190, palette_color("lower_back"), palette_fill("lower_back"))
+    draw_pelvis_plot("Back Ankle Dorsi/Plantar", "athlete_back_ankle_flexion_extension", "reference_back_ankle_flexion_extension", 278, 190, palette_color("lower_ankle"), palette_fill("lower_ankle"))
+    draw_pelvis_plot("Back Ankle Ev/Inv", "athlete_back_ankle_eversion_inversion", "reference_back_ankle_eversion_inversion", 520, 190, palette_color("hip_lead"), palette_fill("hip_lead"))
+    draw_pelvis_plot("Front Knee Flex/Ext", "athlete_front_knee_flexion_extension", "reference_front_knee_flexion_extension", 155, 55, palette_color("lower_front"), palette_fill("lower_front"))
+    draw_pelvis_plot("Front Ankle Dorsi/Plantar", "athlete_front_ankle_flexion_extension", "reference_front_ankle_flexion_extension", 398, 55, palette_color("arm_rotation"), palette_fill("arm_rotation"))
+    eighth_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Lower Extremity Kinematics", 28, bold=True, color="#111827")
+    lower_velocity_rows = [
+        ("Back Knee Extension Angular Velocity", "athlete_back_knee_flexion_extension_velocity", "reference_back_knee_flexion_extension_velocity", palette_color("lower_back")),
+        ("Back Ankle Plantarflexion Angular Velocity", "athlete_back_ankle_flexion_extension_velocity", "reference_back_ankle_flexion_extension_velocity", palette_color("lower_ankle")),
+        ("Back Ankle Eversion/Inversion Angular Velocity", "athlete_back_ankle_eversion_inversion_velocity", "reference_back_ankle_eversion_inversion_velocity", palette_color("hip_lead")),
+        ("Front Knee Extension Angular Velocity", "athlete_front_knee_flexion_extension_velocity", "reference_front_knee_flexion_extension_velocity", palette_color("lower_front")),
+        ("Front Ankle Plantarflexion Angular Velocity", "athlete_front_ankle_flexion_extension_velocity", "reference_front_ankle_flexion_extension_velocity", palette_color("arm_rotation")),
+    ]
+    lower_velocity_table_x = margin
+    lower_velocity_table_y = 370
+    lower_velocity_table_width = page_width - (margin * 2)
+    lower_velocity_name_width = 245
+    lower_velocity_value_width = (lower_velocity_table_width - lower_velocity_name_width) / 4
+    rect(lower_velocity_table_x, lower_velocity_table_y + 140, lower_velocity_table_width, 30, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for index, header in enumerate(["Average Max", "SD ±", "Ref Group Average Max", "Ref Group SD ±"]):
+        text_centered(lower_velocity_table_x + lower_velocity_name_width + (index * lower_velocity_value_width), lower_velocity_table_y + 151, lower_velocity_value_width, header, 8.4, bold=True, color="#64748B")
+    for row_index, (label, athlete_key, reference_key, color) in enumerate(lower_velocity_rows):
+        row_y = lower_velocity_table_y + 105 - (row_index * 28)
+        athlete_data = arm_kinematics.get(athlete_key, {})
+        reference_data = arm_kinematics.get(reference_key, {})
+        athlete_max = athlete_data.get("metrics", {}).get("Max", {})
+        reference_max = reference_data.get("metrics", {}).get("Max", {})
+        values = [athlete_max.get("mean"), athlete_max.get("std"), reference_max.get("mean"), reference_max.get("std")]
+        rect(lower_velocity_table_x, row_y + 7, 4, 20, stroke=color, fill=color, line_width=0.1)
+        text(lower_velocity_table_x + 10, row_y + 14, label, 8.8, bold=True, color=color)
+        for value_index, value in enumerate(values):
+            value_text = "" if value is None or pd.isna(value) else f"{value:.0f}°/s"
+            text_centered(lower_velocity_table_x + lower_velocity_name_width + (value_index * lower_velocity_value_width), row_y + 14, lower_velocity_value_width, value_text, 8.8, bold=True, color="#111827")
+        line(lower_velocity_table_x + 10, row_y, lower_velocity_table_x + lower_velocity_table_width - 10, row_y, color="#E5E7EB", width=0.55)
+    lower_velocity_plot_args = {"unit": "deg/s", "chart_width": 230, "chart_height": 105, "title_size": 8.4}
+    lower_velocity_plot_x_positions = [margin, 278, 520]
+    draw_arm_metric_plot("Back Knee Extension Angular Velocity", arm_kinematics.get("athlete_back_knee_flexion_extension_velocity", {}), arm_kinematics.get("reference_back_knee_flexion_extension_velocity", {}), lower_velocity_plot_x_positions[0], 220, palette_color("lower_back"), palette_fill("lower_back"), **lower_velocity_plot_args)
+    draw_arm_metric_plot("Back Ankle Plantarflexion Angular Velocity", arm_kinematics.get("athlete_back_ankle_flexion_extension_velocity", {}), arm_kinematics.get("reference_back_ankle_flexion_extension_velocity", {}), lower_velocity_plot_x_positions[1], 220, palette_color("lower_ankle"), palette_fill("lower_ankle"), **lower_velocity_plot_args)
+    draw_arm_metric_plot("Back Ankle Ev/Inv Angular Velocity", arm_kinematics.get("athlete_back_ankle_eversion_inversion_velocity", {}), arm_kinematics.get("reference_back_ankle_eversion_inversion_velocity", {}), lower_velocity_plot_x_positions[2], 220, palette_color("hip_lead"), palette_fill("hip_lead"), **lower_velocity_plot_args)
+    draw_arm_metric_plot("Front Knee Extension Angular Velocity", arm_kinematics.get("athlete_front_knee_flexion_extension_velocity", {}), arm_kinematics.get("reference_front_knee_flexion_extension_velocity", {}), 155, 88, palette_color("lower_front"), palette_fill("lower_front"), **lower_velocity_plot_args)
+    draw_arm_metric_plot("Front Ankle Plantarflexion Angular Velocity", arm_kinematics.get("athlete_front_ankle_flexion_extension_velocity", {}), arm_kinematics.get("reference_front_ankle_flexion_extension_velocity", {}), 398, 88, palette_color("arm_rotation"), palette_fill("arm_rotation"), **lower_velocity_plot_args)
+    thirteenth_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Back Hip Kinematics", 28, bold=True, color="#111827")
+    back_hip_velocity_rows = [
+        ("Back Hip Flexion Angular Velocity", "athlete_back_hip_flexion_velocity", "reference_back_hip_flexion_velocity", palette_color("hip_back")),
+        ("Back Hip Extension Angular Velocity", "athlete_back_hip_extension_velocity", "reference_back_hip_extension_velocity", palette_color("arm_secondary")),
+        ("Back Hip Adduction Angular Velocity", "athlete_back_hip_lateral_tilt_velocity", "reference_back_hip_lateral_tilt_velocity", palette_color("hip_lead")),
+        ("Back Hip External Rotation Angular Velocity", "athlete_back_hip_external_rotation_velocity", "reference_back_hip_external_rotation_velocity", palette_color("pelvis_rotation")),
+        ("Back Hip Internal Rotation Angular Velocity", "athlete_back_hip_internal_rotation_velocity", "reference_back_hip_internal_rotation_velocity", palette_color("torso_pelvis_rotation")),
+    ]
+    hip_velocity_table_x = margin
+    hip_velocity_table_y = 370
+    hip_velocity_table_width = page_width - (margin * 2)
+    hip_velocity_name_width = 230
+    hip_velocity_value_width = (hip_velocity_table_width - hip_velocity_name_width) / 4
+    rect(hip_velocity_table_x, hip_velocity_table_y + 140, hip_velocity_table_width, 30, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for index, header in enumerate(["Average Max", "SD ±", "Ref Group Average Max", "Ref Group SD ±"]):
+        text_centered(hip_velocity_table_x + hip_velocity_name_width + (index * hip_velocity_value_width), hip_velocity_table_y + 151, hip_velocity_value_width, header, 8.8, bold=True, color="#64748B")
+
+    def draw_velocity_rows(rows, table_x, table_y, name_width, value_width, row_step=28):
+        for row_index, (label, athlete_key, reference_key, color) in enumerate(rows):
+            row_y = table_y + 105 - (row_index * row_step)
+            athlete_data = arm_kinematics.get(athlete_key, {})
+            reference_data = arm_kinematics.get(reference_key, {})
+            athlete_max = athlete_data.get("metrics", {}).get("Max", {})
+            reference_max = reference_data.get("metrics", {}).get("Max", {})
+            values = [athlete_max.get("mean"), athlete_max.get("std"), reference_max.get("mean"), reference_max.get("std")]
+            rect(table_x, row_y + 7, 4, 20, stroke=color, fill=color, line_width=0.1)
+            text(table_x + 10, row_y + 14, label, 8.8, bold=True, color=color)
+            for value_index, value in enumerate(values):
+                value_text = "" if value is None or pd.isna(value) else f"{value:.0f}°/s"
+                text_centered(table_x + name_width + (value_index * value_width), row_y + 14, value_width, value_text, 9, bold=True, color="#111827")
+            line(table_x + 10, row_y, table_x + hip_velocity_table_width - 10, row_y, color="#E5E7EB", width=0.55)
+
+    draw_velocity_rows(back_hip_velocity_rows, hip_velocity_table_x, hip_velocity_table_y, hip_velocity_name_width, hip_velocity_value_width, row_step=28)
+    hip_plot_args = {"unit": "deg/s", "chart_width": 230, "chart_height": 105, "title_size": 7.8}
+    hip_plot_x_positions = [margin, 278, 520]
+    draw_arm_metric_plot("Back Hip Flexion Angular Velocity", arm_kinematics.get("athlete_back_hip_flexion_velocity", {}), arm_kinematics.get("reference_back_hip_flexion_velocity", {}), hip_plot_x_positions[0], 210, palette_color("hip_back"), palette_fill("hip_back"), **hip_plot_args)
+    draw_arm_metric_plot("Back Hip Extension Angular Velocity", arm_kinematics.get("athlete_back_hip_extension_velocity", {}), arm_kinematics.get("reference_back_hip_extension_velocity", {}), hip_plot_x_positions[1], 210, palette_color("arm_secondary"), palette_fill("arm_secondary"), **hip_plot_args)
+    draw_arm_metric_plot("Back Hip Adduction Angular Velocity", arm_kinematics.get("athlete_back_hip_lateral_tilt_velocity", {}), arm_kinematics.get("reference_back_hip_lateral_tilt_velocity", {}), hip_plot_x_positions[2], 210, palette_color("hip_lead"), palette_fill("hip_lead"), **hip_plot_args)
+    draw_arm_metric_plot("Back Hip External Rotation Angular Velocity", arm_kinematics.get("athlete_back_hip_external_rotation_velocity", {}), arm_kinematics.get("reference_back_hip_external_rotation_velocity", {}), 155, 78, palette_color("pelvis_rotation"), palette_fill("pelvis_rotation"), **hip_plot_args)
+    draw_arm_metric_plot("Back Hip Internal Rotation Angular Velocity", arm_kinematics.get("athlete_back_hip_internal_rotation_velocity", {}), arm_kinematics.get("reference_back_hip_internal_rotation_velocity", {}), 398, 78, palette_color("torso_pelvis_rotation"), palette_fill("torso_pelvis_rotation"), **hip_plot_args)
+    back_hip_velocity_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Lead Hip Kinematics", 28, bold=True, color="#111827")
+    lead_hip_velocity_rows = [
+        ("Lead Hip Extension Angular Velocity", "athlete_lead_hip_extension_velocity", "reference_lead_hip_extension_velocity", palette_color("arm_rotation")),
+        ("Lead Hip Adduction Angular Velocity", "athlete_lead_hip_lateral_tilt_velocity", "reference_lead_hip_lateral_tilt_velocity", palette_color("hip_lead")),
+        ("Lead Hip Internal Rotation Angular Velocity", "athlete_lead_hip_internal_rotation_velocity", "reference_lead_hip_internal_rotation_velocity", palette_color("hip_rotation")),
+    ]
+    lead_table_y = 390
+    rect(hip_velocity_table_x, lead_table_y + 120, hip_velocity_table_width, 30, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for index, header in enumerate(["Average Max", "SD ±", "Ref Group Average Max", "Ref Group SD ±"]):
+        text_centered(hip_velocity_table_x + hip_velocity_name_width + (index * hip_velocity_value_width), lead_table_y + 131, hip_velocity_value_width, header, 8.8, bold=True, color="#64748B")
+    draw_velocity_rows(lead_hip_velocity_rows, hip_velocity_table_x, lead_table_y - 20, hip_velocity_name_width, hip_velocity_value_width, row_step=35)
+    lead_hip_plot_args = {"unit": "deg/s", "chart_width": 346, "chart_height": 125, "title_size": 9.6}
+    lead_centered_plot_x = (page_width - 346) / 2
+    draw_arm_metric_plot("Lead Hip Extension Angular Velocity", arm_kinematics.get("athlete_lead_hip_extension_velocity", {}), arm_kinematics.get("reference_lead_hip_extension_velocity", {}), margin, 215, palette_color("arm_rotation"), palette_fill("arm_rotation"), **lead_hip_plot_args)
+    draw_arm_metric_plot("Lead Hip Adduction Angular Velocity", arm_kinematics.get("athlete_lead_hip_lateral_tilt_velocity", {}), arm_kinematics.get("reference_lead_hip_lateral_tilt_velocity", {}), 410, 215, palette_color("hip_lead"), palette_fill("hip_lead"), **lead_hip_plot_args)
+    draw_arm_metric_plot("Lead Hip Internal Rotation Angular Velocity", arm_kinematics.get("athlete_lead_hip_internal_rotation_velocity", {}), arm_kinematics.get("reference_lead_hip_internal_rotation_velocity", {}), lead_centered_plot_x, 55, palette_color("hip_rotation"), palette_fill("hip_rotation"), **lead_hip_plot_args)
+    lead_hip_velocity_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Pelvis Kinematics", 28, bold=True, color="#111827")
+    pelvis_velocity_table_x = margin
+    pelvis_velocity_table_y = 360
+    pelvis_velocity_table_width = page_width - (margin * 2)
+    pelvis_velocity_name_width = 220
+    pelvis_velocity_value_width = (pelvis_velocity_table_width - pelvis_velocity_name_width) / 4
+    rect(pelvis_velocity_table_x, pelvis_velocity_table_y + 140, pelvis_velocity_table_width, 30, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for index, header in enumerate(["Average Max", "SD ±", "Ref Group Average Max", "Ref Group SD ±"]):
+        text_centered(pelvis_velocity_table_x + pelvis_velocity_name_width + (index * pelvis_velocity_value_width), pelvis_velocity_table_y + 151, pelvis_velocity_value_width, header, 8.8, bold=True, color="#64748B")
+    pelvis_forward_velocity_athlete = arm_kinematics.get("athlete_pelvis_forward_tilt_velocity", {})
+    pelvis_forward_velocity_reference = arm_kinematics.get("reference_pelvis_forward_tilt_velocity", {})
+    pelvis_lateral_velocity_athlete = arm_kinematics.get("athlete_pelvis_lateral_tilt_velocity", {})
+    pelvis_lateral_velocity_reference = arm_kinematics.get("reference_pelvis_lateral_tilt_velocity", {})
+    pelvis_rotation_velocity_athlete = arm_kinematics.get("athlete_pelvis_rotation_velocity", {})
+    pelvis_rotation_velocity_reference = arm_kinematics.get("reference_pelvis_rotation_velocity", {})
+    torso_forward_velocity_athlete = arm_kinematics.get("athlete_torso_forward_tilt_velocity", {})
+    torso_forward_velocity_reference = arm_kinematics.get("reference_torso_forward_tilt_velocity", {})
+    torso_backward_velocity_athlete = arm_kinematics.get("athlete_torso_backward_tilt_velocity", {})
+    torso_backward_velocity_reference = arm_kinematics.get("reference_torso_backward_tilt_velocity", {})
+    torso_lateral_velocity_athlete = arm_kinematics.get("athlete_torso_lateral_tilt_velocity", {})
+    torso_lateral_velocity_reference = arm_kinematics.get("reference_torso_lateral_tilt_velocity", {})
+    torso_rotation_velocity_athlete = arm_kinematics.get("athlete_torso_rotation_velocity", {})
+    torso_rotation_velocity_reference = arm_kinematics.get("reference_torso_rotation_velocity", {})
+
+    def draw_pelvis_velocity_row(title, athlete_data, reference_data, row_y, row_color):
+        athlete_max = athlete_data.get("metrics", {}).get("Max", {})
+        reference_max = reference_data.get("metrics", {}).get("Max", {})
+        rect(pelvis_velocity_table_x, row_y + 7, 4, 20, stroke=row_color, fill=row_color, line_width=0.1)
+        text(pelvis_velocity_table_x + 10, row_y + 14, title, 9.3, bold=True, color=row_color)
+        for value_index, value in enumerate([
+            athlete_max.get("mean"),
+            athlete_max.get("std"),
+            reference_max.get("mean"),
+            reference_max.get("std"),
+        ]):
+            value_text = "" if value is None or pd.isna(value) else f"{value:.0f}°/s"
+            text_centered(pelvis_velocity_table_x + pelvis_velocity_name_width + (value_index * pelvis_velocity_value_width), row_y + 14, pelvis_velocity_value_width, value_text, 9, bold=True, color="#111827")
+        line(pelvis_velocity_table_x + 10, row_y, pelvis_velocity_table_x + pelvis_velocity_table_width - 10, row_y, color="#E5E7EB", width=0.55)
+
+    draw_pelvis_velocity_row("Pelvis Forward Tilt Angular Velocity", pelvis_forward_velocity_athlete, pelvis_forward_velocity_reference, pelvis_velocity_table_y + 105, palette_color("pelvis_primary"))
+    draw_pelvis_velocity_row("Pelvis Lateral Tilt Angular Velocity", pelvis_lateral_velocity_athlete, pelvis_lateral_velocity_reference, pelvis_velocity_table_y + 70, palette_color("pelvis_secondary"))
+    draw_pelvis_velocity_row("Pelvis Rotation Angular Velocity", pelvis_rotation_velocity_athlete, pelvis_rotation_velocity_reference, pelvis_velocity_table_y + 35, palette_color("pelvis_rotation"))
+
+    compact_width = 346
+    compact_height = 125
+    plot_x_positions = [margin, 410]
+    centered_plot_x = (page_width - compact_width) / 2
+    plot_args = {"unit": "deg/s", "chart_width": compact_width, "chart_height": compact_height, "title_size": 9.6}
+    draw_arm_metric_plot("Pelvis Forward Tilt Angular Velocity", pelvis_forward_velocity_athlete, pelvis_forward_velocity_reference, plot_x_positions[0], 215, palette_color("pelvis_primary"), palette_fill("pelvis_primary"), **plot_args)
+    draw_arm_metric_plot("Pelvis Lateral Tilt Angular Velocity", pelvis_lateral_velocity_athlete, pelvis_lateral_velocity_reference, plot_x_positions[1], 215, palette_color("pelvis_secondary"), palette_fill("pelvis_secondary"), **plot_args)
+    draw_arm_metric_plot("Pelvis Rotation Angular Velocity", pelvis_rotation_velocity_athlete, pelvis_rotation_velocity_reference, centered_plot_x, 55, palette_color("pelvis_rotation"), palette_fill("pelvis_rotation"), **plot_args)
+    tenth_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    ops = []
+    text(margin, page_height - 45, "Torso Kinematics", 28, bold=True, color="#111827")
+    torso_velocity_table_y = 360
+    rect(pelvis_velocity_table_x, torso_velocity_table_y + 140, pelvis_velocity_table_width, 30, stroke="#F8FAFC", fill="#F8FAFC", line_width=0.1)
+    for index, header in enumerate(["Average Max", "SD ±", "Ref Group Average Max", "Ref Group SD ±"]):
+        text_centered(pelvis_velocity_table_x + pelvis_velocity_name_width + (index * pelvis_velocity_value_width), torso_velocity_table_y + 151, pelvis_velocity_value_width, header, 8.8, bold=True, color="#64748B")
+    draw_pelvis_velocity_row("Torso Forward Tilt Angular Velocity", torso_forward_velocity_athlete, torso_forward_velocity_reference, torso_velocity_table_y + 105, palette_color("torso_primary"))
+    draw_pelvis_velocity_row("Torso Backward Tilt Angular Velocity", torso_backward_velocity_athlete, torso_backward_velocity_reference, torso_velocity_table_y + 70, palette_color("torso_secondary"))
+    draw_pelvis_velocity_row("Torso Lateral Tilt Angular Velocity", torso_lateral_velocity_athlete, torso_lateral_velocity_reference, torso_velocity_table_y + 35, palette_color("torso_pelvis_secondary"))
+    draw_pelvis_velocity_row("Torso Rotation Angular Velocity", torso_rotation_velocity_athlete, torso_rotation_velocity_reference, torso_velocity_table_y, palette_color("torso_rotation"))
+    torso_plot_args = {"unit": "deg/s", "chart_width": 346, "chart_height": 125, "title_size": 10}
+    draw_arm_metric_plot("Torso Forward Tilt Angular Velocity", torso_forward_velocity_athlete, torso_forward_velocity_reference, margin, 195, palette_color("torso_primary"), palette_fill("torso_primary"), **torso_plot_args)
+    draw_arm_metric_plot("Torso Backward Tilt Angular Velocity", torso_backward_velocity_athlete, torso_backward_velocity_reference, 410, 195, palette_color("torso_secondary"), palette_fill("torso_secondary"), **torso_plot_args)
+    draw_arm_metric_plot("Torso Lateral Tilt Angular Velocity", torso_lateral_velocity_athlete, torso_lateral_velocity_reference, margin, 55, palette_color("torso_pelvis_secondary"), palette_fill("torso_pelvis_secondary"), **torso_plot_args)
+    draw_arm_metric_plot("Torso Rotation Angular Velocity", torso_rotation_velocity_athlete, torso_rotation_velocity_reference, 410, 55, palette_color("torso_rotation"), palette_fill("torso_rotation"), **torso_plot_args)
+    twelfth_page_content = "\n".join(ops).encode("latin-1", errors="replace")
+
+    selected_sections = set(selected_sections or [])
+    page_contents = [cover_page_content]
+
+    def add_section_pages(section_key, pages):
+        if section_key not in selected_sections:
+            return
+        for page in pages:
+            if page not in page_contents:
+                page_contents.append(page)
+
+    add_section_pages("kinematic_sequence", [first_page_content])
+    add_section_pages("throwing_arm", [second_page_content, third_page_content])
+    if "pelvis" in selected_sections or "torso" in selected_sections:
+        if fourth_page_content not in page_contents:
+            page_contents.append(fourth_page_content)
+    add_section_pages("pelvis", [tenth_page_content])
+    add_section_pages("torso", [twelfth_page_content])
+    add_section_pages("torso_pelvis", [fifth_page_content, torso_pelvis_velocity_page_content])
+    add_section_pages("hips", [sixth_page_content])
+    add_section_pages("back_hip", [back_hip_velocity_page_content])
+    add_section_pages("lead_hip", [lead_hip_velocity_page_content])
+    add_section_pages("lower_extremity", [eighth_page_content, thirteenth_page_content])
+    add_section_pages("cog", [seventh_page_content])
+    add_section_pages("stride", [stride_page_content])
+    page_count = len(page_contents)
+
+    def page_number_footer(page_number, total_pages):
+        label = f"{page_number}"
+        estimated_width = len(label) * 7 * 0.50
+        x = page_width - margin - estimated_width
+        y = 18
+        r, g, b = rgb("#64748B")
+        return (
+            f"\n{r:.4f} {g:.4f} {b:.4f} rg\n"
+            f"BT /F1 7 Tf {x:.2f} {y:.2f} Td ({esc(label)}) Tj ET\n"
+        ).encode("latin-1", errors="replace")
+
+    page_contents = [
+        content + page_number_footer(page_index + 1, page_count)
+        for page_index, content in enumerate(page_contents)
+    ]
+
+    font_regular_obj = 3 + page_count
+    font_bold_obj = font_regular_obj + 1
+    logo_obj = font_bold_obj + 1 if logo_image else None
+    first_content_obj = font_bold_obj + 1 + (1 if logo_image else 0)
+    page_objects = []
+    for page_index in range(page_count):
+        content_obj = first_content_obj + page_index
+        resources = f"/Resources << /Font << /F1 {font_regular_obj} 0 R /F2 {font_bold_obj} 0 R >>"
+        if logo_obj:
+            resources += f" /XObject << /ImLogo {logo_obj} 0 R >>"
+        resources += " >>"
+        page_objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_width} {page_height}] "
+            f"{resources} "
+            f"/Contents {content_obj} 0 R >>".encode("ascii")
+        )
+    kids = " ".join(f"{3 + index} 0 R" for index in range(page_count))
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        f"<< /Type /Pages /Kids [{kids}] /Count {page_count} >>".encode("ascii"),
+        *page_objects,
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+    ]
+    if logo_image:
+        objects.append(
+            (
+                f"<< /Type /XObject /Subtype /Image /Width {logo_image['width']} "
+                f"/Height {logo_image['height']} /ColorSpace /DeviceRGB "
+                f"/BitsPerComponent 8 /Filter /FlateDecode /Length {len(logo_image['data'])} >>\nstream\n"
+            ).encode("ascii")
+            + logo_image["data"]
+            + b"\nendstream"
+        )
+    objects.extend(
+        [
+            b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"\nendstream"
+            for content in page_contents
+        ]
+    )
+    pdf = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(len(pdf))
+        pdf.extend(f"{index} 0 obj\n".encode("ascii"))
+        pdf.extend(obj)
+        pdf.extend(b"\nendobj\n")
+    xref_offset = len(pdf)
+    pdf.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii"))
+    return bytes(pdf)
+
+
+with tab_report:
+    st.subheader("PDF Reports")
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stDownloadButton"] > button {
+            background-color: #FF4B4B;
+            border-color: #FF4B4B;
+            color: #FFFFFF;
+            font-weight: 800;
+            min-height: 2.65rem;
+        }
+        div[data-testid="stDownloadButton"] > button:hover {
+            background-color: #FF2B2B;
+            border-color: #FF2B2B;
+            color: #FFFFFF;
+        }
+        div[data-testid="stDownloadButton"] > button:focus:not(:active) {
+            border-color: #FF4B4B;
+            color: #FFFFFF;
+        }
+        .report-section-copy {
+            margin-top: 1.1rem;
+            margin-bottom: 0.35rem;
+            color: #64748B;
+            font-size: 0.92rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    report_athletes = get_all_pitchers()
+    if not report_athletes:
+        st.info("No athletes found in the database.")
+    else:
+        reference_metadata = get_report_reference_take_metadata()
+        report_col, date_col = st.columns([1.3, 2.7])
+        with report_col:
+            report_athlete = st.selectbox("Athlete", options=report_athletes, key="report_athlete")
+        report_dates = metadata_session_dates(reference_metadata, report_athlete)
+        with date_col:
+            report_selected_dates = st.multiselect(
+                "Session Date",
+                options=report_dates,
+                default=report_dates,
+                key="report_session_dates",
+            ) if report_dates else []
+
+        report_throw_col, report_velocity_col = st.columns([1.3, 2.7])
+        with report_throw_col:
+            report_throw_types = st.multiselect(
+                "Throw Type",
+                options=["Mound", "Pulldown"],
+                default=["Mound"],
+                key="report_throw_types",
+            )
+            if not report_throw_types:
+                report_throw_types = ["Mound"]
+        report_base_rows = filter_reference_metadata(
+            reference_metadata,
+            pitchers=[report_athlete],
+            session_dates=report_selected_dates,
+            throw_types=report_throw_types,
+        )
+        report_velocity_bounds = metadata_velocity_bounds(report_base_rows)
+        with report_velocity_col:
+            if report_velocity_bounds[0] is not None and report_velocity_bounds[1] is not None:
+                report_velocity_min = float(report_velocity_bounds[0])
+                report_velocity_max = float(report_velocity_bounds[1])
+                if report_velocity_min == report_velocity_max:
+                    report_velocity_range = (report_velocity_min, report_velocity_max)
+                    st.caption(f"Velocity Range (mph): {report_velocity_min:.1f}")
+                else:
+                    report_velocity_range = st.slider(
+                        "Velocity Range (mph)",
+                        min_value=report_velocity_min,
+                        max_value=report_velocity_max,
+                        value=(report_velocity_min, report_velocity_max),
+                        step=0.5,
+                        key="report_velocity_range",
+                    )
+            else:
+                report_velocity_range = (None, None)
+                st.caption("Velocity data is not available for this athlete.")
+
+        report_take_rows = filter_reference_metadata(
+            reference_metadata,
+            pitchers=[report_athlete],
+            session_dates=report_selected_dates,
+            throw_types=report_throw_types,
+            velocity_range=report_velocity_range,
+        )
+        report_take_options, report_label_to_take_id = build_take_options_from_metadata(report_take_rows)
+        report_excluded_labels = st.multiselect(
+            "Exclude Takes",
+            options=report_take_options,
+            key="report_excluded_takes",
+        )
+        report_excluded_take_ids = [
+            report_label_to_take_id[label]
+            for label in report_excluded_labels
+            if label in report_label_to_take_id
+        ]
+
+        st.markdown("### Reference Group")
+        reference_pitcher_col, reference_hand_col = st.columns([2.8, 1.2])
+        def reset_report_reference_pitchers():
+            st.session_state["report_reference_pitchers"] = ["All"]
+
+        reference_handedness_label = st.session_state.get("report_reference_handedness", "All")
+        reference_handedness = {"All": None, "RHP": "R", "LHP": "L"}[reference_handedness_label]
+        reference_throw_types_state = st.session_state.get("report_reference_throw_types", ["Mound"]) or ["Mound"]
+        reference_velocity_state = st.session_state.get("report_reference_velocity_range", (None, None))
+        reference_arm_slots_state = st.session_state.get("report_reference_arm_slots", ["All"]) or ["All"]
+        arm_slot_metadata_available_state = any(row.get("arm_slot_deg") is not None for row in reference_metadata)
+        reference_arm_slot_ranges_state = reference_arm_slot_ranges_from_labels(
+            reference_arm_slots_state,
+            arm_slot_metadata_available_state,
+        )
+        reference_pitcher_option_rows = filter_reference_metadata(
+            reference_metadata,
+            handedness=reference_handedness,
+            throw_types=reference_throw_types_state,
+            velocity_range=reference_velocity_state,
+            arm_slot_ranges=reference_arm_slot_ranges_state,
+        )
+        reference_pitcher_options = metadata_pitchers(reference_pitcher_option_rows)
+        if not reference_pitcher_options:
+            reference_pitcher_options = metadata_pitchers(filter_reference_metadata(reference_metadata, handedness=reference_handedness))
+        valid_reference_pitcher_values = set(["All"] + reference_pitcher_options)
+        current_reference_pitchers = st.session_state.get("report_reference_pitchers", ["All"])
+        if current_reference_pitchers and "All" not in current_reference_pitchers:
+            cleaned_reference_pitchers = [
+                pitcher for pitcher in current_reference_pitchers
+                if pitcher in valid_reference_pitcher_values
+            ]
+            if cleaned_reference_pitchers != current_reference_pitchers:
+                st.session_state["report_reference_pitchers"] = cleaned_reference_pitchers or ["All"]
+        with reference_pitcher_col:
+            reference_selected_pitchers = st.multiselect(
+                "Select Pitcher(s)",
+                options=["All"] + reference_pitcher_options,
+                default=["All"],
+                key="report_reference_pitchers",
+            )
+        with reference_hand_col:
+            reference_handedness_label = st.selectbox(
+                "Handedness",
+                options=["All", "RHP", "LHP"],
+                index=0,
+                key="report_reference_handedness",
+                on_change=reset_report_reference_pitchers,
+            )
+        reference_handedness = {"All": None, "RHP": "R", "LHP": "L"}[reference_handedness_label]
+        reference_uses_all_pitchers = not reference_selected_pitchers or "All" in reference_selected_pitchers
+        active_reference_pitchers = (
+            reference_pitcher_options
+            if reference_uses_all_pitchers else
+            [pitcher for pitcher in reference_selected_pitchers if pitcher in reference_pitcher_options]
+        )
+
+        active_reference_metadata = filter_reference_metadata(
+            reference_metadata,
+            pitchers=active_reference_pitchers,
+            handedness=reference_handedness,
+            throw_types=reference_throw_types_state,
+        )
+        arm_slot_metadata_available = any(row.get("arm_slot_deg") is not None for row in active_reference_metadata)
+        reference_velocity_bounds = metadata_velocity_bounds(active_reference_metadata)
+        reference_throw_col, reference_velocity_col, reference_arm_slot_col = st.columns([1.2, 1.7, 2.1])
+        with reference_throw_col:
+            reference_throw_types = st.multiselect(
+                "Throw Type",
+                options=["Mound", "Pulldown"],
+                default=["Mound"],
+                key="report_reference_throw_types",
+            )
+            if not reference_throw_types:
+                reference_throw_types = ["Mound"]
+        with reference_velocity_col:
+            if reference_velocity_bounds[0] is not None and reference_velocity_bounds[1] is not None:
+                reference_min_velocity = float(reference_velocity_bounds[0])
+                reference_max_velocity = float(reference_velocity_bounds[1])
+                if reference_min_velocity == reference_max_velocity:
+                    reference_velocity_range = (reference_min_velocity, reference_max_velocity)
+                    st.caption(f"Velocity Range (mph): {reference_min_velocity:.1f}")
+                else:
+                    velocity_slider_kwargs = {}
+                    current_reference_velocity_range = st.session_state.get(
+                        "report_reference_velocity_range",
+                        (reference_min_velocity, reference_max_velocity),
+                    )
+                    clamped_reference_velocity_range = (
+                        max(reference_min_velocity, float(current_reference_velocity_range[0])),
+                        min(reference_max_velocity, float(current_reference_velocity_range[1])),
+                    )
+                    if clamped_reference_velocity_range[0] > clamped_reference_velocity_range[1]:
+                        clamped_reference_velocity_range = (reference_min_velocity, reference_max_velocity)
+                    if "report_reference_velocity_range" in st.session_state:
+                        if tuple(st.session_state["report_reference_velocity_range"]) != clamped_reference_velocity_range:
+                            st.session_state["report_reference_velocity_range"] = clamped_reference_velocity_range
+                    else:
+                        velocity_slider_kwargs["value"] = clamped_reference_velocity_range
+                    reference_velocity_range = st.slider(
+                        "Velocity Range (mph)",
+                        min_value=reference_min_velocity,
+                        max_value=reference_max_velocity,
+                        step=0.5,
+                        key="report_reference_velocity_range",
+                        **velocity_slider_kwargs,
+                    )
+            else:
+                reference_velocity_range = (None, None)
+                st.caption("No velocity data found for this reference group.")
+        reference_arm_slot_options = [
+            f"{label} ({minimum}° to {maximum}°)"
+            for label, minimum, maximum in control_group_arm_slot_categories
+        ]
+        with reference_arm_slot_col:
+            reference_arm_slots = st.multiselect(
+                "Arm Slot",
+                options=["All"] + reference_arm_slot_options,
+                default=["All"],
+                key="report_reference_arm_slots",
+            )
+            if not arm_slot_metadata_available:
+                st.caption("Run the arm slot metadata backfill to enable this filter.")
+
+        selected_arm_slot_ranges = reference_arm_slot_ranges_from_labels(
+            reference_arm_slots,
+            arm_slot_metadata_available,
+        )
+        current_reference_rows = filter_reference_metadata(
+            reference_metadata,
+            pitchers=active_reference_pitchers,
+            handedness=reference_handedness,
+            throw_types=reference_throw_types,
+            velocity_range=reference_velocity_range,
+            arm_slot_ranges=selected_arm_slot_ranges,
+        )
+        current_reference_pitchers = metadata_pitchers(current_reference_rows)
+        if reference_uses_all_pitchers:
+            active_reference_pitchers = current_reference_pitchers
+        st.caption(
+            f"All currently includes {len(current_reference_pitchers)} eligible pitcher"
+            f"{'' if len(current_reference_pitchers) == 1 else 's'} and {len(current_reference_rows)} throws."
+        )
+
+        reference_pitcher_filters = {}
+        if not reference_uses_all_pitchers:
+            for reference_index, pitcher in enumerate(active_reference_pitchers):
+                with st.expander(f"{pitcher} Filters", expanded=True):
+                    pitcher_dates = metadata_session_dates(reference_metadata, pitcher)
+                    pitcher_selected_dates = st.multiselect(
+                        "Session Date",
+                        options=pitcher_dates,
+                        default=pitcher_dates,
+                        key=f"report_reference_dates_{reference_index}",
+                    )
+                    pitcher_throw_types = st.multiselect(
+                        "Throw Type",
+                        options=["Mound", "Pulldown"],
+                        default=["Mound"],
+                        key=f"report_reference_throw_types_{reference_index}",
+                    )
+                    if not pitcher_throw_types:
+                        pitcher_throw_types = ["Mound"]
+                    pitcher_base_rows = filter_reference_metadata(
+                        reference_metadata,
+                        pitchers=[pitcher],
+                        handedness=reference_handedness,
+                        session_dates=pitcher_selected_dates,
+                        throw_types=pitcher_throw_types,
+                    )
+                    pitcher_min_velocity, pitcher_max_velocity = metadata_velocity_bounds(pitcher_base_rows)
+                    if pitcher_min_velocity is not None and pitcher_max_velocity is not None:
+                        pitcher_min_velocity = float(pitcher_min_velocity)
+                        pitcher_max_velocity = float(pitcher_max_velocity)
+                        if pitcher_min_velocity == pitcher_max_velocity:
+                            pitcher_velocity_range = (pitcher_min_velocity, pitcher_max_velocity)
+                            st.caption(f"Velocity Range (mph): {pitcher_min_velocity:.1f}")
+                        else:
+                            pitcher_velocity_range = st.slider(
+                                "Velocity Range (mph)",
+                                min_value=pitcher_min_velocity,
+                                max_value=pitcher_max_velocity,
+                                value=(pitcher_min_velocity, pitcher_max_velocity),
+                                step=0.5,
+                                key=f"report_reference_velocity_range_{reference_index}",
+                            )
+                    else:
+                        pitcher_velocity_range = (None, None)
+                    pitcher_cfg = {
+                        "selected_dates": pitcher_selected_dates,
+                        "throw_types": pitcher_throw_types,
+                        "velocity_min": pitcher_velocity_range[0],
+                        "velocity_max": pitcher_velocity_range[1],
+                    }
+                    pitcher_take_rows = filter_reference_metadata(
+                        reference_metadata,
+                        pitchers=[pitcher],
+                        handedness=reference_handedness,
+                        session_dates=pitcher_selected_dates,
+                        throw_types=pitcher_throw_types,
+                        velocity_range=pitcher_velocity_range,
+                    )
+                    pitcher_take_options, pitcher_label_to_take_id = build_take_options_from_metadata(pitcher_take_rows)
+                    pitcher_excluded_labels = st.multiselect(
+                        "Exclude Takes",
+                        options=pitcher_take_options,
+                        key=f"report_reference_excluded_takes_{reference_index}",
+                    )
+                    pitcher_cfg["excluded_take_ids"] = [
+                        pitcher_label_to_take_id[label]
+                        for label in pitcher_excluded_labels
+                        if label in pitcher_label_to_take_id
+                    ]
+                    reference_pitcher_filters[pitcher] = pitcher_cfg
+
+        apply_reference_group = st.button(
+            "Apply Reference Group",
+            key="apply_report_reference_group",
+            type="primary",
+        )
+        if apply_reference_group:
+            with st.spinner("Building reference group..."):
+                selected_arm_slot_ranges = [
+                    (minimum, maximum)
+                    for label, minimum, maximum in control_group_arm_slot_categories
+                    if f"{label} ({minimum}° to {maximum}°)" in reference_arm_slots
+                ] if arm_slot_metadata_available and "All" not in reference_arm_slots else []
+                specific_reference_take_ids = None
+                if reference_pitcher_filters:
+                    specific_reference_take_ids = set()
+                    for pitcher, cfg in reference_pitcher_filters.items():
+                        filtered_metadata = filter_reference_metadata(
+                            reference_metadata,
+                            pitchers=[pitcher],
+                            handedness=reference_handedness,
+                            session_dates=cfg.get("selected_dates", []),
+                            throw_types=cfg.get("throw_types", []),
+                            velocity_range=(cfg.get("velocity_min"), cfg.get("velocity_max")),
+                            excluded_take_ids=cfg.get("excluded_take_ids", []),
+                        )
+                        specific_reference_take_ids.update(row["take_id"] for row in filtered_metadata)
+                applied_reference_rows = filter_reference_metadata(
+                    reference_metadata,
+                    pitchers=active_reference_pitchers,
+                    handedness=reference_handedness,
+                    throw_types=reference_throw_types,
+                    velocity_range=reference_velocity_range,
+                    arm_slot_ranges=selected_arm_slot_ranges,
+                )
+                st.session_state["report_reference_take_ids"] = [
+                    row["take_id"]
+                    for row in applied_reference_rows
+                    if specific_reference_take_ids is None or row["take_id"] in specific_reference_take_ids
+                ]
+        reference_take_ids = st.session_state.get("report_reference_take_ids", [])
+        if reference_take_ids:
+            st.caption(f"Applied Reference Group: {len(reference_take_ids)} throws")
+        else:
+            st.caption("Choose filters, then click Apply Reference Group.")
+
+        st.markdown("### Report Sections")
+        st.markdown(
+            '<div class="report-section-copy">Choose the pages to include in this PDF. The cover page is always included.</div>',
+            unsafe_allow_html=True,
+        )
+        section_defaults = {
+            "kinematic_sequence": True,
+            "throwing_arm": True,
+            "pelvis": True,
+            "torso": True,
+            "torso_pelvis": True,
+            "cog": True,
+            "stride": True,
+            "hips": False,
+            "back_hip": False,
+            "lead_hip": False,
+            "lower_extremity": False,
+        }
+        section_labels = [
+            ("kinematic_sequence", "Kinematic Sequence"),
+            ("throwing_arm", "Throwing Arm Kinematics"),
+            ("pelvis", "Pelvis Kinematics"),
+            ("torso", "Torso Kinematics"),
+            ("torso_pelvis", "Torso-Pelvis Kinematics"),
+            ("hips", "Hips Kinematics"),
+            ("back_hip", "Back Hip Kinematics"),
+            ("lead_hip", "Lead Hip Kinematics"),
+            ("lower_extremity", "Lower Extremity Kinematics"),
+            ("cog", "COG Velocities"),
+            ("stride", "Stride Kinematics"),
+        ]
+        selected_report_sections = []
+        section_cols = st.columns([1.35, 1.25, 1.15, 1.15])
+        for idx, (section_key, section_label) in enumerate(section_labels):
+            with section_cols[idx % len(section_cols)]:
+                if st.checkbox(
+                    section_label,
+                    value=section_defaults[section_key],
+                    key=f"report_section_{section_key}",
+                ):
+                    selected_report_sections.append(section_key)
+
+        if not report_selected_dates:
+            st.info("No session dates found for this athlete.")
+        else:
+            report_rows = get_report_take_rows(
+                report_athlete,
+                report_selected_dates,
+                report_throw_types,
+                report_velocity_range,
+                report_excluded_take_ids,
+            )
+            if not report_rows:
+                st.info("No throws found for this athlete and filter selection.")
+            else:
+                summary_rows, curves_by_segment, report_events = build_report_kinematic_summary(report_rows)
+                if not summary_rows:
+                    st.info("No Kinematic Sequence data found for this report selection.")
+                elif not selected_report_sections:
+                    st.warning("Select at least one report section before generating the PDF.")
+                else:
+                    report_date_label = ", ".join(report_selected_dates)
+                    reference_report_rows = get_report_take_rows_by_ids(reference_take_ids)
+                    reference_arm_slot_label = (
+                        "All"
+                        if not reference_arm_slots or "All" in reference_arm_slots
+                        else format_report_list_label([
+                            slot.split(" (", 1)[0]
+                            for slot in reference_arm_slots
+                        ])
+                    )
+                    report_context = {
+                        "velocity_range_label": format_report_velocity_range(report_velocity_range),
+                        "reference_athletes_label": "All" if reference_uses_all_pitchers else format_report_list_label(active_reference_pitchers),
+                        "reference_handedness_label": reference_handedness_label,
+                        "reference_velocity_range_label": format_report_velocity_range(reference_velocity_range),
+                        "reference_arm_slot_label": reference_arm_slot_label,
+                        "reference_take_count": len(reference_take_ids),
+                    }
+                    arm_kinematics = build_report_arm_kinematics(report_rows, reference_report_rows)
+                    pdf_bytes = build_report_pdf(
+                        report_athlete,
+                        report_date_label,
+                        summary_rows,
+                        curves_by_segment,
+                        report_events,
+                        arm_kinematics,
+                        report_context,
+                        selected_report_sections,
+                    )
+                    generate_col, _, _ = st.columns([0.95, 1.3, 1.3])
+                    with generate_col:
+                        st.download_button(
+                            "Generate PDF Report",
+                            data=pdf_bytes,
+                            file_name=f"{report_athlete.lower().replace(' ', '_')}_mocap_report.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                            type="primary",
+                        )
+
 
 # --------------------------------------------------
 # Footer
