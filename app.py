@@ -11384,9 +11384,12 @@ with tab_report:
 
         st.markdown("### Reference Group")
         reference_pitcher_col, reference_hand_col = st.columns([2.8, 1.2])
+
         def reset_report_reference_pitchers():
             st.session_state["report_reference_pitchers"] = ["All"]
 
+        if "report_reference_pitchers" not in st.session_state:
+            st.session_state["report_reference_pitchers"] = ["All"]
         reference_handedness_label = st.session_state.get("report_reference_handedness", "All")
         reference_handedness = {"All": None, "RHP": "R", "LHP": "L"}[reference_handedness_label]
         reference_throw_types_state = st.session_state.get("report_reference_throw_types", ["Mound"]) or ["Mound"]
@@ -11420,7 +11423,6 @@ with tab_report:
             reference_selected_pitchers = st.multiselect(
                 "Select Pitcher(s)",
                 options=["All"] + reference_pitcher_options,
-                default=["All"],
                 key="report_reference_pitchers",
             )
         with reference_hand_col:
