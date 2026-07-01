@@ -1,6 +1,7 @@
 import zlib
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import streamlit as st
@@ -10098,14 +10099,45 @@ def build_report_pdf(athlete_name, session_date, summary_rows, curves_by_segment
     ops = []
     report_context = report_context or {}
     logo_image = None
+    terra_logo = None
+
+    try:
+        import xml.etree.ElementTree as ET
+
+        def svg_dimension(value, fallback):
+            match = re.search(r"[-+]?\d*\.?\d+", str(value or ""))
+            return float(match.group(0)) if match else fallback
+
+        logo_root = ET.parse(LOGO_PATH).getroot()
+        terra_logo = {
+            "width": svg_dimension(logo_root.get("width"), 1050.0),
+            "height": svg_dimension(logo_root.get("height"), 450.0),
+            "paths": [],
+        }
+        for elem in logo_root.iter():
+            if not elem.tag.endswith("path"):
+                continue
+            transform = elem.get("transform", "")
+            translate_match = re.search(
+                r"translate\(\s*([-+]?\d*\.?\d+)\s*[, ]\s*([-+]?\d*\.?\d+)\s*\)",
+                transform,
+            )
+            translate_x = float(translate_match.group(1)) if translate_match else 0.0
+            translate_y = float(translate_match.group(2)) if translate_match else 0.0
+            terra_logo["paths"].append({
+                "d": elem.get("d", ""),
+                "fill": elem.get("fill", "#111111"),
+                "translate_x": translate_x,
+                "translate_y": translate_y,
+            })
+    except Exception:
+        terra_logo = None
 
     try:
         from PIL import Image
 
-        logo_path = ASSETS_DIR / "terra_sports_logo_pdf.png"
-        if not logo_path.exists():
-            logo_path = ASSETS_DIR / "favicon.png"
-        if logo_path.exists():
+        logo_path = ASSETS_DIR / "favicon.png"
+        if not terra_logo and logo_path.exists():
             with Image.open(logo_path) as img:
                 img = img.convert("RGBA")
                 background = Image.new("RGBA", img.size, (255, 255, 255, 255))
@@ -10150,6 +10182,60 @@ def build_report_pdf(athlete_name, session_date, summary_rows, curves_by_segment
 
     def image(name, x, y, width, height):
         ops.append(f"q {width:.2f} 0 0 {height:.2f} {x:.2f} {y:.2f} cm /{name} Do Q")
+
+    def svg_logo(logo, x, y, max_width, max_height):
+        if not logo or not logo.get("paths"):
+            return False
+        scale = min(max_width / logo["width"], max_height / logo["height"])
+        draw_width = logo["width"] * scale
+        draw_height = logo["height"] * scale
+        origin_x = x + max_width - draw_width
+        origin_y = y + max_height - draw_height
+        token_re = re.compile(r"[A-Za-z]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")
+
+        def is_command(token):
+            return len(token) == 1 and token.isalpha()
+
+        def map_point(px, py, translate_x, translate_y):
+            svg_x = px + translate_x
+            svg_y = py + translate_y
+            return origin_x + svg_x * scale, origin_y + (logo["height"] - svg_y) * scale
+
+        for path in logo["paths"]:
+            tokens = token_re.findall(path["d"])
+            if not tokens:
+                continue
+            r, g, b = rgb(path["fill"])
+            parts = [f"{r:.4f} {g:.4f} {b:.4f} rg"]
+            command = None
+            index = 0
+            while index < len(tokens):
+                if is_command(tokens[index]):
+                    command = tokens[index]
+                    index += 1
+                if command == "M":
+                    first_point = True
+                    while index + 1 < len(tokens) and not is_command(tokens[index]):
+                        px, py = float(tokens[index]), float(tokens[index + 1])
+                        mapped_x, mapped_y = map_point(px, py, path["translate_x"], path["translate_y"])
+                        parts.append(f"{mapped_x:.2f} {mapped_y:.2f} {'m' if first_point else 'l'}")
+                        first_point = False
+                        index += 2
+                elif command == "C":
+                    while index + 5 < len(tokens) and not is_command(tokens[index]):
+                        x1, y1 = map_point(float(tokens[index]), float(tokens[index + 1]), path["translate_x"], path["translate_y"])
+                        x2, y2 = map_point(float(tokens[index + 2]), float(tokens[index + 3]), path["translate_x"], path["translate_y"])
+                        x3, y3 = map_point(float(tokens[index + 4]), float(tokens[index + 5]), path["translate_x"], path["translate_y"])
+                        parts.append(f"{x1:.2f} {y1:.2f} {x2:.2f} {y2:.2f} {x3:.2f} {y3:.2f} c")
+                        index += 6
+                elif command in ("Z", "z"):
+                    parts.append("h")
+                    command = None
+                else:
+                    break
+            parts.append("f")
+            ops.append("\n".join(parts))
+        return True
 
     def line(x1, y1, x2, y2, color="#111827", width=0.75):
         r, g, b = rgb(color)
@@ -10264,10 +10350,15 @@ def build_report_pdf(athlete_name, session_date, summary_rows, curves_by_segment
     def palette_fill(name):
         return pdf_palette[name][1]
 
-    logo_size = 137
-    if logo_image:
-        logo_height = logo_size * (logo_image["height"] / logo_image["width"])
-        image("ImLogo", page_width - margin - logo_size, page_height - margin - logo_height - 4, logo_size, logo_height)
+    logo_max_width = 190
+    logo_max_height = 82
+    logo_x = page_width - margin - logo_max_width
+    logo_y = page_height - margin - logo_max_height - 4
+    if not svg_logo(terra_logo, logo_x, logo_y, logo_max_width, logo_max_height) and logo_image:
+        logo_aspect = logo_image["width"] / logo_image["height"]
+        logo_width = min(logo_max_width, logo_max_height * logo_aspect)
+        logo_height = logo_width / logo_aspect
+        image("ImLogo", page_width - margin - logo_width, logo_y + logo_max_height - logo_height, logo_width, logo_height)
     text(margin, page_height - 78, athlete_name, 34, bold=True, color="#111827")
     text(margin, page_height - 114, "Pitching Motion Capture Report", 22, bold=True, color="#111827")
     line(margin, page_height - 140, page_width - margin, page_height - 140, color="#111827", width=2.0)
