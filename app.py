@@ -10102,9 +10102,7 @@ def build_report_pdf(athlete_name, session_date, summary_rows, curves_by_segment
     try:
         from PIL import Image
 
-        logo_path = ASSETS_DIR / "theia_logo_pdf.png"
-        if not logo_path.exists():
-            logo_path = ASSETS_DIR / "theia_favicon.png"
+        logo_path = ASSETS_DIR / "terra_sports_logo_pdf.png"
         if not logo_path.exists():
             logo_path = ASSETS_DIR / "favicon.png"
         if logo_path.exists():
