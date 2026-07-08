@@ -1720,6 +1720,23 @@ NEW_TRUNK_PELVIS_ENERGY_COLOR_MAP = {
     "RTA_PROX_STP_Z": "#7C3AED",
 }
 
+ENERGY_TORQUE_METRICS = {
+    "Throwing Shoulder Rotational Torque (Relative to Trunk)",
+}
+
+
+def get_energy_yaxis_title(selected_metrics):
+    metric_set = set(selected_metrics or [])
+    has_torque = bool(metric_set & ENERGY_TORQUE_METRICS)
+    has_energy_flow = bool(metric_set - ENERGY_TORQUE_METRICS)
+
+    if has_torque and has_energy_flow:
+        return "Energy Flow (W) / Torque (N-m)"
+    if has_torque:
+        return "Torque (N-m)"
+    return "Energy Flow (W)"
+
+
 @st.cache_data(ttl=300)
 def get_energy_flow_from_category_segment(take_ids, category_name, segment_name, component="x"):
     """
@@ -7316,7 +7333,7 @@ with tab_joint:
 
                     energy_fig.update_layout(
                         xaxis_title="Time Relative to Ball Release (ms)",
-                        yaxis_title="Energy Flow / Segment Power",
+                        yaxis_title=get_energy_yaxis_title(compare_energy_data_by_metric.keys()),
                         xaxis_range=[energy_window_start_ms, energy_window_end_ms],
                         height=600,
                         legend=dict(
@@ -12366,7 +12383,7 @@ with tab_energy:
 
     fig.update_layout(
         xaxis_title="Time Relative to Ball Release (ms)",
-        yaxis_title="Energy Flow / Segment Power",
+        yaxis_title=get_energy_yaxis_title(energy_data_by_metric.keys()),
         xaxis_range=[energy_window_start_ms, energy_window_end_ms],
         height=600,
         legend=dict(
