@@ -2569,7 +2569,7 @@ def build_pitcher_filters_for_group(selected_group_pitchers, group_index, show_g
                     min_value=vel_min_float,
                     max_value=vel_max_float,
                     value=(vel_min_float, vel_max_float),
-                    step=0.5,
+                    step=0.1,
                     key=f"group{group_index}_velocity_range_{i}"
                 )
                 velocity_min_i, velocity_max_i = velocity_range_i
@@ -3273,7 +3273,7 @@ def build_shared_dashboard_state():
                         min_value=50.0,
                         max_value=100.0,
                         value=st.session_state.get("control_group_velocity_range", (50.0, 100.0)),
-                        step=0.5,
+                        step=0.1,
                         key="control_group_velocity_range"
                     )
                     render_control_group_arm_slot_category_checkboxes()
@@ -3341,7 +3341,7 @@ def build_shared_dashboard_state():
                     min_value=50.0,
                     max_value=100.0,
                     value=st.session_state.get("control_group_velocity_range", (50.0, 100.0)),
-                    step=0.5,
+                    step=0.1,
                     key="control_group_velocity_range"
                 )
                 render_control_group_arm_slot_category_checkboxes()
@@ -11462,7 +11462,7 @@ with tab_report:
                         min_value=report_velocity_min,
                         max_value=report_velocity_max,
                         value=(report_velocity_min, report_velocity_max),
-                        step=0.5,
+                        step=0.1,
                         key="report_velocity_range",
                     )
             else:
@@ -11593,7 +11593,7 @@ with tab_report:
                         "Velocity Range (mph)",
                         min_value=reference_min_velocity,
                         max_value=reference_max_velocity,
-                        step=0.5,
+                        step=0.1,
                         key="report_reference_velocity_range",
                         **velocity_slider_kwargs,
                     )
@@ -11673,7 +11673,7 @@ with tab_report:
                                 min_value=pitcher_min_velocity,
                                 max_value=pitcher_max_velocity,
                                 value=(pitcher_min_velocity, pitcher_max_velocity),
-                                step=0.5,
+                                step=0.1,
                                 key=f"report_reference_velocity_range_{reference_index}",
                             )
                     else:
